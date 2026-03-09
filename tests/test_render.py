@@ -14,7 +14,7 @@ def _parse_frontmatter(md: str) -> tuple[dict, str]:
 
 
 def test_render_issue_frontmatter():
-    """INVARIANT: Rendered issue has correct YAML frontmatter fields."""
+    """INVARIANT: Rendered issue has correct YAML frontmatter fields and title heading."""
     issue = LinearIssue(
         id="uuid-123",
         identifier="AI-123",
@@ -40,6 +40,8 @@ def test_render_issue_frontmatter():
     assert fm["priority"] == 2
     assert fm["assignee"] == "aviad@gigaverse.ai"
     assert fm["labels"] == ["feature", "ai"]
+    # Top-level heading with identifier and title
+    assert "\n# AI-123: Implement chapter detection\n" in body
     assert "Build chapter detection." in body
 
 
@@ -94,7 +96,7 @@ def test_render_issue_omits_none_fields():
 
 
 def test_render_issue_with_comments():
-    """INVARIANT: Comments are embedded under ## Comments section."""
+    """INVARIANT: Comments are embedded under # Comments section with ## sub-headings."""
     comments = [
         LinearComment(
             id="c1",
@@ -125,16 +127,16 @@ def test_render_issue_with_comments():
         comments=comments,
     )
     md = render_issue(issue)
-    assert "## Comments" in md
-    assert "### aviad@gigaverse.ai - 2026-02-15T09:00:00Z" in md
+    assert "\n# Comments\n" in md
+    assert "## aviad@gigaverse.ai - 2026-02-15T09:00:00Z" in md
     assert "<!-- comment-id: c1 -->" in md
     assert "Started working." in md
-    assert "### john@gigaverse.ai - 2026-02-20T11:00:00Z" in md
+    assert "## john@gigaverse.ai - 2026-02-20T11:00:00Z" in md
     assert "<!-- comment-id: c2 -->" in md
 
 
 def test_render_issue_without_comments():
-    """INVARIANT: Issues without comments have no ## Comments section."""
+    """INVARIANT: Issues without comments have no # Comments section."""
     issue = LinearIssue(
         id="uuid",
         identifier="AI-1",
@@ -146,7 +148,7 @@ def test_render_issue_without_comments():
         url="https://linear.app/test",
     )
     md = render_issue(issue)
-    assert "## Comments" not in md
+    assert "# Comments" not in md
 
 
 def test_render_project():
@@ -172,6 +174,7 @@ def test_render_project():
     assert fm["slug"] == "chapter-detection"
     assert fm["status"] == "started"
     assert fm["lead"] == "aviad@gigaverse.ai"
+    assert "\n# Chapter Detection\n" in body
     assert "Build chapter detection." in body
 
 
@@ -219,7 +222,7 @@ def test_render_project_with_milestones():
         updated="2026-01-01T00:00:00Z",
     )
     md = render_project(project)
-    assert "## Milestones" in md
+    assert "\n# Milestones\n" in md
     assert "MVP" in md
     assert "First release" in md
     assert "Beta" in md
@@ -244,7 +247,7 @@ def test_render_project_with_updates():
         updated="2026-01-01T00:00:00Z",
     )
     md = render_project(project)
-    assert "## Status Updates" in md
+    assert "\n# Status Updates\n" in md
     assert "Release 42" in md
     assert "Deployed to production" in md
     assert "Oz Shaked" in md
@@ -281,9 +284,9 @@ def test_render_project_with_initiatives_and_documents():
         updated="2026-01-01T00:00:00Z",
     )
     md = render_project(project)
-    assert "## Initiatives" in md
+    assert "\n# Initiatives\n" in md
     assert "Community metrics" in md
-    assert "## Documents" in md
+    assert "\n# Documents\n" in md
     assert "Architecture Design" in md
     assert "Migration Strategy" in md
 
@@ -305,6 +308,7 @@ def test_render_initiative():
     assert fm["name"] == "Q1 2026 Roadmap"
     assert fm["status"] == "Active"
     assert fm["owner"] == "aviad@gigaverse.ai"
+    assert "\n# Q1 2026 Roadmap\n" in body
     assert "Q1 focus areas." in body
 
 
@@ -321,7 +325,7 @@ def test_render_initiative_with_projects():
         updated="2026-01-01T00:00:00Z",
     )
     md = render_initiative(initiative)
-    assert "## Projects" in md
+    assert "\n# Projects\n" in md
     assert "Metrics Platform" in md
     assert "Analytics Dashboard" in md
 
@@ -360,7 +364,7 @@ def test_render_document():
     fm, body = _parse_frontmatter(md)
     assert fm["title"] == "Architecture Overview"
     assert fm["id"] == "uuid-doc"
-    assert "# Overview" in body
+    assert "\n# Architecture Overview\n" in body
     assert "Details here." in body
 
 

@@ -429,7 +429,7 @@ def test_sync_includes_comments_in_issues(runner, tmp_path, sample_team):
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
     content = issue_file.read_text()
-    assert "## Comments" in content
+    assert "# Comments" in content
     assert "Looks good!" in content
     assert "Aviad" in content
 

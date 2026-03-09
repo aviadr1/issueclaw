@@ -17,14 +17,14 @@ labels:
 
 Issue description here.
 
-## Comments
+# Comments
 
-### aviad@gigaverse.ai - 2026-02-15T09:00:00Z
+## aviad@gigaverse.ai - 2026-02-15T09:00:00Z
 <!-- comment-id: c1-uuid -->
 
 Started working on this.
 
-### john@gigaverse.ai - 2026-02-20T11:00:00Z
+## john@gigaverse.ai - 2026-02-20T11:00:00Z
 <!-- comment-id: c2-uuid -->
 
 Looks good!
@@ -80,9 +80,9 @@ title: "Test"
 
 Body.
 
-## Comments
+# Comments
 
-### user@test.com - 2026-01-01T00:00:00Z
+## user@test.com - 2026-01-01T00:00:00Z
 <!-- comment-id: c1 -->
 
 First paragraph.

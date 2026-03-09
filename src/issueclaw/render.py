@@ -24,9 +24,9 @@ def _render_comments(comments: list[LinearComment]) -> str:
     """Render comments as markdown sections."""
     if not comments:
         return ""
-    lines = ["\n## Comments\n"]
+    lines = ["\n# Comments\n"]
     for comment in comments:
-        lines.append(f"\n### {comment.author_name} - {comment.created}")
+        lines.append(f"\n## {comment.author_name} - {comment.created}")
         lines.append(f"<!-- comment-id: {comment.id} -->\n")
         lines.append(comment.body)
         lines.append("")
@@ -57,6 +57,7 @@ def render_issue(issue: LinearIssue) -> str:
     }
 
     md = _render_frontmatter(fields)
+    md += f"\n# {issue.identifier}: {issue.title}\n"
     if issue.description:
         md += f"\n{issue.description}\n"
 
@@ -89,6 +90,7 @@ def render_project(project: LinearProject) -> str:
     }
 
     md = _render_frontmatter(fields)
+    md += f"\n# {project.name}\n"
 
     # Content is richer than description; prefer it as the body
     body_text = project.content or project.description
@@ -96,7 +98,7 @@ def render_project(project: LinearProject) -> str:
         md += f"\n{body_text}\n"
 
     if project.milestones:
-        md += "\n## Milestones\n\n"
+        md += "\n# Milestones\n\n"
         for ms in project.milestones:
             status = f" ({ms.get('status', '')})" if ms.get("status") else ""
             progress = f" - {ms.get('progress', 0) * 100:.0f}%" if ms.get("progress") is not None else ""
@@ -107,22 +109,22 @@ def render_project(project: LinearProject) -> str:
                 md += f"  {ms['description']}\n"
 
     if project.project_updates:
-        md += "\n## Status Updates\n"
+        md += "\n# Status Updates\n"
         for update in project.project_updates:
             user = update.get("user", {})
             author = user.get("name", "") if isinstance(user, dict) else str(user)
             date = update.get("createdAt", "")
             health = update.get("health", "")
-            md += f"\n### {author} - {date} [{health}]\n\n"
+            md += f"\n## {author} - {date} [{health}]\n\n"
             md += f"{update.get('body', '')}\n"
 
     if project.initiatives:
-        md += "\n## Initiatives\n\n"
+        md += "\n# Initiatives\n\n"
         for init in project.initiatives:
             md += f"- {init.get('name', '')}\n"
 
     if project.documents:
-        md += "\n## Documents\n\n"
+        md += "\n# Documents\n\n"
         for doc in project.documents:
             md += f"- {doc.get('title', '')}\n"
 
@@ -144,6 +146,7 @@ def render_initiative(initiative: LinearInitiative) -> str:
     }
 
     md = _render_frontmatter(fields)
+    md += f"\n# {initiative.name}\n"
 
     # Content is richer than description; prefer it as the body
     body_text = initiative.content or initiative.description
@@ -151,7 +154,7 @@ def render_initiative(initiative: LinearInitiative) -> str:
         md += f"\n{body_text}\n"
 
     if initiative.projects:
-        md += "\n## Projects\n\n"
+        md += "\n# Projects\n\n"
         for proj in initiative.projects:
             md += f"- {proj.get('name', '')}\n"
 
@@ -172,6 +175,7 @@ def render_document(doc: LinearDocument) -> str:
     }
 
     md = _render_frontmatter(fields)
+    md += f"\n# {doc.title}\n"
     if doc.content:
         md += f"\n{doc.content}\n"
 

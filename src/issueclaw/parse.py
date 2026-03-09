@@ -27,7 +27,7 @@ class ParsedMarkdown:
     comments: list[ParsedComment] = field(default_factory=list)
 
 
-_COMMENT_HEADER_RE = re.compile(r"^### (.+?) - (\S+)$")
+_COMMENT_HEADER_RE = re.compile(r"^## (.+?) - (\S+)$")
 _COMMENT_ID_RE = re.compile(r"<!-- comment-id: (.+?) -->")
 
 
@@ -41,9 +41,9 @@ def parse_markdown(content: str) -> ParsedMarkdown:
 
         Body text.
 
-        ## Comments
+        # Comments
 
-        ### author - timestamp
+        ## author - timestamp
         <!-- comment-id: uuid -->
 
         Comment body.
@@ -60,7 +60,7 @@ def parse_markdown(content: str) -> ParsedMarkdown:
     rest = parts[2]
 
     # Split body from comments section
-    comments_split = re.split(r"\n## Comments\n", rest, maxsplit=1)
+    comments_split = re.split(r"\n# Comments\n", rest, maxsplit=1)
     body = comments_split[0]
     comments: list[ParsedComment] = []
 
