@@ -1,0 +1,170 @@
+"""Linear GraphQL API client."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+
+class LinearClient:
+    """Async client for the Linear GraphQL API."""
+
+    api_url = "https://api.linear.app/graphql"
+
+    def __init__(self, api_key: str) -> None:
+        self.api_key = api_key
+
+    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
+        """Execute a GraphQL query against the Linear API."""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.api_url,
+                json={"query": query, "variables": variables or {}},
+                headers={
+                    "Authorization": self.api_key,
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def _paginate(
+        self, query: str, path: list[str], variables: dict[str, Any] | None = None
+    ) -> list[dict]:
+        """Paginate through a GraphQL connection, returning all nodes."""
+        all_nodes: list[dict] = []
+        cursor: str | None = None
+        variables = dict(variables or {})
+
+        for _ in range(100):  # safety limit
+            variables["after"] = cursor
+            result = await self._graphql(query, variables)
+
+            # Navigate to the connection object
+            data = result.get("data", {})
+            for key in path:
+                data = data.get(key, {})
+
+            nodes = data.get("nodes", [])
+            all_nodes.extend(nodes)
+
+            page_info = data.get("pageInfo", {})
+            if not page_info.get("hasNextPage", False):
+                break
+            cursor = page_info.get("endCursor")
+
+        return all_nodes
+
+    async def fetch_teams(self) -> list[dict]:
+        """Fetch all teams in the workspace."""
+        query = """
+        query Teams($after: String) {
+            teams(first: 50, after: $after) {
+                nodes {
+                    id name key icon
+                    createdAt updatedAt
+                }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        """
+        return await self._paginate(query, ["teams"])
+
+    async def fetch_issues(self, team_id: str) -> list[dict]:
+        """Fetch all issues for a team, paginated."""
+        query = """
+        query TeamIssues($teamId: String!, $after: String) {
+            team(id: $teamId) {
+                issues(first: 50, after: $after) {
+                    nodes {
+                        id identifier title description
+                        priority priorityLabel
+                        url createdAt updatedAt dueDate
+                        estimate
+                        state { name }
+                        assignee { id name email }
+                        labels { nodes { name } }
+                        project { id name slugId }
+                        cycle { id name }
+                    }
+                    pageInfo { hasNextPage endCursor }
+                }
+            }
+        }
+        """
+        return await self._paginate(query, ["team", "issues"], {"teamId": team_id})
+
+    async def fetch_comments(self, issue_id: str) -> list[dict]:
+        """Fetch all comments for an issue."""
+        query = """
+        query IssueComments($issueId: String!) {
+            issue(id: $issueId) {
+                comments(first: 100) {
+                    nodes {
+                        id body createdAt updatedAt
+                        user { id name email }
+                    }
+                }
+            }
+        }
+        """
+        result = await self._graphql(query, {"issueId": issue_id})
+        return result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
+
+    async def fetch_projects(self) -> list[dict]:
+        """Fetch all projects in the workspace."""
+        query = """
+        query Projects($after: String) {
+            projects(first: 50, after: $after) {
+                nodes {
+                    id name slugId description
+                    url createdAt updatedAt
+                    startDate targetDate
+                    state
+                    lead { id name email }
+                    teams { nodes { id name key } }
+                    projectMilestones {
+                        nodes { id name description targetDate }
+                    }
+                }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        """
+        return await self._paginate(query, ["projects"])
+
+    async def fetch_initiatives(self) -> list[dict]:
+        """Fetch all initiatives in the workspace."""
+        query = """
+        query Initiatives($after: String) {
+            initiatives(first: 50, after: $after) {
+                nodes {
+                    id name description status
+                    targetDate createdAt updatedAt
+                    owner { id name email }
+                }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        """
+        return await self._paginate(query, ["initiatives"])
+
+    async def fetch_documents(self) -> list[dict]:
+        """Fetch all documents in the workspace."""
+        query = """
+        query Documents($after: String) {
+            documents(first: 50, after: $after) {
+                nodes {
+                    id title content slugId icon color
+                    url createdAt updatedAt
+                    creator { id name }
+                    updatedBy { id name }
+                    project { id name }
+                }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        """
+        return await self._paginate(query, ["documents"])
