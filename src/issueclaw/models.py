@@ -20,7 +20,7 @@ class LinearComment(BaseModel):
 
     @classmethod
     def from_api(cls, data: dict) -> Self:
-        author = data.get("author") or {}
+        author = data.get("user") or data.get("author") or {}
         return cls(
             id=data["id"],
             body=data.get("body", ""),
@@ -91,6 +91,13 @@ class LinearIssue(BaseModel):
         )
 
 
+def _extract_nodes(data: list | dict) -> list:
+    """Extract nodes from a GraphQL connection object or pass through a list."""
+    if isinstance(data, dict):
+        return data.get("nodes", [])
+    return data
+
+
 def _slugify(text: str) -> str:
     """Convert text to URL-friendly slug."""
     text = text.lower().strip()
@@ -148,8 +155,8 @@ class LinearProject(BaseModel):
             url=data.get("url", ""),
             created=data.get("createdAt", ""),
             updated=data.get("updatedAt", ""),
-            teams=data.get("teams", []),
-            milestones=data.get("milestones", []),
+            teams=_extract_nodes(data.get("teams", [])),
+            milestones=_extract_nodes(data.get("projectMilestones") or data.get("milestones", [])),
         )
 
 
