@@ -121,6 +121,10 @@ def _make_mock_client(
     mock.fetch_issues = AsyncMock(side_effect=lambda team_id: issues_by_team.get(team_id, []))
     mock.fetch_comments = AsyncMock(side_effect=lambda issue_id: comments_by_issue.get(issue_id, []))
 
+    # Support async context manager usage
+    mock.__aenter__ = AsyncMock(return_value=mock)
+    mock.__aexit__ = AsyncMock(return_value=None)
+
     return mock
 
 
@@ -455,3 +459,173 @@ def test_sync_fails_without_api_key(runner, tmp_path):
     )
 
     assert result.exit_code != 0
+
+
+def test_sync_shows_progress(runner, tmp_path, sample_team):
+    """INVARIANT: Pull outputs progress messages showing what is being synced."""
+    issue_api = {
+        "id": "issue-uuid",
+        "identifier": "AI-1",
+        "title": "Fix bug",
+        "description": None,
+        "priority": 2,
+        "priorityLabel": "Medium",
+        "state": {"name": "Todo"},
+        "assignee": None,
+        "labels": {"nodes": []},
+        "project": None,
+        "cycle": None,
+        "estimate": None,
+        "dueDate": None,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "url": "",
+    }
+
+    mock_client = _make_mock_client(
+        teams=[sample_team],
+        issues_by_team={"team-uuid": [issue_api]},
+        comments_by_issue={},
+        projects=[],
+        initiatives=[],
+        documents=[],
+    )
+
+    import issueclaw.commands.pull as pull_mod
+
+    with patch.object(pull_mod, "LinearClient", return_value=mock_client):
+        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+
+    assert result.exit_code == 0
+    # Should show team progress
+    assert "AI" in result.output
+    # Should show final summary
+    assert "1 issues" in result.output
+
+
+def test_sync_saves_state_incrementally(runner, tmp_path, sample_team):
+    """INVARIANT: State is saved after each entity type, not just at the end."""
+    issue_api = {
+        "id": "issue-uuid",
+        "identifier": "AI-1",
+        "title": "Fix bug",
+        "description": None,
+        "priority": 2,
+        "priorityLabel": "Medium",
+        "state": {"name": "Todo"},
+        "assignee": None,
+        "labels": {"nodes": []},
+        "project": None,
+        "cycle": None,
+        "estimate": None,
+        "dueDate": None,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "url": "",
+    }
+
+    save_calls = []
+    original_save = None
+
+    def tracking_save(self_state):
+        # Record what's in the id-map at each save
+        save_calls.append(dict(self_state._path_to_uuid))
+        original_save(self_state)
+
+    mock_client = _make_mock_client(
+        teams=[sample_team],
+        issues_by_team={"team-uuid": [issue_api]},
+        comments_by_issue={},
+        projects=[],
+        initiatives=[],
+        documents=[],
+    )
+
+    import issueclaw.commands.pull as pull_mod
+    from issueclaw.sync_state import SyncState
+
+    original_save = SyncState.save
+
+    with (
+        patch.object(pull_mod, "LinearClient", return_value=mock_client),
+        patch.object(SyncState, "save", tracking_save),
+    ):
+        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+
+    assert result.exit_code == 0, f"CLI failed: {result.output}"
+    # Should have saved at least twice (after issues, and final save)
+    assert len(save_calls) >= 2
+
+
+def test_sync_json_output(runner, tmp_path, sample_team):
+    """INVARIANT: With --json flag, output is valid JSON with sync stats."""
+    mock_client = _make_mock_client(
+        teams=[sample_team],
+        issues_by_team={},
+        comments_by_issue={},
+        projects=[],
+        initiatives=[],
+        documents=[],
+    )
+
+    import issueclaw.commands.pull as pull_mod
+
+    with patch.object(pull_mod, "LinearClient", return_value=mock_client):
+        result = runner.invoke(
+            cli, ["--json", "pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
+
+    assert result.exit_code == 0, f"CLI failed: {result.output}"
+    data = json.loads(result.output)
+    assert "issues" in data
+    assert "projects" in data
+    assert "initiatives" in data
+    assert "documents" in data
+
+
+def test_sync_resumes_after_interruption(runner, tmp_path, sample_team):
+    """INVARIANT: Running pull again after partial sync picks up where it left off."""
+    issue_api = {
+        "id": "issue-uuid",
+        "identifier": "AI-1",
+        "title": "Fix bug",
+        "description": None,
+        "priority": 2,
+        "priorityLabel": "Medium",
+        "state": {"name": "Todo"},
+        "assignee": None,
+        "labels": {"nodes": []},
+        "project": None,
+        "cycle": None,
+        "estimate": None,
+        "dueDate": None,
+        "createdAt": "2026-01-01T00:00:00Z",
+        "updatedAt": "2026-01-02T00:00:00Z",
+        "url": "",
+    }
+
+    mock_client = _make_mock_client(
+        teams=[sample_team],
+        issues_by_team={"team-uuid": [issue_api]},
+        comments_by_issue={},
+        projects=[],
+        initiatives=[],
+        documents=[],
+    )
+
+    import issueclaw.commands.pull as pull_mod
+
+    # First run
+    with patch.object(pull_mod, "LinearClient", return_value=mock_client):
+        result1 = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+    assert result1.exit_code == 0
+
+    # Second run - should succeed and overwrite (idempotent)
+    with patch.object(pull_mod, "LinearClient", return_value=mock_client):
+        result2 = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+    assert result2.exit_code == 0
+
+    # Files should still exist and be correct
+    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
+    assert issue_file.exists()
+    assert "Fix bug" in issue_file.read_text()

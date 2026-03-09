@@ -14,21 +14,42 @@ class LinearClient:
 
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
+        self._client: httpx.AsyncClient | None = None
 
-    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
-        """Execute a GraphQL query against the Linear API."""
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                json={"query": query, "variables": variables or {}},
+    async def _ensure_client(self) -> httpx.AsyncClient:
+        """Get or create a persistent HTTP client for connection reuse."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
                 headers={
                     "Authorization": self.api_key,
                     "Content-Type": "application/json",
                 },
                 timeout=30.0,
             )
-            response.raise_for_status()
-            return response.json()
+        return self._client
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> LinearClient:
+        await self._ensure_client()
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.close()
+
+    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
+        """Execute a GraphQL query against the Linear API."""
+        client = await self._ensure_client()
+        response = await client.post(
+            self.api_url,
+            json={"query": query, "variables": variables or {}},
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def _paginate(
         self, query: str, path: list[str], variables: dict[str, Any] | None = None
