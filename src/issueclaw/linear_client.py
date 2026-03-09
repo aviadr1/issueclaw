@@ -325,6 +325,36 @@ class LinearClient:
         """
         return await self._paginate(query, ["documents"])
 
+    async def fetch_team_states(self, team_id: str) -> list[dict]:
+        """Fetch all workflow states for a team."""
+        query = """
+        query TeamStates($teamId: String!, $after: String) {
+            team(id: $teamId) {
+                states(first: 50, after: $after) {
+                    nodes {
+                        id name type color position
+                    }
+                    pageInfo { hasNextPage endCursor }
+                }
+            }
+        }
+        """
+        return await self._paginate(query, ["team", "states"], {"teamId": team_id})
+
+    async def fetch_users(self) -> list[dict]:
+        """Fetch all users in the workspace."""
+        query = """
+        query Users($after: String) {
+            users(first: 50, after: $after) {
+                nodes {
+                    id name email displayName active
+                }
+                pageInfo { hasNextPage endCursor }
+            }
+        }
+        """
+        return await self._paginate(query, ["users"])
+
     # Mutation methods for push sync
 
     async def update_issue(self, issue_id: str, fields: dict) -> dict:

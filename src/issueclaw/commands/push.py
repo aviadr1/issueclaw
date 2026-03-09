@@ -80,6 +80,34 @@ async def push_changes(
         return stats
 
     async with LinearClient(api_key=api_key) as client:
+        # Lazy-loaded resolution caches
+        _state_cache: dict[str, dict[str, str]] = {}  # team_id -> {name: state_id}
+        _user_cache: dict[str, str] | None = None  # name -> user_id
+
+        async def _resolve_state_id(team_key: str, state_name: str) -> str | None:
+            """Resolve a workflow state name to its ID for a given team."""
+            if team_key not in _state_cache:
+                # Find team ID from the entity's team key
+                teams = await client.fetch_teams()
+                team_id = None
+                for t in teams:
+                    if t["key"] == team_key:
+                        team_id = t["id"]
+                        break
+                if not team_id:
+                    return None
+                states = await client.fetch_team_states(team_id)
+                _state_cache[team_key] = {s["name"]: s["id"] for s in states}
+            return _state_cache[team_key].get(state_name)
+
+        async def _resolve_user_id(user_name: str) -> str | None:
+            """Resolve a user name to their ID."""
+            nonlocal _user_cache
+            if _user_cache is None:
+                users = await client.fetch_users()
+                _user_cache = {u["name"]: u["id"] for u in users}
+            return _user_cache.get(user_name)
+
         for change in linear_changes:
             entity_info = parse_entity_path(change.path)
             if not entity_info:
@@ -105,16 +133,23 @@ async def push_changes(
                     continue
 
                 if entity_type == "issue" and entity_id:
-                    # Build update fields from frontmatter changes
+                    team_key = entity_info.get("team_key", "")
                     update_fields: dict[str, Any] = {}
                     for field_name, field_diff in diff.frontmatter_changes.items():
                         if field_name not in _ISSUE_FIELD_MAP or field_diff.new is None:
                             continue
                         api_field = _ISSUE_FIELD_MAP[field_name]
-                        # Skip fields that need ID resolution (stateId, assigneeId)
-                        if api_field.endswith("Id"):
-                            continue
-                        update_fields[api_field] = field_diff.new
+
+                        if api_field == "stateId":
+                            resolved = await _resolve_state_id(team_key, field_diff.new)
+                            if resolved:
+                                update_fields["stateId"] = resolved
+                        elif api_field == "assigneeId":
+                            resolved = await _resolve_user_id(field_diff.new)
+                            if resolved:
+                                update_fields["assigneeId"] = resolved
+                        else:
+                            update_fields[api_field] = field_diff.new
 
                     # Include body changes (strip entity heading that we generate)
                     if diff.body_changed:

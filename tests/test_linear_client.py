@@ -143,3 +143,47 @@ async def test_fetch_initiatives(client):
         initiatives = await client.fetch_initiatives()
         assert len(initiatives) == 1
         assert initiatives[0]["name"] == "Q1 Roadmap"
+
+
+@pytest.mark.asyncio
+async def test_fetch_team_states(client):
+    """INVARIANT: fetch_team_states returns workflow states for a team."""
+    mock_response = {
+        "data": {
+            "team": {
+                "states": {
+                    "nodes": [
+                        {"id": "state-1", "name": "Todo", "type": "backlog"},
+                        {"id": "state-2", "name": "In Progress", "type": "started"},
+                        {"id": "state-3", "name": "Done", "type": "completed"},
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                }
+            }
+        }
+    }
+    with patch.object(client, "_graphql", new_callable=AsyncMock, return_value=mock_response):
+        states = await client.fetch_team_states(team_id="team-uuid")
+        assert len(states) == 3
+        assert states[0]["name"] == "Todo"
+        assert states[2]["name"] == "Done"
+
+
+@pytest.mark.asyncio
+async def test_fetch_users(client):
+    """INVARIANT: fetch_users returns workspace users with id and name."""
+    mock_response = {
+        "data": {
+            "users": {
+                "nodes": [
+                    {"id": "user-1", "name": "Aviad Rozenhek", "email": "aviad@test.com"},
+                    {"id": "user-2", "name": "Oz Shaked", "email": "oz@test.com"},
+                ],
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+            }
+        }
+    }
+    with patch.object(client, "_graphql", new_callable=AsyncMock, return_value=mock_response):
+        users = await client.fetch_users()
+        assert len(users) == 2
+        assert users[0]["name"] == "Aviad Rozenhek"

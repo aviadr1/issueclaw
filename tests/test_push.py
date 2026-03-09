@@ -430,6 +430,106 @@ async def test_push_maps_description_field_correctly(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_push_resolves_status_to_state_id(tmp_path):
+    """INVARIANT: Status field changes resolve the state name to a stateId via API."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
+    state.save()
+
+    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo").read_text()
+    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Done").read_text()
+
+    changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-1-fix-bug.md",
+        change_type="modified",
+        old_content=old_content,
+        new_content=new_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
+    mock_client.fetch_teams.return_value = [
+        {"id": "team-ai", "name": "AI", "key": "AI"},
+    ]
+    mock_client.fetch_team_states.return_value = [
+        {"id": "state-todo", "name": "Todo", "type": "backlog"},
+        {"id": "state-done", "name": "Done", "type": "completed"},
+    ]
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    assert result["updated"] == 1
+    mock_client.update_issue.assert_called_once()
+    call_args = mock_client.update_issue.call_args
+    fields = call_args[0][1]
+    assert "stateId" in fields
+    assert fields["stateId"] == "state-done"
+
+
+@pytest.mark.asyncio
+async def test_push_resolves_assignee_to_user_id(tmp_path):
+    """INVARIANT: Assignee field changes resolve the user name to an assigneeId via API."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
+    state.save()
+
+    # Write issue with different assignee (need to manually create since helper doesn't support assignee)
+    from issueclaw.paths import entity_path
+    rel_path = entity_path("issue", team_key="AI", identifier="AI-1", issue_title="Fix bug")
+    full_path = tmp_path / rel_path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+
+    old_md = """---
+id: uuid-ai-1
+identifier: AI-1
+title: Fix bug
+status: Todo
+priority: 2
+assignee: Aviad Rozenhek
+created: '2026-01-01T00:00:00Z'
+updated: '2026-01-01T00:00:00Z'
+url: https://linear.app/test
+---
+
+# AI-1: Fix bug
+
+Description.
+"""
+    new_md = old_md.replace("assignee: Aviad Rozenhek", "assignee: Oz Shaked")
+    full_path.write_text(new_md)
+
+    changes = [push_mod.FileChange(
+        path=rel_path,
+        change_type="modified",
+        old_content=old_md,
+        new_content=new_md,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
+    mock_client.fetch_users.return_value = [
+        {"id": "user-aviad", "name": "Aviad Rozenhek", "email": "aviad@test.com"},
+        {"id": "user-oz", "name": "Oz Shaked", "email": "oz@test.com"},
+    ]
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    assert result["updated"] == 1
+    call_args = mock_client.update_issue.call_args
+    fields = call_args[0][1]
+    assert "assigneeId" in fields
+    assert fields["assigneeId"] == "user-oz"
+
+
+@pytest.mark.asyncio
 async def test_push_strips_entity_heading_from_description(tmp_path):
     """INVARIANT: The entity heading (# AI-1: Title) is stripped before sending to Linear API.
 
