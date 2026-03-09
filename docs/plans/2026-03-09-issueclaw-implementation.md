@@ -114,11 +114,12 @@ returns nested objects (not flat strings), and has a 10000 complexity limit per 
 
 ---
 
-## Phase 1: Read-Only Pull (Linear to Git)
+## Phase 1: Read-Only Pull (Linear to Git) ✅ COMPLETE
 
 Phase 1 delivers: `issueclaw sync` command that pulls all Linear data into `.md` files in the GitHub repo. Zero risk (read-only).
+Tested in practice: 3560 entities synced to gigaverse-app/linear-git.
 
-### Task 1: Pydantic Models for Linear Entities
+### Task 1: Pydantic Models for Linear Entities ✅
 
 **Files:**
 - Create: `src/issueclaw/models.py`
@@ -243,7 +244,7 @@ git commit -m "feat: add Pydantic models for Linear entities"
 
 ---
 
-### Task 2: Path Convention Utilities
+### Task 2: Path Convention Utilities ✅
 
 **Files:**
 - Create: `src/issueclaw/paths.py`
@@ -298,7 +299,7 @@ def test_slugify():
 
 ---
 
-### Task 3: Markdown Renderer
+### Task 3: Markdown Renderer ✅
 
 **Files:**
 - Create: `src/issueclaw/render.py`
@@ -404,7 +405,7 @@ def test_render_document():
 
 ---
 
-### Task 4: Markdown Parser
+### Task 4: Markdown Parser ✅
 
 **Files:**
 - Create: `src/issueclaw/parse.py`
@@ -501,7 +502,7 @@ def test_roundtrip_issue():
 
 ---
 
-### Task 5: Sync State Management (id-map)
+### Task 5: Sync State Management (id-map) ✅
 
 **Files:**
 - Create: `src/issueclaw/sync_state.py`
@@ -560,7 +561,7 @@ def test_state_json_timestamps(tmp_path):
 
 ---
 
-### Task 6: Linear GraphQL API Client
+### Task 6: Linear GraphQL API Client ✅
 
 **Files:**
 - Create: `src/issueclaw/linear_client.py`
@@ -640,7 +641,7 @@ async def test_fetch_issues_paginated(client):
 
 ---
 
-### Task 7: Initial Sync Command
+### Task 7: Initial Sync Command ✅
 
 **Files:**
 - Create: `src/issueclaw/commands/initial_sync.py`
@@ -719,7 +720,7 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
-### Task 7.5: Update Documentation and Plan with Phase 1 Learnings
+### Task 7.5: Update Documentation and Plan with Phase 1 Learnings ✅
 
 **Goal:** Capture everything learned during Phase 1 so future development and contributors start with accurate knowledge.
 
@@ -741,7 +742,7 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
-### Task 7.6: Field Sync Strategy — Decision: Explicit Whitelist with Rich Defaults
+### Task 7.6: Field Sync Strategy — Decision: Explicit Whitelist with Rich Defaults ✅
 
 **Decision: Keep explicit whitelist approach, but ensure it's comprehensive.**
 
@@ -792,9 +793,11 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
-## Phase 2: Webhook-Driven Pull (Real-Time)
+## Phase 2: Webhook-Driven Pull (Real-Time) ✅ COMPLETE
 
-### Task 8: Apply Webhook Script
+Deployed and tested end-to-end: Linear change → CF Worker → GitHub Actions → issueclaw-bot commit.
+
+### Task 8: Apply Webhook Script ✅
 
 **Files:**
 - Create: `src/issueclaw/commands/apply_webhook.py`
@@ -812,7 +815,7 @@ Commit: `git commit -m "feat: add webhook application script (Phase 2)"`
 
 ---
 
-### Task 9: Cloudflare Worker and GitHub Actions Workflows
+### Task 9: Cloudflare Worker and GitHub Actions Workflows ✅
 
 **Files:**
 - Create: `workers/issueclaw-webhook-proxy/worker.js`
@@ -827,9 +830,11 @@ Commit: `git commit -m "feat: add CF worker and webhook workflow (Phase 2 comple
 
 ---
 
-## Phase 3: Push Sync (Git to Linear)
+## Phase 3: Push Sync (Git to Linear) ✅ COMPLETE
 
-### Task 10: Diff Parser
+Code complete with 105 tests. Push workflow deployed to linear-git.
+
+### Task 10: Diff Parser ✅
 
 **Files:**
 - Create: `src/issueclaw/diff.py`
@@ -845,7 +850,7 @@ Commit: `git commit -m "feat: add diff parser for markdown files"`
 
 ---
 
-### Task 11: Push Sync Command
+### Task 11: Push Sync Command ✅
 
 **Files:**
 - Create: `src/issueclaw/commands/push.py`
@@ -861,7 +866,7 @@ Commit: `git commit -m "feat: add push sync command"`
 
 ---
 
-### Task 12: Push Workflow and Loop Prevention
+### Task 12: Push Workflow and Loop Prevention ✅
 
 **Files:**
 - Create: `.github/workflows/issueclaw-push.yaml`
