@@ -143,7 +143,7 @@ class LinearProject(BaseModel):
         return cls(
             id=data["id"],
             name=data.get("name", ""),
-            slug=data.get("slugId", "") or _slugify(data.get("name", "")),
+            slug=_slugify(data.get("name", "")),
             description=data.get("description"),
             status=status_name,
             lead_name=lead.get("name"),

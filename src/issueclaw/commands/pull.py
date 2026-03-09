@@ -98,7 +98,7 @@ async def _run_pull(
                     raw_comments = (raw_issue.get("comments") or {}).get("nodes", [])
                     issue.comments = [LinearComment.from_api(c) for c in raw_comments]
 
-                    path = entity_path("issue", team_key=team_key, identifier=issue.identifier)
+                    path = entity_path("issue", team_key=team_key, identifier=issue.identifier, issue_title=issue.title)
                     content = render_issue(issue)
 
                     full_path = repo_dir / path

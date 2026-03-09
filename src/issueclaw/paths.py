@@ -24,17 +24,19 @@ def entity_path(
     name: str | None = None,
     title: str | None = None,
     slug_id: str | None = None,
+    issue_title: str | None = None,
 ) -> str:
     """Build the file path for a Linear entity.
 
     Returns paths relative to repo root like:
-        linear/teams/AI/issues/AI-123.md
+        linear/teams/AI/issues/AI-123-fix-login-bug.md
         linear/projects/chapter-detection/_project.md
         linear/initiatives/q1-2026-roadmap.md
         linear/documents/architecture-overview.md
     """
     if entity_type == "issue":
-        return f"linear/teams/{team_key}/issues/{identifier}.md"
+        slug_suffix = f"-{slugify(issue_title)}" if issue_title else ""
+        return f"linear/teams/{team_key}/issues/{identifier}{slug_suffix}.md"
     elif entity_type == "project":
         return f"linear/projects/{slug}/_project.md"
     elif entity_type == "milestone":
@@ -48,7 +50,7 @@ def entity_path(
 
 
 # Regex patterns for parsing paths
-_ISSUE_RE = re.compile(r"^linear/teams/([^/]+)/issues/([^/]+)\.md$")
+_ISSUE_RE = re.compile(r"^linear/teams/([^/]+)/issues/([A-Z]+-\d+)(?:-[^/]+)?\.md$")
 _PROJECT_RE = re.compile(r"^linear/projects/([^/]+)/_project\.md$")
 _MILESTONE_RE = re.compile(r"^linear/projects/([^/]+)/milestones/([^/]+)\.md$")
 _INITIATIVE_RE = re.compile(r"^linear/initiatives/([^/]+)\.md$")

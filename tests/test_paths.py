@@ -2,7 +2,12 @@ from issueclaw.paths import entity_path, parse_entity_path, slugify
 
 
 def test_issue_path():
-    """INVARIANT: Issue path follows linear/teams/{KEY}/issues/{ID}.md convention."""
+    """INVARIANT: Issue path includes identifier and slugified title."""
+    assert entity_path("issue", team_key="AI", identifier="AI-123", issue_title="Fix login bug") == "linear/teams/AI/issues/AI-123-fix-login-bug.md"
+
+
+def test_issue_path_without_title():
+    """INVARIANT: Issue path works without title (just identifier)."""
     assert entity_path("issue", team_key="AI", identifier="AI-123") == "linear/teams/AI/issues/AI-123.md"
 
 
@@ -30,9 +35,16 @@ def test_document_path():
 
 def test_parse_issue_path():
     """INVARIANT: Parsing an issue path returns type and identifiers."""
-    result = parse_entity_path("linear/teams/AI/issues/AI-123.md")
+    result = parse_entity_path("linear/teams/AI/issues/AI-123-fix-login-bug.md")
     assert result["type"] == "issue"
     assert result["team_key"] == "AI"
+    assert result["identifier"] == "AI-123"
+
+
+def test_parse_issue_path_without_slug():
+    """INVARIANT: Parsing an issue path without slug still works."""
+    result = parse_entity_path("linear/teams/AI/issues/AI-123.md")
+    assert result["type"] == "issue"
     assert result["identifier"] == "AI-123"
 
 

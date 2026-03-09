@@ -167,7 +167,7 @@ def test_sync_creates_issue_files(runner, tmp_path, sample_team, sample_issue):
         result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
-    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
+    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
     assert issue_file.exists(), f"Issue file not created. Output: {result.output}"
     content = issue_file.read_text()
     assert "Fix bug" in content
@@ -213,8 +213,8 @@ def test_sync_creates_id_map(runner, tmp_path, sample_team):
     id_map = tmp_path / ".sync" / "id-map.json"
     assert id_map.exists()
     mapping = json.loads(id_map.read_text())
-    assert "linear/teams/AI/issues/AI-1.md" in mapping
-    assert mapping["linear/teams/AI/issues/AI-1.md"] == "issue-uuid"
+    assert "linear/teams/AI/issues/AI-1-fix-bug.md" in mapping
+    assert mapping["linear/teams/AI/issues/AI-1-fix-bug.md"] == "issue-uuid"
 
 
 def test_sync_creates_project_files(runner, tmp_path, sample_team):
@@ -372,7 +372,7 @@ def test_sync_filters_teams(runner, tmp_path):
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     # AI issues should exist
-    ai_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
+    ai_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-ai-issue.md"
     assert ai_file.exists()
     # BE issues dir should NOT exist (team was filtered out)
     be_dir = tmp_path / "linear" / "teams" / "BE"
@@ -427,7 +427,7 @@ def test_sync_includes_comments_in_issues(runner, tmp_path, sample_team):
         result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
-    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
+    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
     content = issue_file.read_text()
     assert "## Comments" in content
     assert "Looks good!" in content
@@ -633,6 +633,6 @@ def test_sync_resumes_after_interruption(runner, tmp_path, sample_team):
     assert result2.exit_code == 0
 
     # Files should still exist and be correct
-    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
+    issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
     assert issue_file.exists()
     assert "Fix bug" in issue_file.read_text()
