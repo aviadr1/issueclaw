@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -116,6 +117,91 @@ async def push_changes(
     return stats
 
 
+def detect_git_changes(repo_dir: Path) -> list[FileChange]:
+    """Detect file changes in linear/ by comparing HEAD~1 to HEAD using git diff.
+
+    Returns a list of FileChange objects with old/new content for each changed file.
+    """
+    result = subprocess.run(
+        ["git", "diff", "HEAD~1", "--name-status", "--", "linear/"],
+        capture_output=True,
+        text=True,
+        cwd=repo_dir,
+    )
+    if result.returncode != 0:
+        return []
+
+    changes: list[FileChange] = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+
+        parts = line.split("\t")
+        status = parts[0]
+
+        if status.startswith("R"):
+            # Rename: R100\told_path\tnew_path
+            old_path = parts[1]
+            new_path = parts[2]
+            if not new_path.startswith("linear/"):
+                continue
+            old_content = _git_show(repo_dir, f"HEAD~1:{old_path}")
+            new_content = (repo_dir / new_path).read_text()
+            changes.append(FileChange(
+                path=new_path,
+                change_type="modified",
+                old_content=old_content,
+                new_content=new_content,
+            ))
+        elif status == "M":
+            file_path = parts[1]
+            if not file_path.startswith("linear/"):
+                continue
+            old_content = _git_show(repo_dir, f"HEAD~1:{file_path}")
+            new_content = (repo_dir / file_path).read_text()
+            changes.append(FileChange(
+                path=file_path,
+                change_type="modified",
+                old_content=old_content,
+                new_content=new_content,
+            ))
+        elif status == "D":
+            file_path = parts[1]
+            if not file_path.startswith("linear/"):
+                continue
+            old_content = _git_show(repo_dir, f"HEAD~1:{file_path}")
+            changes.append(FileChange(
+                path=file_path,
+                change_type="deleted",
+                old_content=old_content,
+                new_content=None,
+            ))
+        elif status == "A":
+            file_path = parts[1]
+            if not file_path.startswith("linear/"):
+                continue
+            new_content = (repo_dir / file_path).read_text()
+            changes.append(FileChange(
+                path=file_path,
+                change_type="added",
+                old_content=None,
+                new_content=new_content,
+            ))
+
+    return changes
+
+
+def _git_show(repo_dir: Path, ref_path: str) -> str:
+    """Get file content from a git ref (e.g., HEAD~1:path/to/file)."""
+    result = subprocess.run(
+        ["git", "show", ref_path],
+        capture_output=True,
+        text=True,
+        cwd=repo_dir,
+    )
+    return result.stdout
+
+
 @click.command("push")
 @click.option(
     "--api-key",
@@ -137,6 +223,18 @@ def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> Non
 
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
 
-    # TODO: In real usage, detect changes via git diff against last sync commit
-    # For now, this is the core logic that the push workflow calls with pre-parsed changes
-    click.echo("Push command registered. Use via GitHub Actions workflow with pre-parsed git diffs.")
+    changes = detect_git_changes(repo_dir)
+
+    if not changes:
+        if json_mode:
+            click.echo(json.dumps({"updated": 0, "archived": 0, "created": 0, "skipped": 0}))
+        else:
+            click.echo("No changes detected in linear/ files.")
+        return
+
+    stats = asyncio.run(push_changes(changes, api_key, repo_dir))
+
+    if json_mode:
+        click.echo(json.dumps(stats))
+    else:
+        click.echo(f"Push complete: {stats['updated']} updated, {stats['archived']} archived, {stats['skipped']} skipped.")

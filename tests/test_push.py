@@ -1,8 +1,9 @@
 """Tests for push sync: detect git changes and push to Linear API."""
 
 import json
+import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -196,3 +197,168 @@ async def test_push_skips_non_linear_files(tmp_path):
 
     result = await push_mod.push_changes(changes, "test-key", tmp_path)
     assert result["skipped"] == 1
+
+
+# Tests for detect_git_changes
+
+def test_detect_git_changes_parses_modified_files(tmp_path):
+    """INVARIANT: Modified files in linear/ produce FileChange with old and new content."""
+    # Write current file on disk
+    issue_dir = tmp_path / "linear" / "teams" / "AI" / "issues"
+    issue_dir.mkdir(parents=True)
+    issue_file = issue_dir / "AI-1-fix-bug.md"
+    issue_file.write_text("new content")
+
+    # Mock git diff --name-status output
+    diff_output = "M\tlinear/teams/AI/issues/AI-1-fix-bug.md\n"
+    old_content = "old content"
+
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+    mock_show = MagicMock(stdout=old_content, returncode=0)
+
+    def fake_run(cmd, **kwargs):
+        if "diff" in cmd:
+            return mock_diff
+        if "show" in cmd:
+            return mock_show
+        return MagicMock(returncode=0)
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].path == "linear/teams/AI/issues/AI-1-fix-bug.md"
+    assert changes[0].change_type == "modified"
+    assert changes[0].old_content == "old content"
+    assert changes[0].new_content == "new content"
+
+
+def test_detect_git_changes_parses_deleted_files(tmp_path):
+    """INVARIANT: Deleted files produce FileChange with change_type='deleted'."""
+    diff_output = "D\tlinear/teams/AI/issues/AI-2-old-issue.md\n"
+    old_content = "deleted file content"
+
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+    mock_show = MagicMock(stdout=old_content, returncode=0)
+
+    def fake_run(cmd, **kwargs):
+        if "diff" in cmd:
+            return mock_diff
+        if "show" in cmd:
+            return mock_show
+        return MagicMock(returncode=0)
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].change_type == "deleted"
+    assert changes[0].old_content == "deleted file content"
+    assert changes[0].new_content is None
+
+
+def test_detect_git_changes_parses_added_files(tmp_path):
+    """INVARIANT: Added files produce FileChange with change_type='added'."""
+    issue_dir = tmp_path / "linear" / "teams" / "AI" / "issues"
+    issue_dir.mkdir(parents=True)
+    issue_file = issue_dir / "AI-3-new-issue.md"
+    issue_file.write_text("new file content")
+
+    diff_output = "A\tlinear/teams/AI/issues/AI-3-new-issue.md\n"
+
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+
+    def fake_run(cmd, **kwargs):
+        if "diff" in cmd:
+            return mock_diff
+        return MagicMock(returncode=0, stdout="")
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].change_type == "added"
+    assert changes[0].new_content == "new file content"
+    assert changes[0].old_content is None
+
+
+def test_detect_git_changes_filters_non_linear_files(tmp_path):
+    """INVARIANT: Files outside linear/ are excluded from detected changes."""
+    diff_output = "M\tREADME.md\nM\tlinear/teams/AI/issues/AI-1-fix-bug.md\n"
+
+    issue_dir = tmp_path / "linear" / "teams" / "AI" / "issues"
+    issue_dir.mkdir(parents=True)
+    (issue_dir / "AI-1-fix-bug.md").write_text("content")
+
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+    mock_show = MagicMock(stdout="old", returncode=0)
+
+    def fake_run(cmd, **kwargs):
+        if "diff" in cmd:
+            return mock_diff
+        if "show" in cmd:
+            return mock_show
+        return MagicMock(returncode=0)
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].path == "linear/teams/AI/issues/AI-1-fix-bug.md"
+
+
+def test_detect_git_changes_handles_renamed_files(tmp_path):
+    """INVARIANT: Renamed files (R status) are treated as modified."""
+    issue_dir = tmp_path / "linear" / "teams" / "AI" / "issues"
+    issue_dir.mkdir(parents=True)
+    (issue_dir / "AI-1-new-name.md").write_text("content after rename")
+
+    # Git shows renames as "R100\told_path\tnew_path"
+    diff_output = "R100\tlinear/teams/AI/issues/AI-1-old-name.md\tlinear/teams/AI/issues/AI-1-new-name.md\n"
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+    mock_show = MagicMock(stdout="old content", returncode=0)
+
+    def fake_run(cmd, **kwargs):
+        if "diff" in cmd:
+            return mock_diff
+        if "show" in cmd:
+            return mock_show
+        return MagicMock(returncode=0)
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].path == "linear/teams/AI/issues/AI-1-new-name.md"
+    assert changes[0].change_type == "modified"
+
+
+# Tests for push_command CLI integration
+
+def test_push_command_calls_detect_and_push(tmp_path):
+    """INVARIANT: push CLI command detects changes and pushes them."""
+    fake_changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-1-fix-bug.md",
+        change_type="modified",
+        old_content="old",
+        new_content="new",
+    )]
+
+    with patch.object(push_mod, "detect_git_changes", return_value=fake_changes) as mock_detect, \
+         patch.object(push_mod, "push_changes", new_callable=AsyncMock, return_value={"updated": 1, "archived": 0, "created": 0, "skipped": 0}) as mock_push:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    mock_detect.assert_called_once_with(tmp_path)
+    mock_push.assert_called_once()
+
+
+def test_push_command_no_changes(tmp_path):
+    """INVARIANT: When no changes detected, push outputs a message and exits cleanly."""
+    with patch.object(push_mod, "detect_git_changes", return_value=[]):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "no changes" in result.output.lower() or "0" in result.output
