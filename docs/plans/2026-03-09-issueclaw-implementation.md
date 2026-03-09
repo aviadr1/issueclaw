@@ -681,6 +681,54 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
+### Task 7.5: Update Documentation and Plan with Phase 1 Learnings
+
+**Goal:** Capture everything learned during Phase 1 so future development and contributors start with accurate knowledge.
+
+**Key learnings to document:**
+1. **Linear API complexity limits:** GraphQL queries are limited to 10000 complexity. Rich project queries (with milestones, updates, members, initiatives, documents) need page size of 5 instead of 50. Issue queries with inline comments can handle 50 per page.
+2. **Rate limiting quirks:** Linear returns HTTP 400 (not 429) with "RATELIMITED" in the body for rate limits. Must check response body, not just status code.
+3. **Inline comments:** Comments can be fetched inline with issues (up to 50 per issue) to avoid N+1 API calls. This reduced 3300+ calls to ~70.
+4. **Connection reuse:** Must use a persistent httpx.AsyncClient for connection pooling to avoid 3000+ TCP connections.
+5. **Project slugs:** Linear's `slugId` is a hex hash, not readable. We generate slugs from project names using `_slugify()`.
+6. **Content vs description:** Projects and initiatives have both `description` (short) and `content` (rich markdown body). Content should be preferred as the body when present.
+7. **Data richness:** Projects have status updates, milestones, members, teams, initiatives, documents, health, progress, scope. All should be synced for the files to be useful.
+8. **Issue lifecycle dates:** `startedAt`, `completedAt`, `canceledAt` are valuable for tracking issue lifecycle. `projectMilestone` and `parent` provide project hierarchy context.
+9. **Field sync strategy decision needed:** See Task 7.6.
+
+**Files to update:**
+- `docs/plans/2026-03-09-issueclaw-implementation.md` — Update API response shapes, model definitions, and query examples
+- `README.md` — Update with current feature set and data model
+- `.claude/MEMORY.md` or project memory — Record patterns and pitfalls
+
+---
+
+### Task 7.6: Decide Field Sync Strategy — Whitelist vs Blacklist
+
+**Question:** Should we explicitly whitelist which Linear fields we sync to git, or blacklist the ones we skip?
+
+**Whitelist approach (current):**
+- Explicitly list every field we fetch in GraphQL queries
+- Explicitly list every field we render in markdown
+- Pro: Predictable, no surprise data in git
+- Con: New fields require code changes; easy to miss useful data (as we just experienced)
+
+**Blacklist approach:**
+- Fetch all available fields from Linear API
+- Exclude specific fields (e.g., internal IDs, temporary state, binary data)
+- Pro: Automatically picks up new fields; harder to miss useful data
+- Con: May include noisy/unstable fields that cause unnecessary diffs
+
+**Hybrid approach (recommended):**
+- Use introspection or broad queries to fetch most fields
+- Have an explicit exclusion list for noisy/internal fields
+- Render all non-excluded fields in a structured way
+- Pro: Best of both worlds — comprehensive but controlled
+
+**Decision needed from stakeholder before Phase 2 begins.**
+
+---
+
 ## Phase 2: Webhook-Driven Pull (Real-Time)
 
 ### Task 8: Apply Webhook Script
