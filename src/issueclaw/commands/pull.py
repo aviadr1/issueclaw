@@ -27,7 +27,7 @@ from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
 
-COMMENT_CONCURRENCY = 10
+COMMENT_CONCURRENCY = 5
 
 
 def _default_log(msg: str) -> None:

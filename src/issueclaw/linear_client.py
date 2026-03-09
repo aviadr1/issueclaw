@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -42,12 +43,22 @@ class LinearClient:
         await self.close()
 
     async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
-        """Execute a GraphQL query against the Linear API."""
+        """Execute a GraphQL query against the Linear API with retry."""
         client = await self._ensure_client()
-        response = await client.post(
-            self.api_url,
-            json={"query": query, "variables": variables or {}},
-        )
+        for attempt in range(3):
+            response = await client.post(
+                self.api_url,
+                json={"query": query, "variables": variables or {}},
+            )
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("retry-after", 5))
+                await asyncio.sleep(retry_after)
+                continue
+            if response.status_code >= 500 and attempt < 2:
+                await asyncio.sleep(1 * (attempt + 1))
+                continue
+            response.raise_for_status()
+            return response.json()
         response.raise_for_status()
         return response.json()
 
