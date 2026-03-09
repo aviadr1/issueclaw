@@ -65,15 +65,11 @@ async def _fetch_comments_for_issue(
 ) -> list[dict]:
     """Fetch comments for a single issue, respecting concurrency limit."""
     async with semaphore:
-        for attempt in range(3):
-            try:
-                return await client.fetch_comments(issue_id)
-            except Exception as e:
-                if attempt < 2:
-                    await asyncio.sleep(1 * (attempt + 1))
-                else:
-                    log(f"  Warning: failed to fetch comments for {issue_id}: {e}")
-                    return []
+        try:
+            return await client.fetch_comments(issue_id)
+        except Exception as e:
+            log(f"  Warning: failed to fetch comments for {issue_id}: {e}")
+            return []
 
 
 async def _run_pull(
