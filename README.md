@@ -6,7 +6,33 @@ Issueclaw treats your project management data as code. Issues, projects, initiat
 
 Inspired by the [OpenClaw](https://github.com/openclaw/openclaw) philosophy of autonomous agents that execute real tasks on your infrastructure - issueclaw is an autonomous agent for your issue tracker.
 
-NOTE - implement with rust
+## Quick Start
+
+```bash
+# Install
+uv tool install issueclaw
+
+# Pull all Linear data into a local repo
+export LINEAR_API_KEY=lin_api_...
+issueclaw pull --repo-dir /path/to/linear-git
+
+# Filter by team
+issueclaw pull --repo-dir /path/to/linear-git --teams AI,ENG
+
+# JSON output for scripts/agents
+issueclaw --json pull --repo-dir /path/to/linear-git
+```
+
+## Current Status
+
+**Phase 1 (Read-Only Pull) is complete.** The `issueclaw pull` command syncs all Linear data into rich markdown files:
+
+- **3300+ issues** with comments, project links, milestones, lifecycle dates
+- **120+ projects** with full content, status updates, milestones, members, teams, initiatives, documents
+- **36 initiatives** with content, health, linked projects
+- **90+ documents** with project linkage
+
+Files use readable names: `AI-123-fix-login-bug.md`, `metrics-platform/_project.md`.
 
 ---
 
@@ -222,18 +248,18 @@ repo-root/
 │   ├── teams/
 │   │   ├── AI/
 │   │   │   └── issues/
-│   │   │       ├── AI-123.md
-│   │   │       ├── AI-124.md
-│   │   │       └── AI-125.md
-│   │   └── PLATFORM/
+│   │   │       ├── AI-123-fix-login-bug.md
+│   │   │       ├── AI-124-implement-chapter-detection.md
+│   │   │       └── AI-125-update-video-moderation.md
+│   │   └── ENG/
 │   │       └── issues/
-│   │           └── PLAT-42.md
+│   │           └── ENG-42-refactor-api-client.md
 │   ├── projects/
 │   │   ├── chapter-detection/
 │   │   │   ├── _project.md
 │   │   │   └── milestones/
 │   │   │       └── mvp.md
-│   │   └── video-moderation/
+│   │   └── metrics-platform/
 │   │       └── _project.md
 │   ├── initiatives/
 │   │   └── q1-2026-roadmap.md
@@ -246,13 +272,6 @@ repo-root/
 │   └── workflows/
 │       ├── issueclaw-push.yaml
 │       └── issueclaw-webhook.yaml
-├── scripts/
-│   └── issueclaw/
-│       ├── push.py
-│       ├── apply_webhook.py
-│       ├── initial_sync.py
-│       ├── render.py
-│       └── parse_diff.py
 └── workers/
     └── issueclaw-webhook-proxy/
         ├── worker.js
@@ -261,13 +280,13 @@ repo-root/
 
 ### Path conventions
 
-- Issues: `linear/teams/{TEAM_KEY}/issues/{IDENTIFIER}.md` (e.g., `linear/teams/AI/issues/AI-123.md`)
-- Projects: `linear/projects/{slug}/_project.md`
-- Milestones: `linear/projects/{slug}/milestones/{name}.md`
-- Initiatives: `linear/initiatives/{name}.md`
+- Issues: `linear/teams/{TEAM_KEY}/issues/{IDENTIFIER}-{title-slug}.md` (e.g., `linear/teams/AI/issues/AI-123-fix-login-bug.md`)
+- Projects: `linear/projects/{name-slug}/_project.md` (e.g., `linear/projects/metrics-platform/_project.md`)
+- Milestones: `linear/projects/{name-slug}/milestones/{name}.md`
+- Initiatives: `linear/initiatives/{name-slug}.md`
 - Documents: `linear/documents/{title-slug}.md`
 
-File names are derived from the entity's stable identifier (issue identifier, project slug, etc.), not the UUID. This makes files human-readable and greppable.
+File names include slugified titles for readability. Issue identifiers (AI-123) are stable; the slug suffix is derived from the title at sync time.
 
 ---
 
@@ -286,10 +305,12 @@ assignee: "aviad@gigaverse.ai"
 labels:
   - "feature"
   - "ai"
-project: "chapter-detection"
-milestone: "mvp"
+project: "Chapter Detection"
+milestone: "MVP"
+parent: "AI-100"
 estimate: 3
 due_date: "2026-04-01"
+started_at: "2026-02-01T10:00:00Z"
 created: "2026-01-15T10:00:00Z"
 updated: "2026-03-01T14:30:00Z"
 url: "https://linear.app/gigaverse/issue/AI-123"
@@ -313,59 +334,103 @@ Started working on this. Using Gemini for initial analysis.
 Looks good! Can we add break detection too?
 ```
 
-### Frontmatter field mapping
+### Issue frontmatter field mapping
 
 | Frontmatter field | Linear API field | Notes |
 |-------------------|------------------|-------|
 | `id` | `id` | UUID. Immutable. Set on create. |
 | `identifier` | `identifier` | Human-readable (AI-123). Immutable. |
 | `title` | `title` | Required on create. |
-| `status` | `state` | Maps to Linear workflow state name. |
+| `status` | `state.name` | Maps to Linear workflow state name. |
 | `priority` | `priority` | 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low. |
-| `assignee` | `assignee` | Email, name, or "me". Null to unassign. |
-| `labels` | `labels` | List of label names. |
-| `project` | `project` | Project name or slug. |
-| `milestone` | `milestone` | Milestone name within the project. |
+| `assignee` | `assignee.name` | User name. Null to unassign. |
+| `labels` | `labels.nodes[].name` | List of label names. |
+| `project` | `project.name` | Project name. |
+| `milestone` | `projectMilestone.name` | Milestone name within the project. |
+| `parent` | `parent.identifier` | Parent issue identifier (for sub-issues). |
 | `estimate` | `estimate` | Numeric estimate value. |
 | `due_date` | `dueDate` | ISO date. |
-| `created` | Read-only | Set by Linear. Never modified by push. |
-| `updated` | Read-only | Set by Linear. Never modified by push. |
-| `url` | Read-only | Linear URL. Set on create/pull. |
+| `started_at` | `startedAt` | When work began. |
+| `completed_at` | `completedAt` | When marked done. |
+| `canceled_at` | `canceledAt` | When canceled. |
+| `created` | `createdAt` | Read-only. Set by Linear. |
+| `updated` | `updatedAt` | Read-only. Set by Linear. |
+| `url` | `url` | Read-only. Linear URL. |
 
 ### Project
 
 ```markdown
 ---
-id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-name: "Chapter Detection"
-slug: "chapter-detection"
-status: "started"
-lead: "aviad@gigaverse.ai"
+id: "b7983d06-00c2-46c7-92a2-dd5a5add56df"
+name: "Metrics Platform"
+slug: "metrics-platform"
+status: "Ready for Dev"
+health: "onTrack"
+progress: 0.75
+scope: 36.0
+lead: "Mateusz"
 priority: 2
-start_date: "2026-01-01"
-target_date: "2026-06-30"
+start_date: "2026-02-12"
 labels:
-  - "ai-features"
-url: "https://linear.app/gigaverse/project/chapter-detection"
+  - "Metrics"
+teams:
+  - "WEB"
+  - "ENG"
+members:
+  - "Aviad Rozenhek"
+  - "Mateusz"
+  - "Oz Shaked"
+url: "https://linear.app/gigaverse/project/metrics-platform-7bb22805ba90"
 ---
 
-Build chapter detection for livestreams. Chapters are defined by
-speaker composition changes and breaks, not topics.
+# Data-as-Code
+
+Treat data infrastructure identically to application code...
+
+## Milestones
+
+- **MVP** (done) - 100%
+  Target: 2026-03-01
+  First release
+
+## Status Updates
+
+### Oz Shaked - 2026-02-17T11:04:21Z [onTrack]
+
+## Release 42 — Deployed to Production
+Staging dry-run executed successfully...
+
+## Initiatives
+
+- Community metrics
+
+## Documents
+
+- Architecture Design
+- Data Recovery Playbook
 ```
 
 ### Initiative
 
 ```markdown
 ---
-id: "x1y2z3"
-name: "Q1 2026 Roadmap"
+id: "0ddf8c1c-uuid"
+name: "Community metrics"
 status: "Active"
-owner: "aviad@gigaverse.ai"
-target_date: "2026-03-31"
+health: "atRisk"
+owner: "Aviad"
+target_date: "2026-06-30"
+url: "https://linear.app/gigaverse/initiative/community-metrics"
 ---
 
-Q1 focus areas: chapter detection, video moderation improvements,
-transcript quality.
+# Full Initiative Plan
+
+Detailed content about the initiative goals and approach...
+
+## Projects
+
+- Metrics Platform
+- Analytics Dashboard
 ```
 
 ### Comment format within issues
@@ -387,22 +452,30 @@ New comments are added by appending a new `### ` section. Deleted comments are r
 
 ## Sync Protocol
 
-### Initial Sync
+### Initial Sync (Pull)
 
-Run once to bootstrap the `.md` file structure:
+Run to bootstrap or refresh the `.md` file structure:
 
 ```bash
-python scripts/issueclaw/initial_sync.py --teams AI,PLATFORM
+# Install issueclaw
+uv tool install issueclaw
+
+# Pull all teams
+issueclaw pull --repo-dir /path/to/linear-git
+
+# Pull specific teams only
+issueclaw pull --repo-dir /path/to/linear-git --teams AI,ENG
 ```
 
-1. Fetches all issues for specified teams (paginated).
-2. Fetches all projects, initiatives, documents.
-3. Renders each entity as a `.md` file using the format above.
-4. Builds `.sync/id-map.json` mapping file paths to UUIDs.
-5. Saves `.sync/state.json` with the sync timestamp.
-6. Commits everything.
+1. Fetches all issues per team with inline comments (50 per page).
+2. Fetches all projects with milestones, status updates, members, initiatives, documents (5 per page due to API complexity limits).
+3. Fetches all initiatives with linked projects.
+4. Fetches all documents with project linkage.
+5. Renders each entity as a `.md` file with rich content.
+6. Builds `.sync/id-map.json` mapping file paths to UUIDs.
+7. Saves `.sync/state.json` incrementally after each team for crash resilience.
 
-This is the only expensive operation. It scales with workspace size but only runs once.
+This is the only expensive operation. It scales with workspace size but supports resumption after interruption.
 
 ### Push Sync (Git to Linear)
 
@@ -679,22 +752,19 @@ jobs:
           git push
 ```
 
-### Python Scripts Overview
+### issueclaw Python Package
 
-#### `scripts/issueclaw/render.py`
-Renders a Linear entity (from API response or webhook payload) into a `.md` string. Single source of truth for the markdown format. Used by both initial sync and webhook application.
+The tool is a pip-installable Python package (`uv tool install issueclaw`) with these modules:
 
-#### `scripts/issueclaw/parse_diff.py`
-Parses two versions of a `.md` file (old and new) into a structured diff: which frontmatter fields changed, whether the body changed, which comments were added/removed/edited. Used by the push script.
-
-#### `scripts/issueclaw/push.py`
-Orchestrates the push sync. Calls `git diff`, iterates changed files, calls `parse_diff` for each, maps fields to Linear API calls, executes API calls, updates id-map.
-
-#### `scripts/issueclaw/apply_webhook.py`
-Receives a webhook payload via environment variable, determines entity type and file path, calls `render.py` to generate the `.md` content, writes the file. Handles comment embedding (reads parent issue, inserts/removes comment section, writes back).
-
-#### `scripts/issueclaw/initial_sync.py`
-One-time bootstrap. Paginates through Linear API for all entities, renders each to `.md`, builds id-map. Supports `--teams` filter.
+| Module | Purpose |
+|--------|---------|
+| `issueclaw.commands.pull` | Pull sync: fetches Linear data, renders to `.md`, builds id-map |
+| `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse |
+| `issueclaw.models` | Pydantic models for all Linear entity types |
+| `issueclaw.render` | Markdown renderer: YAML frontmatter + body + sections |
+| `issueclaw.parse` | Markdown parser: extracts frontmatter, body, comments |
+| `issueclaw.paths` | Path conventions: `entity_path()`, `parse_entity_path()`, `slugify()` |
+| `issueclaw.sync_state` | `.sync/` management: id-map.json, state.json |
 
 ### Secrets Required
 

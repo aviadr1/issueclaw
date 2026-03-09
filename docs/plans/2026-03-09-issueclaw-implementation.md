@@ -22,57 +22,95 @@
 
 ---
 
-## Linear API Response Shapes (from sampling)
+## Linear API Response Shapes (verified against live API)
 
-These shapes inform our Pydantic models:
+These shapes reflect what we actually fetch via GraphQL. Key learning: the GraphQL API
+returns nested objects (not flat strings), and has a 10000 complexity limit per query.
 
 ### Team
 ```json
-{"id": "uuid", "icon": "Robot", "name": "Engineering", "createdAt": "ISO", "updatedAt": "ISO"}
+{"id": "uuid", "name": "Engineering", "key": "ENG", "icon": "Robot", "createdAt": "ISO", "updatedAt": "ISO"}
 ```
 
-### Issue
+### Issue (fetched with inline comments, 50/page)
 ```json
 {
   "id": "uuid", "identifier": "ENG-6148", "title": "...", "description": "markdown...",
-  "priority": {"value": 4, "name": "Low"}, "url": "https://linear.app/...",
+  "priority": 4, "priorityLabel": "Low",
+  "url": "https://linear.app/...",
   "createdAt": "ISO", "updatedAt": "ISO", "dueDate": null,
-  "status": "Todo", "labels": ["Backend", "TechDebt"],
-  "assignee": "Name", "assigneeId": "uuid",
-  "team": "Engineering", "teamId": "uuid", "cycleId": "uuid"
+  "startedAt": "ISO|null", "completedAt": "ISO|null", "canceledAt": "ISO|null",
+  "estimate": null,
+  "state": {"name": "Todo"},
+  "assignee": {"id": "uuid", "name": "Name", "email": "..."},
+  "labels": {"nodes": [{"name": "Backend"}]},
+  "project": {"id": "uuid", "name": "Project Name"},
+  "projectMilestone": {"id": "uuid", "name": "MVP"},
+  "parent": {"id": "uuid", "identifier": "ENG-100", "title": "Parent Issue"},
+  "cycle": {"id": "uuid", "name": "Sprint 5"},
+  "comments": {"nodes": [{"id": "uuid", "body": "...", "createdAt": "ISO", "user": {"id": "uuid", "name": "..."}}]}
 }
 ```
 
-### Comment
+### Project (fetched 5/page due to complexity)
 ```json
 {
-  "id": "uuid", "body": "markdown...",
+  "id": "uuid", "name": "Metrics Platform", "slugId": "7bb22805ba90",
+  "description": "Short description", "content": "# Rich markdown body...",
+  "priority": 2, "health": "onTrack", "progress": 0.75, "scope": 36,
+  "url": "...", "createdAt": "ISO", "updatedAt": "ISO",
+  "startDate": "2026-02-12", "targetDate": null,
+  "status": {"id": "uuid", "name": "Ready for Dev", "color": "#4cb782", "type": "started"},
+  "lead": {"id": "uuid", "name": "...", "email": "..."},
+  "teams": {"nodes": [{"id": "uuid", "name": "Web", "key": "WEB"}]},
+  "members": {"nodes": [{"id": "uuid", "name": "Aviad"}]},
+  "labels": {"nodes": [{"id": "uuid", "name": "Metrics"}]},
+  "projectMilestones": {"nodes": [{"id": "uuid", "name": "MVP", "description": "...", "targetDate": "...", "status": "done", "progress": 1.0}]},
+  "projectUpdates": {"nodes": [{"id": "uuid", "body": "markdown...", "health": "onTrack", "createdAt": "ISO", "user": {"id": "uuid", "name": "..."}}]},
+  "initiatives": {"nodes": [{"id": "uuid", "name": "Community metrics"}]},
+  "documents": {"nodes": [{"id": "uuid", "title": "Architecture Design"}]}
+}
+```
+
+### Initiative (fetched with linked projects)
+```json
+{
+  "id": "uuid", "name": "Community metrics",
+  "description": "Short desc", "content": "# Rich markdown body...",
+  "status": "Active", "health": "atRisk",
+  "targetDate": "2026-06-30", "url": "...",
   "createdAt": "ISO", "updatedAt": "ISO",
-  "author": {"id": "uuid", "name": "Name"}
-}
-```
-
-### Project
-```json
-{
-  "id": "uuid", "name": "...", "description": "markdown...", "url": "...",
-  "createdAt": "ISO", "updatedAt": "ISO", "startDate": null, "targetDate": null,
-  "labels": [], "initiatives": [{"id": "uuid", "name": "..."}],
-  "lead": {"id": "uuid", "name": "..."}, "status": {"id": "uuid", "name": "Backlog"},
-  "teams": [{"id": "uuid", "name": "...", "key": "BE"}], "milestones": []
+  "owner": {"id": "uuid", "name": "...", "email": "..."},
+  "projects": {"nodes": [{"id": "uuid", "name": "Metrics Platform"}]}
 }
 ```
 
 ### Document
 ```json
 {
-  "id": "uuid", "title": "...", "content": "markdown...", "icon": "Brain", "color": "#5e6ad2",
-  "url": "...", "slugId": "abc123",
-  "createdAt": "ISO", "updatedAt": "ISO",
+  "id": "uuid", "title": "...", "content": "markdown...", "slugId": "abc123",
+  "url": "...", "createdAt": "ISO", "updatedAt": "ISO",
   "creator": {"id": "uuid", "name": "..."}, "updatedBy": {"id": "uuid", "name": "..."},
-  "project": {"id": "uuid", "name": "..."}, "initiative": null
+  "project": {"id": "uuid", "name": "..."}
 }
 ```
+
+### Comment (fetched inline with issues)
+```json
+{
+  "id": "uuid", "body": "markdown...",
+  "createdAt": "ISO", "updatedAt": "ISO",
+  "user": {"id": "uuid", "name": "Name", "email": "..."}
+}
+```
+
+### API Quirks Discovered
+- **Complexity limit**: 10000 per query. Rich project queries need page size 5 (not 50).
+- **Rate limiting**: Returns HTTP 400 (not 429) with "RATELIMITED" in body. Check body text.
+- **Connection reuse**: Must use persistent httpx.AsyncClient; creating per-request hits 3000+ TCP connections.
+- **Inline comments**: `comments(first: 50)` on issues avoids N+1 API calls (3300+ → ~70 calls).
+- **Project slugs**: `slugId` is a hex hash. Use `_slugify(name)` for readable file paths.
+- **Content vs description**: Projects and initiatives have both. `content` is the rich body; `description` is a short summary. Prefer `content` when present.
 
 ---
 
@@ -703,29 +741,38 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
-### Task 7.6: Decide Field Sync Strategy — Whitelist vs Blacklist
+### Task 7.6: Field Sync Strategy — Decision: Explicit Whitelist with Rich Defaults
 
-**Question:** Should we explicitly whitelist which Linear fields we sync to git, or blacklist the ones we skip?
+**Decision: Keep explicit whitelist approach, but ensure it's comprehensive.**
 
-**Whitelist approach (current):**
-- Explicitly list every field we fetch in GraphQL queries
-- Explicitly list every field we render in markdown
-- Pro: Predictable, no surprise data in git
-- Con: New fields require code changes; easy to miss useful data (as we just experienced)
+**Rationale:**
+- GraphQL requires explicit field selection — there's no "fetch all fields" option
+- The complexity limit (10000) means we can't blindly add every field anyway
+- The real problem wasn't the whitelist approach — it was that we didn't include enough fields initially
+- A blacklist approach would require schema introspection and dynamic query building, adding significant complexity for marginal benefit
 
-**Blacklist approach:**
-- Fetch all available fields from Linear API
-- Exclude specific fields (e.g., internal IDs, temporary state, binary data)
-- Pro: Automatically picks up new fields; harder to miss useful data
-- Con: May include noisy/unstable fields that cause unnecessary diffs
+**Implementation:**
+1. GraphQL queries explicitly list all useful fields (already done)
+2. Models have typed fields for everything we fetch (already done)
+3. Renderers output all model fields to markdown (already done)
+4. When Linear adds new fields, we add them to queries/models/renderers as needed
+5. The API shapes section above serves as the reference for what we fetch
 
-**Hybrid approach (recommended):**
-- Use introspection or broad queries to fetch most fields
-- Have an explicit exclusion list for noisy/internal fields
-- Render all non-excluded fields in a structured way
-- Pro: Best of both worlds — comprehensive but controlled
+**Fields intentionally excluded:**
+- `archivedAt` — archived entities are excluded from queries
+- `trashed` — trashed entities are excluded
+- `sortOrder`, `prioritySortOrder` — UI ordering, not meaningful in git
+- `reactionData` — emoji reactions not represented in markdown
+- `facets` — internal UI metadata
+- `contentState`, `descriptionState` — internal editor state (ProseMirror JSON)
+- `updateReminderFrequency*` — notification settings
+- `snoozedUntilAt`, `snoozedBy` — temporary UI state
+- `branchName` — derived from identifier, not useful to duplicate
+- `infoSnapshot`, `diff`, `diffMarkdown` — internal project update metadata
+- `scopeHistory`, `completedScopeHistory`, `progressHistory` — time series data (too large)
+- `labelIds`, `previousIdentifiers` — redundant with resolved names/identifiers
 
-**Decision needed from stakeholder before Phase 2 begins.**
+**Status: DECIDED. No further action needed.**
 
 ---
 
