@@ -19,17 +19,24 @@ issueclaw pull --repo-dir /path/to/linear-git
 # Filter by team
 issueclaw pull --repo-dir /path/to/linear-git --teams AI,ENG
 
+# Check sync status
+issueclaw status --repo-dir /path/to/linear-git
+
+# Preview what would be pushed to Linear
+issueclaw diff --repo-dir /path/to/linear-git
+
 # JSON output for scripts/agents
-issueclaw --json pull --repo-dir /path/to/linear-git
+issueclaw --json status --repo-dir /path/to/linear-git
 ```
 
 ## Current Status
 
-**Phases 1-3 are complete and tested end-to-end in production.**
+**All 4 phases are complete and tested end-to-end in production.**
 
 - **Phase 1 (Pull)**: `issueclaw pull` syncs all Linear data into rich markdown files (3500+ entities).
 - **Phase 2 (Webhook Pull)**: Linear changes sync to git in real-time via CF Worker + GitHub Actions.
 - **Phase 3 (Push)**: Edit markdown, `git push`, and changes flow to Linear automatically via GitHub Actions.
+- **Phase 4 (Polish)**: Status/assignee field resolution, `issueclaw status` and `issueclaw diff` commands.
 
 The developer workflow is just git — `git pull` to get changes, edit files, `git push` to sync back. issueclaw itself only runs in CI/CD.
 
@@ -772,7 +779,9 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 |--------|---------|
 | `issueclaw.commands.pull` | Initial pull sync: fetches all Linear data, renders to `.md`, builds id-map |
 | `issueclaw.commands.apply_webhook` | Webhook pull: re-fetches entity by ID, renders to `.md`, handles create/update/remove |
-| `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, calls Linear mutations |
+| `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, resolves fields, calls Linear mutations |
+| `issueclaw.commands.status` | Shows sync state summary: entity counts, teams, last sync |
+| `issueclaw.commands.diff_cmd` | Previews field-level changes that would be pushed |
 | `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse, mutations |
 | `issueclaw.diff` | Field-level markdown diff: frontmatter, body, and comments |
 | `issueclaw.models` | Pydantic models for all Linear entity types |
@@ -845,8 +854,14 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 - **Value**: Full bidirectional sync. Edit issues as markdown, push, done.
 - **Known gaps**: Status and assignee changes require name→ID resolution (not yet implemented).
 
-### Phase 4: Polish
-- Status/assignee field resolution for push sync.
+### Phase 4: Polish - COMPLETE
+- `issueclaw status`: Shows entity counts, teams, and last sync timestamp.
+- `issueclaw diff`: Previews field-level changes that would be pushed to Linear.
+- Status field resolution: state name → stateId via team workflow states API.
+- Assignee field resolution: user name → assigneeId via workspace users API.
+- Both new commands support `--json` mode for scripting and AI agents.
+
+**Remaining items (not yet implemented):**
 - Image handling strategy (Linear uploads need auth tokens).
 - Support for issue relations (blocks, blocked-by, related).
-- Error recovery and sync health monitoring.
+- Webhook delivery failure detection and recovery.
