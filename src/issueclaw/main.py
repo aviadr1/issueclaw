@@ -2,6 +2,7 @@ import click
 
 from issueclaw.commands.apply_webhook import apply_webhook_command
 from issueclaw.commands.pull import pull_command
+from issueclaw.commands.push import push_command
 
 
 @click.group()
@@ -20,6 +21,7 @@ def cli(ctx, json_mode, verbose, quiet):
 
 cli.add_command(pull_command)
 cli.add_command(apply_webhook_command)
+cli.add_command(push_command)
 
 
 if __name__ == "__main__":

@@ -324,3 +324,43 @@ class LinearClient:
         }
         """
         return await self._paginate(query, ["documents"])
+
+    # Mutation methods for push sync
+
+    async def update_issue(self, issue_id: str, fields: dict) -> dict:
+        """Update an issue's fields in Linear."""
+        query = """
+        mutation UpdateIssue($issueId: String!, $input: IssueUpdateInput!) {
+            issueUpdate(id: $issueId, input: $input) {
+                success
+                issue { id identifier title }
+            }
+        }
+        """
+        result = await self._graphql(query, {"issueId": issue_id, "input": fields})
+        return result.get("data", {}).get("issueUpdate", {}).get("issue", {})
+
+    async def archive_issue(self, issue_id: str) -> dict:
+        """Archive an issue in Linear."""
+        query = """
+        mutation ArchiveIssue($issueId: String!) {
+            issueArchive(id: $issueId) {
+                success
+            }
+        }
+        """
+        result = await self._graphql(query, {"issueId": issue_id})
+        return result.get("data", {}).get("issueArchive", {})
+
+    async def create_comment(self, issue_id: str, body: str) -> dict:
+        """Create a comment on an issue in Linear."""
+        query = """
+        mutation CreateComment($input: CommentCreateInput!) {
+            commentCreate(input: $input) {
+                success
+                comment { id body }
+            }
+        }
+        """
+        result = await self._graphql(query, {"input": {"issueId": issue_id, "body": body}})
+        return result.get("data", {}).get("commentCreate", {}).get("comment", {})
