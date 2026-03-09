@@ -165,7 +165,7 @@ class LinearDocument(BaseModel):
 
     id: str
     title: str
-    content: str = ""
+    content: str | None = ""
     slug_id: str = ""
     url: str = ""
     creator_name: str | None = None
