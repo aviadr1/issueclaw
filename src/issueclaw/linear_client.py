@@ -164,10 +164,14 @@ class LinearClient:
         return result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
 
     async def fetch_projects(self) -> list[dict]:
-        """Fetch all projects in the workspace."""
+        """Fetch all projects in the workspace.
+
+        Uses smaller page size (5) due to query complexity from nested connections
+        (milestones, updates, members, initiatives, documents).
+        """
         query = """
         query Projects($after: String) {
-            projects(first: 50, after: $after) {
+            projects(first: 5, after: $after) {
                 nodes {
                     id name slugId description content
                     priority health progress scope
