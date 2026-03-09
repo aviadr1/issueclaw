@@ -43,6 +43,34 @@ def test_render_issue_frontmatter():
     assert "Build chapter detection." in body
 
 
+def test_render_issue_with_project_and_lifecycle():
+    """INVARIANT: Issue renders project, milestone, parent, and lifecycle dates."""
+    issue = LinearIssue(
+        id="uuid-123",
+        identifier="AI-123",
+        title="Test issue",
+        description="Body.",
+        status="Done",
+        priority=2,
+        assignee="Aviad",
+        project="Metrics Platform",
+        milestone="MVP",
+        parent_id="AI-100",
+        started_at="2026-01-15T10:00:00Z",
+        completed_at="2026-02-01T14:00:00Z",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-02-01T14:00:00Z",
+        url="https://linear.app/test",
+    )
+    md = render_issue(issue)
+    fm, _ = _parse_frontmatter(md)
+    assert fm["project"] == "Metrics Platform"
+    assert fm["milestone"] == "MVP"
+    assert fm["parent"] == "AI-100"
+    assert fm["started_at"] == "2026-01-15T10:00:00Z"
+    assert fm["completed_at"] == "2026-02-01T14:00:00Z"
+
+
 def test_render_issue_omits_none_fields():
     """INVARIANT: None/empty optional fields are omitted from frontmatter."""
     issue = LinearIssue(
@@ -147,6 +175,119 @@ def test_render_project():
     assert "Build chapter detection." in body
 
 
+def test_render_project_with_content():
+    """INVARIANT: Project content field renders as main body (richer than description)."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Metrics Platform",
+        slug="metrics-platform",
+        description="Short description.",
+        content="# Data-as-Code\n\nTreat data infrastructure identically to application code.",
+        status="started",
+        lead_name="Mateusz",
+        priority=2,
+        health="onTrack",
+        progress=0.75,
+        scope=36,
+        url="https://linear.app/test",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    fm, body = _parse_frontmatter(md)
+    # Content should be the body when present (richer than description)
+    assert "# Data-as-Code" in body
+    assert "Treat data infrastructure" in body
+    # Health, progress, scope should be in frontmatter
+    assert fm["health"] == "onTrack"
+    assert fm["progress"] == 0.75
+    assert fm["scope"] == 36
+
+
+def test_render_project_with_milestones():
+    """INVARIANT: Project milestones render as a section in the body."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Test Project",
+        slug="test-project",
+        status="started",
+        milestones=[
+            {"name": "MVP", "description": "First release", "targetDate": "2026-03-01", "status": "done", "progress": 1.0},
+            {"name": "Beta", "description": "Public beta", "targetDate": "2026-06-01", "status": "inProgress", "progress": 0.5},
+        ],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    assert "## Milestones" in md
+    assert "MVP" in md
+    assert "First release" in md
+    assert "Beta" in md
+
+
+def test_render_project_with_updates():
+    """INVARIANT: Project status updates render as a section."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Test Project",
+        slug="test-project",
+        status="started",
+        project_updates=[
+            {
+                "body": "## Release 42\n\nDeployed to production.",
+                "health": "onTrack",
+                "createdAt": "2026-02-17T11:04:21Z",
+                "user": {"name": "Oz Shaked"},
+            },
+        ],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    assert "## Status Updates" in md
+    assert "Release 42" in md
+    assert "Deployed to production" in md
+    assert "Oz Shaked" in md
+
+
+def test_render_project_with_members_and_teams():
+    """INVARIANT: Project members and teams render in frontmatter."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Test Project",
+        slug="test-project",
+        status="started",
+        teams=[{"name": "Web", "key": "WEB"}, {"name": "Engineering", "key": "ENG"}],
+        members=["Aviad Rozenhek", "Mateusz"],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    fm, _ = _parse_frontmatter(md)
+    assert fm["teams"] == ["WEB", "ENG"]
+    assert fm["members"] == ["Aviad Rozenhek", "Mateusz"]
+
+
+def test_render_project_with_initiatives_and_documents():
+    """INVARIANT: Linked initiatives and documents render as sections."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Test Project",
+        slug="test-project",
+        status="started",
+        initiatives=[{"name": "Community metrics"}],
+        documents=[{"title": "Architecture Design"}, {"title": "Migration Strategy"}],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    assert "## Initiatives" in md
+    assert "Community metrics" in md
+    assert "## Documents" in md
+    assert "Architecture Design" in md
+    assert "Migration Strategy" in md
+
+
 def test_render_initiative():
     """INVARIANT: Initiative renders with correct frontmatter."""
     initiative = LinearInitiative(
@@ -167,6 +308,42 @@ def test_render_initiative():
     assert "Q1 focus areas." in body
 
 
+def test_render_initiative_with_projects():
+    """INVARIANT: Initiative linked projects render as a section."""
+    initiative = LinearInitiative(
+        id="uuid-init",
+        name="Community metrics",
+        description="Track community health.",
+        status="Active",
+        owner_name="Aviad",
+        projects=[{"name": "Metrics Platform"}, {"name": "Analytics Dashboard"}],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_initiative(initiative)
+    assert "## Projects" in md
+    assert "Metrics Platform" in md
+    assert "Analytics Dashboard" in md
+
+
+def test_render_initiative_with_content():
+    """INVARIANT: Initiative content renders as body when present."""
+    initiative = LinearInitiative(
+        id="uuid-init",
+        name="Test Initiative",
+        description="Short description.",
+        content="# Detailed Plan\n\nThis is the full content.",
+        status="Active",
+        owner_name="Aviad",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_initiative(initiative)
+    _, body = _parse_frontmatter(md)
+    assert "# Detailed Plan" in body
+    assert "full content" in body
+
+
 def test_render_document():
     """INVARIANT: Document renders title in frontmatter, content as body."""
     doc = LinearDocument(
@@ -185,3 +362,20 @@ def test_render_document():
     assert fm["id"] == "uuid-doc"
     assert "# Overview" in body
     assert "Details here." in body
+
+
+def test_render_document_with_project():
+    """INVARIANT: Document linked to a project shows project in frontmatter."""
+    doc = LinearDocument(
+        id="uuid-doc",
+        title="Architecture Design",
+        content="# Architecture\nDetails.",
+        project_name="Metrics Platform",
+        project_id="proj-uuid",
+        url="https://linear.app/...",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_document(doc)
+    fm, _ = _parse_frontmatter(md)
+    assert fm["project"] == "Metrics Platform"

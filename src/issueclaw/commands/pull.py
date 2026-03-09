@@ -181,6 +181,9 @@ def _parse_issue(raw: dict, team_key: str) -> LinearIssue:
     assignee = raw.get("assignee") or {}
     labels_data = raw.get("labels") or {}
     labels_nodes = labels_data.get("nodes", []) if isinstance(labels_data, dict) else labels_data
+    project = raw.get("project") or {}
+    milestone = raw.get("projectMilestone") or {}
+    parent = raw.get("parent") or {}
 
     return LinearIssue(
         id=raw["id"],
@@ -194,8 +197,14 @@ def _parse_issue(raw: dict, team_key: str) -> LinearIssue:
         assignee_id=assignee.get("id") if isinstance(assignee, dict) else None,
         labels=[lb.get("name", "") for lb in labels_nodes] if labels_nodes else [],
         team_key=team_key,
+        project=project.get("name") if isinstance(project, dict) else project,
+        milestone=milestone.get("name") if isinstance(milestone, dict) else milestone,
+        parent_id=parent.get("identifier") if isinstance(parent, dict) else None,
         estimate=raw.get("estimate"),
         due_date=raw.get("dueDate"),
+        started_at=raw.get("startedAt"),
+        completed_at=raw.get("completedAt"),
+        canceled_at=raw.get("canceledAt"),
         created=raw.get("createdAt", ""),
         updated=raw.get("updatedAt", ""),
         url=raw.get("url", ""),

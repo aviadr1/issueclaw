@@ -49,8 +49,12 @@ class LinearIssue(BaseModel):
     team_key: str | None = None
     project: str | None = None
     milestone: str | None = None
+    parent_id: str | None = None
     estimate: int | None = None
     due_date: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    canceled_at: str | None = None
     created: str = ""
     updated: str = ""
     url: str = ""
@@ -114,10 +118,14 @@ class LinearProject(BaseModel):
     name: str
     slug: str = ""
     description: str | None = None
+    content: str | None = None
     status: str = ""
     lead_name: str | None = None
     lead_id: str | None = None
     priority: int | None = None
+    health: str | None = None
+    progress: float | None = None
+    scope: float | None = None
     start_date: str | None = None
     target_date: str | None = None
     labels: list[str] = Field(default_factory=list)
@@ -125,7 +133,11 @@ class LinearProject(BaseModel):
     created: str = ""
     updated: str = ""
     teams: list[dict] = Field(default_factory=list)
+    members: list[str] = Field(default_factory=list)
     milestones: list[dict] = Field(default_factory=list)
+    project_updates: list[dict] = Field(default_factory=list)
+    initiatives: list[dict] = Field(default_factory=list)
+    documents: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_api(cls, data: dict) -> Self:
@@ -134,21 +146,29 @@ class LinearProject(BaseModel):
         status_name = status_obj.get("name", "") if isinstance(status_obj, dict) else str(status_obj)
 
         # Extract label names
-        labels_raw = data.get("labels", [])
+        labels_raw = _extract_nodes(data.get("labels", []))
         if labels_raw and isinstance(labels_raw[0], dict):
             labels = [lb.get("name", "") for lb in labels_raw]
         else:
             labels = labels_raw
+
+        # Extract member names
+        members_raw = _extract_nodes(data.get("members", []))
+        members = [m.get("name", "") for m in members_raw] if members_raw and isinstance(members_raw[0], dict) else []
 
         return cls(
             id=data["id"],
             name=data.get("name", ""),
             slug=_slugify(data.get("name", "")),
             description=data.get("description"),
+            content=data.get("content"),
             status=status_name,
             lead_name=lead.get("name"),
             lead_id=lead.get("id"),
             priority=data.get("priority"),
+            health=data.get("health"),
+            progress=data.get("progress"),
+            scope=data.get("scope"),
             start_date=data.get("startDate"),
             target_date=data.get("targetDate"),
             labels=labels,
@@ -156,7 +176,11 @@ class LinearProject(BaseModel):
             created=data.get("createdAt", ""),
             updated=data.get("updatedAt", ""),
             teams=_extract_nodes(data.get("teams", [])),
+            members=members,
             milestones=_extract_nodes(data.get("projectMilestones") or data.get("milestones", [])),
+            project_updates=_extract_nodes(data.get("projectUpdates", [])),
+            initiatives=_extract_nodes(data.get("initiatives", [])),
+            documents=_extract_nodes(data.get("documents", [])),
         )
 
 
@@ -201,12 +225,16 @@ class LinearInitiative(BaseModel):
     id: str
     name: str
     description: str | None = None
+    content: str | None = None
     status: str = ""
+    health: str | None = None
     owner_name: str | None = None
     owner_id: str | None = None
     target_date: str | None = None
+    url: str = ""
     created: str = ""
     updated: str = ""
+    projects: list[dict] = Field(default_factory=list)
 
     @classmethod
     def from_api(cls, data: dict) -> Self:
@@ -216,10 +244,14 @@ class LinearInitiative(BaseModel):
             id=data["id"],
             name=data.get("name", ""),
             description=data.get("description"),
+            content=data.get("content"),
             status=data.get("status", ""),
+            health=data.get("health"),
             owner_name=owner.get("name"),
             owner_id=owner.get("id"),
             target_date=data.get("targetDate"),
+            url=data.get("url", ""),
             created=data.get("createdAt", ""),
             updated=data.get("updatedAt", ""),
+            projects=_extract_nodes(data.get("projects", [])),
         )

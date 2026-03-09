@@ -130,10 +130,13 @@ class LinearClient:
                         priority priorityLabel
                         url createdAt updatedAt dueDate
                         estimate
+                        startedAt completedAt canceledAt
                         state {{ name }}
                         assignee {{ id name email }}
                         labels {{ nodes {{ name }} }}
-                        project {{ id name slugId }}
+                        project {{ id name }}
+                        projectMilestone {{ id name }}
+                        parent {{ id identifier title }}
                         cycle {{ id name }}{comments_fragment}
                     }}
                     pageInfo {{ hasNextPage endCursor }}
@@ -166,15 +169,23 @@ class LinearClient:
         query Projects($after: String) {
             projects(first: 50, after: $after) {
                 nodes {
-                    id name slugId description
+                    id name slugId description content
+                    priority health progress scope
                     url createdAt updatedAt
                     startDate targetDate
-                    state
+                    status { id name color type }
                     lead { id name email }
                     teams { nodes { id name key } }
+                    members { nodes { id name } }
+                    labels { nodes { id name } }
                     projectMilestones {
-                        nodes { id name description targetDate }
+                        nodes { id name description targetDate status progress }
                     }
+                    projectUpdates(first: 10) {
+                        nodes { id body health createdAt user { id name } }
+                    }
+                    initiatives { nodes { id name } }
+                    documents { nodes { id title } }
                 }
                 pageInfo { hasNextPage endCursor }
             }
@@ -188,9 +199,12 @@ class LinearClient:
         query Initiatives($after: String) {
             initiatives(first: 50, after: $after) {
                 nodes {
-                    id name description status
+                    id name description content
+                    status health
                     targetDate createdAt updatedAt
+                    url
                     owner { id name email }
+                    projects { nodes { id name } }
                 }
                 pageInfo { hasNextPage endCursor }
             }
