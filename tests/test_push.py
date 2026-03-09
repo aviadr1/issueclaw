@@ -427,3 +427,39 @@ async def test_push_maps_description_field_correctly(tmp_path):
     fields = call_args[0][1]
     assert "description" in fields
     assert "Updated text." in fields["description"]
+
+
+@pytest.mark.asyncio
+async def test_push_strips_entity_heading_from_description(tmp_path):
+    """INVARIANT: The entity heading (# AI-1: Title) is stripped before sending to Linear API.
+
+    Linear generates this heading itself — sending it back creates duplicates.
+    """
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
+    state.save()
+
+    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Original.").read_text()
+    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Updated body.").read_text()
+
+    changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-1-fix-bug.md",
+        change_type="modified",
+        old_content=old_content,
+        new_content=new_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    call_args = mock_client.update_issue.call_args
+    fields = call_args[0][1]
+    # The description should NOT contain the entity heading
+    assert "# AI-1:" not in fields["description"]
+    assert "Updated body." in fields["description"]
