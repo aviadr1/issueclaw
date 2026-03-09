@@ -118,7 +118,9 @@ def _make_mock_client(
     mock.fetch_documents = AsyncMock(return_value=documents)
 
     # fetch_issues returns raw API dicts (LinearClient returns dicts)
-    mock.fetch_issues = AsyncMock(side_effect=lambda team_id: issues_by_team.get(team_id, []))
+    mock.fetch_issues = AsyncMock(
+        side_effect=lambda team_id, include_comments=True: issues_by_team.get(team_id, [])
+    )
     mock.fetch_comments = AsyncMock(side_effect=lambda issue_id: comments_by_issue.get(issue_id, []))
 
     # Support async context manager usage
@@ -397,18 +399,23 @@ def test_sync_includes_comments_in_issues(runner, tmp_path, sample_team):
         "updatedAt": "2026-01-02T00:00:00Z",
         "url": "",
     }
-    comment_api = {
-        "id": "comment-uuid",
-        "body": "Looks good!",
-        "createdAt": "2026-01-01T12:00:00Z",
-        "updatedAt": "2026-01-01T12:00:00Z",
-        "user": {"id": "user-uuid", "name": "Aviad", "email": "a@b.com"},
+    # Add inline comments to the issue API response
+    issue_api["comments"] = {
+        "nodes": [
+            {
+                "id": "comment-uuid",
+                "body": "Looks good!",
+                "createdAt": "2026-01-01T12:00:00Z",
+                "updatedAt": "2026-01-01T12:00:00Z",
+                "user": {"id": "user-uuid", "name": "Aviad", "email": "a@b.com"},
+            }
+        ]
     }
 
     mock_client = _make_mock_client(
         teams=[sample_team],
         issues_by_team={"team-uuid": [issue_api]},
-        comments_by_issue={"issue-uuid": [comment_api]},
+        comments_by_issue={},
         projects=[],
         initiatives=[],
         documents=[],

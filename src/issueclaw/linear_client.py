@@ -107,27 +107,39 @@ class LinearClient:
         """
         return await self._paginate(query, ["teams"])
 
-    async def fetch_issues(self, team_id: str) -> list[dict]:
-        """Fetch all issues for a team, paginated."""
-        query = """
-        query TeamIssues($teamId: String!, $after: String) {
-            team(id: $teamId) {
-                issues(first: 50, after: $after) {
-                    nodes {
+    async def fetch_issues(self, team_id: str, include_comments: bool = True) -> list[dict]:
+        """Fetch all issues for a team, paginated.
+
+        When include_comments=True, comments are fetched inline (up to 50 per issue),
+        avoiding the need for separate comment API calls.
+        """
+        comments_fragment = """
+                        comments(first: 50) {
+                            nodes {
+                                id body createdAt updatedAt
+                                user { id name email }
+                            }
+                        }""" if include_comments else ""
+
+        query = f"""
+        query TeamIssues($teamId: String!, $after: String) {{
+            team(id: $teamId) {{
+                issues(first: 50, after: $after) {{
+                    nodes {{
                         id identifier title description
                         priority priorityLabel
                         url createdAt updatedAt dueDate
                         estimate
-                        state { name }
-                        assignee { id name email }
-                        labels { nodes { name } }
-                        project { id name slugId }
-                        cycle { id name }
-                    }
-                    pageInfo { hasNextPage endCursor }
-                }
-            }
-        }
+                        state {{ name }}
+                        assignee {{ id name email }}
+                        labels {{ nodes {{ name }} }}
+                        project {{ id name slugId }}
+                        cycle {{ id name }}{comments_fragment}
+                    }}
+                    pageInfo {{ hasNextPage endCursor }}
+                }}
+            }}
+        }}
         """
         return await self._paginate(query, ["team", "issues"], {"teamId": team_id})
 

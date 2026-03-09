@@ -27,9 +27,6 @@ from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
 
-COMMENT_CONCURRENCY = 5
-
-
 def _default_log(msg: str) -> None:
     _console.print(msg)
 
@@ -55,21 +52,6 @@ def _progress_bar(description: str, total: int | None = None, enabled: bool = Tr
     ) as progress:
         task = progress.add_task(description, total=total)
         yield lambda: progress.advance(task)
-
-
-async def _fetch_comments_for_issue(
-    client: LinearClient,
-    issue_id: str,
-    semaphore: asyncio.Semaphore,
-    log: Callable[[str], None] = _noop_log,
-) -> list[dict]:
-    """Fetch comments for a single issue, respecting concurrency limit."""
-    async with semaphore:
-        try:
-            return await client.fetch_comments(issue_id)
-        except Exception as e:
-            log(f"  Warning: failed to fetch comments for {issue_id}: {e}")
-            return []
 
 
 async def _run_pull(
@@ -100,27 +82,20 @@ async def _run_pull(
             teams = [t for t in teams if t["key"].upper() in filter_set]
             log(f"Filtered to {len(teams)} teams: {', '.join(t['key'] for t in teams)}")
 
-        semaphore = asyncio.Semaphore(COMMENT_CONCURRENCY)
-
         # Sync issues per team
         for team in teams:
             team_key = team["key"]
             team_id = team["id"]
 
             log(f"Fetching issues for team {team_key}...")
-            raw_issues = await client.fetch_issues(team_id)
+            raw_issues = await client.fetch_issues(team_id, include_comments=True)
             log(f"  {len(raw_issues)} issues in {team_key}")
 
-            # Batch fetch comments concurrently
-            comment_tasks = [
-                _fetch_comments_for_issue(client, ri["id"], semaphore, log)
-                for ri in raw_issues
-            ]
-            all_comments = await asyncio.gather(*comment_tasks)
-
             with _progress_bar(f"Writing {team_key} issues", len(raw_issues), enabled=show_progress) as advance:
-                for raw_issue, raw_comments in zip(raw_issues, all_comments):
+                for raw_issue in raw_issues:
                     issue = _parse_issue(raw_issue, team_key)
+                    # Comments are included inline from the issue query
+                    raw_comments = (raw_issue.get("comments") or {}).get("nodes", [])
                     issue.comments = [LinearComment.from_api(c) for c in raw_comments]
 
                     path = entity_path("issue", team_key=team_key, identifier=issue.identifier)
