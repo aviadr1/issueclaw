@@ -1,5 +1,6 @@
 import click
 
+from issueclaw.commands.apply_webhook import apply_webhook_command
 from issueclaw.commands.pull import pull_command
 
 
@@ -18,6 +19,7 @@ def cli(ctx, json_mode, verbose, quiet):
 
 
 cli.add_command(pull_command)
+cli.add_command(apply_webhook_command)
 
 
 if __name__ == "__main__":

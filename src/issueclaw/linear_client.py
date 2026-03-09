@@ -146,6 +146,97 @@ class LinearClient:
         """
         return await self._paginate(query, ["team", "issues"], {"teamId": team_id})
 
+    async def fetch_issue(self, issue_id: str) -> dict:
+        """Fetch a single issue by ID with full data including team and comments."""
+        query = """
+        query Issue($issueId: String!) {
+            issue(id: $issueId) {
+                id identifier title description
+                priority priorityLabel
+                url createdAt updatedAt dueDate
+                estimate
+                startedAt completedAt canceledAt
+                state { name }
+                assignee { id name email }
+                labels { nodes { name } }
+                project { id name }
+                projectMilestone { id name }
+                parent { id identifier title }
+                cycle { id name }
+                team { id key name }
+                comments(first: 50) {
+                    nodes {
+                        id body createdAt updatedAt
+                        user { id name email }
+                    }
+                }
+            }
+        }
+        """
+        result = await self._graphql(query, {"issueId": issue_id})
+        return result.get("data", {}).get("issue", {})
+
+    async def fetch_project(self, project_id: str) -> dict:
+        """Fetch a single project by ID with full data."""
+        query = """
+        query Project($projectId: String!) {
+            project(id: $projectId) {
+                id name slugId description content
+                priority health progress scope
+                url createdAt updatedAt
+                startDate targetDate
+                status { id name color type }
+                lead { id name email }
+                teams { nodes { id name key } }
+                members { nodes { id name } }
+                labels { nodes { id name } }
+                projectMilestones {
+                    nodes { id name description targetDate status progress }
+                }
+                projectUpdates(first: 10) {
+                    nodes { id body health createdAt user { id name } }
+                }
+                initiatives { nodes { id name } }
+                documents { nodes { id title } }
+            }
+        }
+        """
+        result = await self._graphql(query, {"projectId": project_id})
+        return result.get("data", {}).get("project", {})
+
+    async def fetch_initiative(self, initiative_id: str) -> dict:
+        """Fetch a single initiative by ID."""
+        query = """
+        query Initiative($initiativeId: String!) {
+            initiative(id: $initiativeId) {
+                id name description content
+                status health
+                targetDate createdAt updatedAt
+                url
+                owner { id name email }
+                projects { nodes { id name } }
+            }
+        }
+        """
+        result = await self._graphql(query, {"initiativeId": initiative_id})
+        return result.get("data", {}).get("initiative", {})
+
+    async def fetch_document(self, document_id: str) -> dict:
+        """Fetch a single document by ID."""
+        query = """
+        query Document($documentId: String!) {
+            document(id: $documentId) {
+                id title content slugId icon color
+                url createdAt updatedAt
+                creator { id name }
+                updatedBy { id name }
+                project { id name }
+            }
+        }
+        """
+        result = await self._graphql(query, {"documentId": document_id})
+        return result.get("data", {}).get("document", {})
+
     async def fetch_comments(self, issue_id: str) -> list[dict]:
         """Fetch all comments for an issue."""
         query = """

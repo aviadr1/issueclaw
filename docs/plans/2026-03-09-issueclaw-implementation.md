@@ -776,6 +776,22 @@ def test_initial_sync_creates_issue_files(runner, tmp_path):
 
 ---
 
+### OPEN: Image Handling (needs human decision)
+
+**Problem:** Linear upload images (`uploads.linear.app`) require authentication. When markdown files are viewed on GitHub, images appear broken because GitHub's image proxy can't authenticate with Linear.
+
+**Code ready:** `src/issueclaw/image_sync.py` has URL rewriting logic and tests. Not yet integrated into the pull command.
+
+**Options to evaluate:**
+1. Download images to git (simple but bloats git history with binaries)
+2. Download images + Git LFS (avoids bloat, images render on GitHub)
+3. Auth proxy (CF Worker adds auth header, rewrite URLs to proxy during sync)
+4. Accept broken images on GitHub (URLs work if user has Linear session cookies)
+
+**Decision:** TBD — needs Aviad's input on acceptable tradeoffs.
+
+---
+
 ## Phase 2: Webhook-Driven Pull (Real-Time)
 
 ### Task 8: Apply Webhook Script
