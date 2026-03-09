@@ -95,8 +95,13 @@ async def push_changes(
                     # Build update fields from frontmatter changes
                     update_fields: dict[str, Any] = {}
                     for field_name, field_diff in diff.frontmatter_changes.items():
-                        if field_name in _ISSUE_FIELD_MAP and field_diff.new is not None:
-                            update_fields[field_name] = field_diff.new
+                        if field_name not in _ISSUE_FIELD_MAP or field_diff.new is None:
+                            continue
+                        api_field = _ISSUE_FIELD_MAP[field_name]
+                        # Skip fields that need ID resolution (stateId, assigneeId)
+                        if api_field.endswith("Id"):
+                            continue
+                        update_fields[api_field] = field_diff.new
 
                     # Include body changes
                     if diff.body_changed:

@@ -42,17 +42,15 @@ url: https://linear.app/test
 
 @pytest.mark.asyncio
 async def test_push_detects_modified_frontmatter(tmp_path):
-    """INVARIANT: Modified frontmatter fields generate an update API call."""
-    # Set up old state
-    _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo")
+    """INVARIANT: Modified frontmatter fields generate an update API call with mapped field names."""
     state = SyncState(tmp_path)
     state.load()
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    # Simulate git diff: changed files with old and new content
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo").read_text()
-    new_path = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Done")
+    # Change title (a directly mappable field)
+    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug").read_text()
+    new_path = _write_issue_md(tmp_path, "AI-1", "Fix critical bug")
     new_content = new_path.read_text()
 
     changes = [push_mod.FileChange(
@@ -73,8 +71,9 @@ async def test_push_detects_modified_frontmatter(tmp_path):
     assert result["updated"] == 1
     mock_client.update_issue.assert_called_once()
     call_args = mock_client.update_issue.call_args
-    assert call_args[0][0] == "uuid-ai-1"  # entity ID
-    assert "status" in call_args[0][1] or "status" in call_args[1].get("fields", {})
+    assert call_args[0][0] == "uuid-ai-1"
+    assert "title" in call_args[0][1]
+    assert call_args[0][1]["title"] == "Fix critical bug"
 
 
 @pytest.mark.asyncio
@@ -362,3 +361,69 @@ def test_push_command_no_changes(tmp_path):
 
     assert result.exit_code == 0
     assert "no changes" in result.output.lower() or "0" in result.output
+
+
+@pytest.mark.asyncio
+async def test_push_maps_field_names_to_linear_api(tmp_path):
+    """INVARIANT: Frontmatter field 'title' maps to Linear API field 'title' in the update call."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
+    state.save()
+
+    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo").read_text()
+    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug v2", status="Todo").read_text()
+
+    changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-1-fix-bug.md",
+        change_type="modified",
+        old_content=old_content,
+        new_content=new_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    assert result["updated"] == 1
+    call_args = mock_client.update_issue.call_args
+    fields = call_args[0][1]
+    # Should use Linear API field name 'title', not frontmatter key
+    assert "title" in fields
+    assert fields["title"] == "Fix bug v2"
+
+
+@pytest.mark.asyncio
+async def test_push_maps_description_field_correctly(tmp_path):
+    """INVARIANT: Body changes map to 'description' in the Linear update call."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
+    state.save()
+
+    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Original text.").read_text()
+    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Updated text.").read_text()
+
+    changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-1-fix-bug.md",
+        change_type="modified",
+        old_content=old_content,
+        new_content=new_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    call_args = mock_client.update_issue.call_args
+    fields = call_args[0][1]
+    assert "description" in fields
+    assert "Updated text." in fields["description"]
