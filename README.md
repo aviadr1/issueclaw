@@ -25,14 +25,13 @@ issueclaw --json pull --repo-dir /path/to/linear-git
 
 ## Current Status
 
-**Phase 1 (Read-Only Pull) is complete.** The `issueclaw pull` command syncs all Linear data into rich markdown files:
+**Phases 1-3 are complete and tested end-to-end in production.**
 
-- **3300+ issues** with comments, project links, milestones, lifecycle dates
-- **120+ projects** with full content, status updates, milestones, members, teams, initiatives, documents
-- **36 initiatives** with content, health, linked projects
-- **90+ documents** with project linkage
+- **Phase 1 (Pull)**: `issueclaw pull` syncs all Linear data into rich markdown files (3500+ entities).
+- **Phase 2 (Webhook Pull)**: Linear changes sync to git in real-time via CF Worker + GitHub Actions.
+- **Phase 3 (Push)**: Edit markdown, `git push`, and changes flow to Linear automatically via GitHub Actions.
 
-Files use readable names: `AI-123-fix-login-bug.md`, `metrics-platform/_project.md`.
+The developer workflow is just git — `git pull` to get changes, edit files, `git push` to sync back. issueclaw itself only runs in CI/CD.
 
 ---
 
@@ -93,7 +92,7 @@ Issueclaw breaks this silo by storing Linear data as plain markdown files in git
 
 #### FR-1: Linear to Git sync (Pull direction)
 - **FR-1.1**: On any Linear entity change (issue, project, initiative, document, comment), the corresponding `.md` file in git must be updated within 30 seconds.
-- **FR-1.2**: Linear webhooks deliver the full entity payload. The sync must write the `.md` file directly from the webhook data without making additional API calls.
+- **FR-1.2**: Linear webhooks deliver entity IDs and changed fields, but use IDs for relationships (e.g., `stateId` instead of state name). The sync must re-fetch the full entity via the Linear API to render complete markdown.
 - **FR-1.3**: The sync must handle all Linear entity types: issues, projects, initiatives, milestones, documents, and comments.
 - **FR-1.4**: Comments must be embedded in their parent issue's `.md` file, not as separate files.
 
@@ -316,19 +315,21 @@ updated: "2026-03-01T14:30:00Z"
 url: "https://linear.app/gigaverse/issue/AI-123"
 ---
 
+# AI-123: Implement chapter detection
+
 Implement chapter detection for livestreams based on speaker
 composition changes and breaks, not topics.
 
 Returns null for single-speaker streams.
 
-## Comments
+# Comments
 
-### aviad@gigaverse.ai - 2026-02-15T09:00:00Z
+## aviad@gigaverse.ai - 2026-02-15T09:00:00Z
 <!-- comment-id: d290f1ee-6c54-4b01-90e6-d701748f0851 -->
 
 Started working on this. Using Gemini for initial analysis.
 
-### john@gigaverse.ai - 2026-02-20T11:00:00Z
+## john@gigaverse.ai - 2026-02-20T11:00:00Z
 <!-- comment-id: 7c9e6679-7425-40de-944b-e07fc1f90ae7 -->
 
 Looks good! Can we add break detection too?
@@ -383,28 +384,28 @@ members:
 url: "https://linear.app/gigaverse/project/metrics-platform-7bb22805ba90"
 ---
 
-# Data-as-Code
+# Metrics Platform
 
 Treat data infrastructure identically to application code...
 
-## Milestones
+# Milestones
 
 - **MVP** (done) - 100%
   Target: 2026-03-01
   First release
 
-## Status Updates
+# Status Updates
 
-### Oz Shaked - 2026-02-17T11:04:21Z [onTrack]
+## Oz Shaked - 2026-02-17T11:04:21Z [onTrack]
 
-## Release 42 — Deployed to Production
+Release 42 — Deployed to Production
 Staging dry-run executed successfully...
 
-## Initiatives
+# Initiatives
 
 - Community metrics
 
-## Documents
+# Documents
 
 - Architecture Design
 - Data Recovery Playbook
@@ -423,11 +424,11 @@ target_date: "2026-06-30"
 url: "https://linear.app/gigaverse/initiative/community-metrics"
 ---
 
-# Full Initiative Plan
+# Community metrics
 
 Detailed content about the initiative goals and approach...
 
-## Projects
+# Projects
 
 - Metrics Platform
 - Analytics Dashboard
@@ -435,18 +436,18 @@ Detailed content about the initiative goals and approach...
 
 ### Comment format within issues
 
-Comments are embedded in the issue file under a `## Comments` section. Each comment is a level-3 heading with the author and timestamp. The Linear comment UUID is stored in an HTML comment for the sync tool to track.
+Comments are embedded in the issue file under a `# Comments` section. Each comment is a level-2 heading with the author and timestamp. The Linear comment UUID is stored in an HTML comment for the sync tool to track.
 
 ```markdown
-## Comments
+# Comments
 
-### author@email.com - ISO-8601-timestamp
+## author@email.com - ISO-8601-timestamp
 <!-- comment-id: linear-comment-uuid -->
 
 Comment body in markdown.
 ```
 
-New comments are added by appending a new `### ` section. Deleted comments are removed by deleting the section. Edited comments modify the body below the heading.
+New comments are added by appending a new `## ` section. Deleted comments are removed by deleting the section. Edited comments modify the body below the heading.
 
 ---
 
@@ -517,28 +518,25 @@ Triggered by: `repository_dispatch` event from the Cloudflare Worker.
 1. Parse webhook payload:
    - action: "create" | "update" | "remove"
    - type: "Issue" | "Comment" | "Project" | ...
-   - data: full current entity state
-   - updatedFrom: previous field values (for updates)
+   - data: { id, ... } (IDs for relationships, not full objects)
 
-2. Determine file path from entity data:
-   - Issues: linear/teams/{team.key}/issues/{identifier}.md
-   - Projects: linear/projects/{slug}/_project.md
-   - etc.
+2. For "create" or "update":
+   - Re-fetch full entity via Linear API (resolves stateId → name, teamId → key, etc.)
+   - Render entity to .md format
+   - Determine file path from entity data
+   - Write to file path, handle renames on title changes
+   - For comments: re-fetch parent issue and re-render entire file
 
-3. For "create" or "update":
-   - Render entity data to .md format
-   - Write to file path
-   - For comments: read parent issue file, update comments section, write back
-
-4. For "remove":
+3. For "remove":
+   - Look up file path from .sync/id-map.json
    - Delete the file
-   - Remove from .sync/id-map.json
+   - Remove from id-map
 
-5. git add linear/ .sync/
-6. git diff --staged --quiet || git commit + push
+4. git add -A
+5. git diff --cached --quiet || git commit + push
 ```
 
-Key efficiency: The webhook payload contains the full entity data. No additional API calls needed.
+Note: Linear webhook payloads use IDs for relationships (e.g., `stateId`, `teamId`) rather than nested objects. The apply-webhook command re-fetches the full entity via the Linear API to render complete markdown with resolved names.
 
 ### Diff Parsing Strategy
 
@@ -642,7 +640,7 @@ export default {
           "User-Agent": "issueclaw-webhook-proxy",
         },
         body: JSON.stringify({
-          event_type: "linear_webhook",
+          event_type: "linear-webhook",
           client_payload: {
             action: payload.action,
             type: payload.type,
@@ -668,66 +666,70 @@ export default {
 
 ```yaml
 # .github/workflows/issueclaw-push.yaml
-name: issueclaw push (Git → Linear)
+name: Push Changes to Linear
 
 on:
   push:
     branches: [main]
     paths: ['linear/**']
 
-concurrency:
-  group: issueclaw-sync
-  cancel-in-progress: false
+permissions:
+  contents: write
 
 jobs:
   push-to-linear:
     runs-on: ubuntu-latest
     if: github.event.head_commit.author.name != 'issueclaw-bot'
-
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 2  # Need parent commit for diff
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install httpx pyyaml
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
       - name: Push changes to Linear
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: python scripts/issueclaw/push.py
+        run: issueclaw push
 
-      - name: Commit updated IDs
+      - name: Commit updated sync state
         run: |
           git config user.name "issueclaw-bot"
-          git config user.email "issueclaw-bot@noreply.github.com"
-          git add linear/ .sync/
-          git diff --staged --quiet || git commit -m "sync: update IDs from Linear"
-          git push
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git add .sync/
+          if git diff --cached --quiet; then
+            echo "No sync state changes"
+          else
+            git commit -m "sync: update sync state after push to Linear"
+            git push
+          fi
 ```
 
 #### Webhook workflow (Linear to Git)
 
 ```yaml
 # .github/workflows/issueclaw-webhook.yaml
-name: issueclaw pull (Linear → Git)
+name: Apply Linear Webhook
 
 on:
   repository_dispatch:
-    types: [linear_webhook]
+    types: [linear-webhook]
 
-concurrency:
-  group: issueclaw-sync
-  cancel-in-progress: false
+permissions:
+  contents: write
 
 jobs:
   apply-webhook:
     runs-on: ubuntu-latest
-
+    concurrency:
+      group: issueclaw-webhook
     steps:
       - uses: actions/checkout@v4
 
@@ -735,21 +737,31 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install pyyaml
+      - uses: astral-sh/setup-uv@v4
 
-      - name: Apply Linear webhook
+      - name: Install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+      - name: Apply webhook payload
         env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           WEBHOOK_PAYLOAD: ${{ toJson(github.event.client_payload) }}
-        run: python scripts/issueclaw/apply_webhook.py
+        run: issueclaw apply-webhook
 
-      - name: Commit and push if changed
+      - name: Commit and push changes
+        env:
+          WEBHOOK_TYPE: ${{ github.event.client_payload.type }}
+          WEBHOOK_ACTION: ${{ github.event.client_payload.action }}
         run: |
           git config user.name "issueclaw-bot"
-          git config user.email "issueclaw-bot@noreply.github.com"
-          git add linear/ .sync/
-          git diff --staged --quiet || git commit -m "sync: ${{ github.event.client_payload.action }} ${{ github.event.client_payload.type }} ${{ github.event.client_payload.data.identifier || github.event.client_payload.data.name || '' }}"
-          git push
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "sync: apply Linear webhook ($WEBHOOK_TYPE $WEBHOOK_ACTION)"
+            git push
+          fi
 ```
 
 ### issueclaw Python Package
@@ -758,10 +770,13 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 
 | Module | Purpose |
 |--------|---------|
-| `issueclaw.commands.pull` | Pull sync: fetches Linear data, renders to `.md`, builds id-map |
-| `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse |
+| `issueclaw.commands.pull` | Initial pull sync: fetches all Linear data, renders to `.md`, builds id-map |
+| `issueclaw.commands.apply_webhook` | Webhook pull: re-fetches entity by ID, renders to `.md`, handles create/update/remove |
+| `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, calls Linear mutations |
+| `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse, mutations |
+| `issueclaw.diff` | Field-level markdown diff: frontmatter, body, and comments |
 | `issueclaw.models` | Pydantic models for all Linear entity types |
-| `issueclaw.render` | Markdown renderer: YAML frontmatter + body + sections |
+| `issueclaw.render` | Markdown renderer: YAML frontmatter + entity heading + body + sections |
 | `issueclaw.parse` | Markdown parser: extracts frontmatter, body, comments |
 | `issueclaw.paths` | Path conventions: `entity_path()`, `parse_entity_path()`, `slugify()` |
 | `issueclaw.sync_state` | `.sync/` management: id-map.json, state.json |
@@ -811,28 +826,27 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 
 ## Build Phases
 
-### Phase 1: Read-only pull (Linear to Git)
-- `initial_sync.py`: Full sync of all entities to `.md` files.
-- `render.py`: Markdown rendering for all entity types.
-- Manual `git grep` for searching.
+### Phase 1: Read-only pull (Linear to Git) - COMPLETE
+- `issueclaw pull`: Full sync of all entities to `.md` files (3500+ entities).
+- Markdown rendering for issues, projects, initiatives, documents with comments.
 - **Value**: Instant grep over entire backlog. Zero risk (read-only).
 
-### Phase 2: Webhook-driven pull (real-time)
-- Cloudflare Worker webhook proxy.
-- `issueclaw-webhook.yaml` GitHub Actions workflow.
-- `apply_webhook.py` script.
-- **Value**: Real-time mirror. Always-fresh local data.
+### Phase 2: Webhook-driven pull (real-time) - COMPLETE
+- Cloudflare Worker webhook proxy (validates HMAC-SHA256, forwards to GitHub).
+- `issueclaw apply-webhook`: Re-fetches entity via API, renders markdown, writes file.
+- Concurrency groups prevent push race conditions.
+- **Value**: Real-time mirror. Changes appear in git within seconds.
 
-### Phase 3: Push sync (Git to Linear)
-- `issueclaw-push.yaml` GitHub Actions workflow.
-- `push.py` and `parse_diff.py` scripts.
-- Loop prevention via author gating.
-- ID writeback for newly created entities.
-- **Value**: Full bidirectional sync. Edit issues as markdown.
+### Phase 3: Push sync (Git to Linear) - COMPLETE
+- `issueclaw push`: Detects git changes via `git diff HEAD~1`, diffs markdown field-by-field.
+- Pushes title, description, priority, estimate, due date changes. Creates comments.
+- Archives issues on file deletion. Strips entity headings to prevent round-trip duplication.
+- Loop prevention via author gating (`issueclaw-bot` commits are skipped).
+- **Value**: Full bidirectional sync. Edit issues as markdown, push, done.
+- **Known gaps**: Status and assignee changes require name→ID resolution (not yet implemented).
 
 ### Phase 4: Polish
-- Error handling and retry logic.
-- Webhook delivery failure recovery (periodic consistency check).
-- CLI tool for manual sync operations.
+- Status/assignee field resolution for push sync.
+- Image handling strategy (Linear uploads need auth tokens).
 - Support for issue relations (blocks, blocked-by, related).
-- Metrics and alerting for sync health.
+- Error recovery and sync health monitoring.

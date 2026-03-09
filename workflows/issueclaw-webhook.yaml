@@ -18,6 +18,8 @@ permissions:
 jobs:
   apply-webhook:
     runs-on: ubuntu-latest
+    concurrency:
+      group: issueclaw-webhook
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,8 +29,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
       - name: Install issueclaw
-        run: pip install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
       - name: Apply webhook payload
         env:
@@ -37,6 +42,9 @@ jobs:
         run: issueclaw apply-webhook
 
       - name: Commit and push changes
+        env:
+          WEBHOOK_TYPE: ${{ github.event.client_payload.type }}
+          WEBHOOK_ACTION: ${{ github.event.client_payload.action }}
         run: |
           git config user.name "issueclaw-bot"
           git config user.email "issueclaw-bot@users.noreply.github.com"
@@ -44,6 +52,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "sync: apply Linear webhook (${{ github.event.client_payload.type }} ${{ github.event.client_payload.action }})"
+            git commit -m "sync: apply Linear webhook ($WEBHOOK_TYPE $WEBHOOK_ACTION)"
             git push
           fi
