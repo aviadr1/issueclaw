@@ -61,10 +61,19 @@ async def _fetch_comments_for_issue(
     client: LinearClient,
     issue_id: str,
     semaphore: asyncio.Semaphore,
+    log: Callable[[str], None] = _noop_log,
 ) -> list[dict]:
     """Fetch comments for a single issue, respecting concurrency limit."""
     async with semaphore:
-        return await client.fetch_comments(issue_id)
+        for attempt in range(3):
+            try:
+                return await client.fetch_comments(issue_id)
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(1 * (attempt + 1))
+                else:
+                    log(f"  Warning: failed to fetch comments for {issue_id}: {e}")
+                    return []
 
 
 async def _run_pull(
@@ -108,7 +117,7 @@ async def _run_pull(
 
             # Batch fetch comments concurrently
             comment_tasks = [
-                _fetch_comments_for_issue(client, ri["id"], semaphore)
+                _fetch_comments_for_issue(client, ri["id"], semaphore, log)
                 for ri in raw_issues
             ]
             all_comments = await asyncio.gather(*comment_tasks)
