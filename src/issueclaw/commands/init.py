@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import importlib.resources
 import os
-import shutil
+import secrets
 from pathlib import Path
 
 import click
+
+
+_WEBHOOK_RESOURCE_TYPES = ["Issue", "Comment", "Project", "Document"]
 
 
 def _find_api_key(repo_dir: Path) -> str | None:
@@ -52,6 +55,54 @@ def _run_initial_pull(repo_dir: Path, api_key: str) -> None:
     )
 
 
+def _create_linear_webhook(api_key: str, webhook_url: str) -> tuple[str, str]:
+    """Create a webhook in Linear. Returns (webhook_id, signing_secret)."""
+    import httpx
+
+    signing_secret = secrets.token_hex(32)
+
+    query = """
+    mutation WebhookCreate($input: WebhookCreateInput!) {
+        webhookCreate(input: $input) {
+            success
+            webhook {
+                id
+                enabled
+            }
+        }
+    }
+    """
+    variables = {
+        "input": {
+            "url": webhook_url,
+            "resourceTypes": _WEBHOOK_RESOURCE_TYPES,
+            "allPublicTeams": True,
+            "secret": signing_secret,
+            "label": "issueclaw",
+        }
+    }
+
+    response = httpx.post(
+        "https://api.linear.app/graphql",
+        json={"query": query, "variables": variables},
+        headers={"Authorization": api_key},
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if "errors" in data:
+        errors = data["errors"]
+        if any("url not unique" in str(e.get("message", "")) for e in errors):
+            return None, None
+        raise click.ClickException(f"Linear API error: {errors}")
+
+    result = data["data"]["webhookCreate"]
+    if not result["success"]:
+        raise click.ClickException("Failed to create Linear webhook")
+
+    return result["webhook"]["id"], signing_secret
+
+
 def _copy_workflow_files(repo_dir: Path) -> None:
     """Copy workflow templates to .github/workflows/."""
     wf_dir = repo_dir / ".github" / "workflows"
@@ -71,8 +122,13 @@ def _copy_workflow_files(repo_dir: Path) -> None:
     default=".",
     help="Path to the target repository.",
 )
+@click.option(
+    "--webhook-url",
+    default=None,
+    help="URL of the webhook proxy (CF Worker). Creates a Linear webhook if provided.",
+)
 @click.pass_context
-def init_command(ctx: click.Context, repo_dir: Path) -> None:
+def init_command(ctx: click.Context, repo_dir: Path, webhook_url: str | None) -> None:
     """Set up issueclaw in a repository."""
     api_key = _find_api_key(repo_dir)
     if not api_key:
@@ -95,6 +151,18 @@ def init_command(ctx: click.Context, repo_dir: Path) -> None:
     # Copy workflow files
     _copy_workflow_files(repo_dir)
     click.echo("Copied workflow files to .github/workflows/")
+
+    # Create Linear webhook
+    if webhook_url:
+        webhook_id, signing_secret = _create_linear_webhook(api_key, webhook_url)
+        if webhook_id:
+            click.echo(f"Created Linear webhook: {webhook_id}")
+            click.echo(f"Webhook signing secret: {signing_secret}")
+            click.echo("Set this as LINEAR_WEBHOOK_SECRET in your CF Worker.")
+        else:
+            click.echo("Linear webhook already exists for this URL.")
+    else:
+        click.echo("Skipped webhook creation (use --webhook-url to create one).")
 
     # Set GitHub secret
     if _run_gh_secret_set(api_key):
