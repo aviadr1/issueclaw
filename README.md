@@ -12,12 +12,18 @@ Inspired by the [OpenClaw](https://github.com/openclaw/openclaw) philosophy of a
 # Install
 uv tool install issueclaw
 
-# Pull all Linear data into a local repo
+# Set up a new repo with workflows, secrets, and Linear webhook
 export LINEAR_API_KEY=lin_api_...
+issueclaw init --repo-dir /path/to/linear-git --webhook-url https://your-worker.workers.dev
+
+# Pull all Linear data into a local repo
 issueclaw pull --repo-dir /path/to/linear-git
 
 # Filter by team
 issueclaw pull --repo-dir /path/to/linear-git --teams AI,ENG
+
+# Push local markdown changes to Linear
+issueclaw push --repo-dir /path/to/linear-git
 
 # Check sync status
 issueclaw status --repo-dir /path/to/linear-git
@@ -777,6 +783,7 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 
 | Module | Purpose |
 |--------|---------|
+| `issueclaw.commands.init` | Repo setup: saves API key, copies workflows, sets GitHub secrets, creates Linear webhook, runs initial pull |
 | `issueclaw.commands.pull` | Initial pull sync: fetches all Linear data, renders to `.md`, builds id-map |
 | `issueclaw.commands.apply_webhook` | Webhook pull: re-fetches entity by ID, renders to `.md`, handles create/update/remove |
 | `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, resolves fields, calls Linear mutations |
@@ -852,7 +859,6 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 - Archives issues on file deletion. Strips entity headings to prevent round-trip duplication.
 - Loop prevention via author gating (`issueclaw-bot` commits are skipped).
 - **Value**: Full bidirectional sync. Edit issues as markdown, push, done.
-- **Known gaps**: Status and assignee changes require name→ID resolution (not yet implemented).
 
 ### Phase 4: Polish - COMPLETE
 - `issueclaw status`: Shows entity counts, teams, and last sync timestamp.
