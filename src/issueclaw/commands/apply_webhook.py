@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,46 @@ from issueclaw.sync_state import SyncState
 
 
 _SUPPORTED_TYPES = {"Issue", "Comment", "Project", "Initiative", "Document"}
+
+_PRIORITY_NAMES = {1: "Urgent", 2: "High", 3: "Medium", 4: "Low"}
+
+
+def _truncate(text: str, max_len: int = 50) -> str:
+    """Truncate text with ellipsis if too long."""
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3].rstrip() + "..."
+
+
+def _identifier_from_path(path: str) -> str | None:
+    """Extract issue identifier (e.g. ENG-6592) from a file path."""
+    m = re.search(r"/([A-Z]+-\d+)-", path)
+    return m.group(1) if m else None
+
+
+def _issue_commit_message(issue: LinearIssue, action: str, entity_type: str) -> str:
+    """Build a rich commit message for an issue event."""
+    title = _truncate(issue.title)
+    status = issue.status or "Unknown"
+
+    if entity_type == "Comment":
+        # Find the most recent comment author
+        author = "unknown"
+        if issue.comments:
+            sorted_comments = sorted(issue.comments, key=lambda c: c.created, reverse=True)
+            author = sorted_comments[0].author_name or "unknown"
+        return f"sync: {issue.identifier} comment by {author} ({title})"
+
+    if action == "create":
+        parts = [status]
+        pname = issue.priority_name or _PRIORITY_NAMES.get(issue.priority or 0)
+        if pname:
+            parts.append(pname)
+        tag = ", ".join(parts)
+        return f"sync: {issue.identifier} created [{tag}] ({title})"
+
+    # update
+    return f"sync: {issue.identifier} updated [{status}] ({title})"
 
 
 async def apply_webhook(
@@ -69,7 +110,10 @@ def _handle_remove(entity_id: str, entity_type: str, state: SyncState, repo_dir:
             full_path.unlink()
         state.remove_mapping(old_path)
         state.save()
-    return {"action": "remove", "entity_type": entity_type, "entity_id": entity_id}
+    identifier = _identifier_from_path(old_path) if old_path else None
+    label = identifier or entity_id[:8]
+    commit_message = f"sync: {label} removed"
+    return {"action": "remove", "entity_type": entity_type, "entity_id": entity_id, "commit_message": commit_message}
 
 
 async def _handle_comment(
@@ -96,18 +140,22 @@ async def _handle_create_or_update(
             project = LinearProject.from_api(raw)
             path = entity_path("project", slug=project.slug)
             content = render_project(project)
+            status_tag = f" [{project.status}]" if project.status else ""
+            commit_message = f'sync: project "{_truncate(project.name, 40)}" {action}d{status_tag}'
 
         elif entity_type == "Initiative":
             raw = await client.fetch_initiative(entity_id)
             initiative = LinearInitiative.from_api(raw)
             path = entity_path("initiative", name=initiative.name)
             content = render_initiative(initiative)
+            commit_message = f'sync: initiative "{_truncate(initiative.name, 40)}" {action}d'
 
         elif entity_type == "Document":
             raw = await client.fetch_document(entity_id)
             doc = LinearDocument.from_api(raw)
             path = entity_path("document", title=doc.title)
             content = render_document(doc)
+            commit_message = f'sync: document "{_truncate(doc.title, 40)}" {action}d'
 
         else:
             return {"action": "skip", "entity_type": entity_type, "reason": "unhandled type"}
@@ -122,7 +170,7 @@ async def _handle_create_or_update(
     state.add_mapping(path, entity_id)
     state.save()
 
-    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path}
+    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path, "commit_message": commit_message}
 
 
 def _write_issue(raw: dict, state: SyncState, repo_dir: Path, action: str, entity_type: str) -> dict:
@@ -152,7 +200,8 @@ def _write_issue(raw: dict, state: SyncState, repo_dir: Path, action: str, entit
     state.add_mapping(path, entity_id)
     state.save()
 
-    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path}
+    commit_message = _issue_commit_message(issue, action, entity_type)
+    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path, "commit_message": commit_message}
 
 
 def _cleanup_old_path(entity_id: str, new_path: str, state: SyncState, repo_dir: Path) -> None:
@@ -209,3 +258,7 @@ def apply_webhook_command(ctx: click.Context, api_key: str | None, repo_dir: Pat
             click.echo(f"Removed: {entity_type} {result.get('entity_id', '')}")
         else:
             click.echo(f"{action.title()}d: {entity_type} -> {path}")
+
+        commit_message = result.get("commit_message")
+        if commit_message:
+            click.echo(f"COMMIT_MSG:{commit_message}")
