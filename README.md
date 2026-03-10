@@ -865,3 +865,29 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 - Image handling strategy (Linear uploads need auth tokens).
 - Support for issue relations (blocks, blocked-by, related).
 - Webhook delivery failure detection and recovery.
+
+### Phase 5: Open Source Ready (TODO)
+
+Currently issueclaw works for a single Linear workspace → single GitHub repo setup where the user deploys their own CF Worker. To make it useful for anyone:
+
+- **GitHub App**: Replace the per-user CF Worker with a hosted GitHub App.
+  - Users install the app on their repo (one click).
+  - Linear webhooks go to the app's endpoint, which triggers `repository_dispatch` using the app's installation token.
+  - No Cloudflare account, no worker deployment, no `GITHUB_TOKEN` management.
+  - Routing: each installation gets a unique webhook URL (e.g., `https://issueclaw.example.com/webhook/<installation_id>`). The Linear webhook is created pointing to this URL.
+  - Storage: KV/database maps installation IDs to repo info.
+  - The `issueclaw init` command would: detect the GitHub App installation, create the Linear webhook pointing to the app, copy workflows, set secrets, run initial pull.
+
+- **Multi-repo support**: One Linear workspace syncing to multiple repos (e.g., per-team repos).
+  - Requires the GitHub App to route webhooks based on team/project.
+
+- **`issueclaw init` improvements**:
+  - Detect existing GitHub App installation automatically.
+  - Interactive team selection during init (show available teams, let user pick).
+  - Validate LINEAR_API_KEY before proceeding.
+
+- **Hosting the GitHub App**:
+  - Option A: CF Worker + KV (lightweight, free tier).
+  - Option B: Vercel/Netlify serverless function.
+  - Option C: Fly.io for a persistent service if needed.
+  - The app logic is essentially the current `worker.js` plus installation token management.
