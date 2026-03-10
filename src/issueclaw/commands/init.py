@@ -14,7 +14,7 @@ def _find_api_key(repo_dir: Path) -> str | None:
     """Find LINEAR_API_KEY from environment or .env file."""
     key = os.environ.get("LINEAR_API_KEY")
     if key:
-        return key
+        return key.strip()
     env_file = repo_dir / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
@@ -42,11 +42,14 @@ def _run_gh_secret_set(api_key: str) -> bool:
 
 def _run_initial_pull(repo_dir: Path, api_key: str) -> None:
     """Run issueclaw pull to populate linear/ directory."""
-    from issueclaw.commands.pull import pull_command
+    import subprocess
 
-    ctx = click.Context(pull_command, obj={"json": False, "verbose": 0, "quiet": 0})
-    with ctx:
-        pull_command.invoke(ctx)
+    env = {**os.environ, "LINEAR_API_KEY": api_key}
+    subprocess.run(
+        ["issueclaw", "pull", "--repo-dir", str(repo_dir)],
+        env=env,
+        check=True,
+    )
 
 
 def _copy_workflow_files(repo_dir: Path) -> None:

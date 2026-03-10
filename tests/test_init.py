@@ -116,3 +116,15 @@ def test_init_does_not_duplicate_gitignore_entry(tmp_path):
     assert result.exit_code == 0, result.output
     content = (tmp_path / ".gitignore").read_text()
     assert content.count(".env") == 1
+
+
+def test_init_runs_pull_with_repo_dir_and_api_key(tmp_path):
+    """INVARIANT: Init runs initial pull with correct repo-dir and api-key."""
+    runner = CliRunner()
+    with patch.dict(os.environ, {"LINEAR_API_KEY": "lin_api_test123"}):
+        with patch.object(init_mod, "_run_gh_secret_set", return_value=True):
+            with patch.object(init_mod, "_run_initial_pull") as mock_pull:
+                result = runner.invoke(cli, ["init", "--repo-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    mock_pull.assert_called_once_with(tmp_path, "lin_api_test123")
