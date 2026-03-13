@@ -310,4 +310,4 @@ def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> Non
     if json_mode:
         click.echo(json.dumps(stats))
     else:
-        click.echo(f"Push complete: {stats['updated']} updated, {stats['archived']} archived, {stats['skipped']} skipped.")
+        click.echo(f"Push complete: {stats['updated']} updated, {stats['created']} created, {stats['archived']} archived, {stats['skipped']} skipped.")
