@@ -14,7 +14,8 @@ import click
 
 from issueclaw.diff import diff_markdown
 from issueclaw.linear_client import LinearClient
-from issueclaw.paths import parse_entity_path
+from issueclaw.parse import parse_markdown
+from issueclaw.paths import entity_path, parse_entity_path
 from issueclaw.sync_state import SyncState
 
 
@@ -164,6 +165,24 @@ async def push_changes(
                         await client.create_comment(entity_id, comment.body)
 
                     stats["updated"] += 1
+
+                else:
+                    stats["skipped"] += 1
+
+            if change.change_type == "added" and entity_type == "update" and change.new_content:
+                # New update file added — push to Linear as a project update
+                project_slug = entity_info["project_slug"]
+                project_path = entity_path("project", slug=project_slug)
+                project_id = state.get_uuid(project_path)
+                if project_id:
+                    parsed = parse_markdown(change.new_content)
+                    body = parsed.body.strip()
+                    health = parsed.frontmatter.get("health", "onTrack")
+                    if body:
+                        await client.create_project_update(project_id, body, health)
+                        stats["created"] += 1
+                    else:
+                        stats["skipped"] += 1
                 else:
                     stats["skipped"] += 1
 

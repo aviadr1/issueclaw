@@ -41,6 +41,8 @@ def entity_path(
         return f"linear/projects/{slug}/_project.md"
     elif entity_type == "milestone":
         return f"linear/projects/{project_slug}/milestones/{slugify(name) if name else name}.md"
+    elif entity_type == "update":
+        return f"linear/projects/{project_slug}/updates/{slug}.md"
     elif entity_type == "initiative":
         return f"linear/initiatives/{slugify(name) if name else name}.md"
     elif entity_type == "document":
@@ -53,8 +55,19 @@ def entity_path(
 _ISSUE_RE = re.compile(r"^linear/teams/([^/]+)/issues/([A-Z]+-\d+)(?:-[^/]+)?\.md$")
 _PROJECT_RE = re.compile(r"^linear/projects/([^/]+)/_project\.md$")
 _MILESTONE_RE = re.compile(r"^linear/projects/([^/]+)/milestones/([^/]+)\.md$")
+_UPDATE_RE = re.compile(r"^linear/projects/([^/]+)/updates/([^/]+)\.md$")
 _INITIATIVE_RE = re.compile(r"^linear/initiatives/([^/]+)\.md$")
 _DOCUMENT_RE = re.compile(r"^linear/documents/([^/]+)\.md$")
+
+
+def update_file_slug(created_at: str, author: str) -> str:
+    """Generate a slug for a project update file.
+
+    Format: YYYY-MM-DD-author-name (e.g., 2026-03-13-aviad-rozenhek)
+    """
+    date_part = created_at[:10] if created_at else "unknown"
+    author_slug = slugify(author) if author else "unknown"
+    return f"{date_part}-{author_slug}"
 
 
 def parse_entity_path(path: str) -> dict | None:
@@ -69,6 +82,10 @@ def parse_entity_path(path: str) -> dict | None:
     m = _MILESTONE_RE.match(path)
     if m:
         return {"type": "milestone", "project_slug": m.group(1), "name": m.group(2)}
+
+    m = _UPDATE_RE.match(path)
+    if m:
+        return {"type": "update", "project_slug": m.group(1), "slug": m.group(2)}
 
     m = _PROJECT_RE.match(path)
     if m:

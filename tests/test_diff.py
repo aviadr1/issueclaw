@@ -165,3 +165,106 @@ New comment.
     assert result.body_changed is True
     assert len(result.comments_added) == 1
     assert result.has_changes is True
+
+
+def _project_md(
+    name="Test Project",
+    status="started",
+    body="Description.",
+    updates_section="",
+) -> str:
+    """Helper to build a minimal project markdown file."""
+    md = f"""---
+id: uuid-proj
+name: {name}
+status: {status}
+created: '2026-01-01T00:00:00Z'
+updated: '2026-01-01T00:00:00Z'
+---
+
+# {name}
+
+{body}
+"""
+    if updates_section:
+        md += updates_section
+    return md
+
+
+def test_diff_update_added():
+    """INVARIANT: New project status updates are detected."""
+    old = _project_md()
+    updates = """
+# Status Updates
+
+## Aviad - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+Weekly report.
+"""
+    new = _project_md(updates_section=updates)
+    result = diff_markdown(old, new)
+    assert len(result.updates_added) == 1
+    assert result.updates_added[0].id == "u1"
+    assert result.updates_added[0].health == "onTrack"
+    assert "Weekly report." in result.updates_added[0].body
+    assert result.has_changes is True
+
+
+def test_diff_update_removed():
+    """INVARIANT: Removed project status updates are detected."""
+    updates = """
+# Status Updates
+
+## Aviad - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+Old update.
+"""
+    old = _project_md(updates_section=updates)
+    new = _project_md()
+    result = diff_markdown(old, new)
+    assert len(result.updates_removed) == 1
+    assert result.updates_removed[0].id == "u1"
+
+
+def test_diff_update_edited():
+    """INVARIANT: Updates with same ID but different body are detected as edited."""
+    old_updates = """
+# Status Updates
+
+## Aviad - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+Original text.
+"""
+    new_updates = """
+# Status Updates
+
+## Aviad - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+Edited text.
+"""
+    old = _project_md(updates_section=old_updates)
+    new = _project_md(updates_section=new_updates)
+    result = diff_markdown(old, new)
+    assert len(result.updates_edited) == 1
+    assert "Edited text." in result.updates_edited[0].body
+
+
+def test_diff_no_update_changes():
+    """INVARIANT: Identical updates produce no update diff."""
+    updates = """
+# Status Updates
+
+## Aviad - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+Same text.
+"""
+    md = _project_md(updates_section=updates)
+    result = diff_markdown(md, md)
+    assert result.updates_added == []
+    assert result.updates_removed == []
+    assert result.updates_edited == []

@@ -1,7 +1,7 @@
 import yaml
 
 from issueclaw.models import LinearComment, LinearDocument, LinearInitiative, LinearIssue, LinearProject
-from issueclaw.render import render_document, render_initiative, render_issue, render_project
+from issueclaw.render import render_document, render_initiative, render_issue, render_project, render_project_update
 
 
 def _parse_frontmatter(md: str) -> tuple[dict, str]:
@@ -229,7 +229,7 @@ def test_render_project_with_milestones():
 
 
 def test_render_project_with_updates():
-    """INVARIANT: Project status updates render as a section."""
+    """INVARIANT: Project renders update references, not inline content."""
     project = LinearProject(
         id="uuid-proj",
         name="Test Project",
@@ -237,6 +237,7 @@ def test_render_project_with_updates():
         status="started",
         project_updates=[
             {
+                "id": "update-uuid-1",
                 "body": "## Release 42\n\nDeployed to production.",
                 "health": "onTrack",
                 "createdAt": "2026-02-17T11:04:21Z",
@@ -248,9 +249,12 @@ def test_render_project_with_updates():
     )
     md = render_project(project)
     assert "\n# Status Updates\n" in md
-    assert "Release 42" in md
-    assert "Deployed to production" in md
+    # Should be a reference link, not inline content
+    assert "updates/2026-02-17-oz-shaked.md" in md
     assert "Oz Shaked" in md
+    assert "[onTrack]" in md
+    # Body should NOT be inline
+    assert "Deployed to production" not in md
 
 
 def test_render_project_with_members_and_teams():
@@ -383,3 +387,22 @@ def test_render_document_with_project():
     md = render_document(doc)
     fm, _ = _parse_frontmatter(md)
     assert fm["project"] == "Metrics Platform"
+
+
+def test_render_project_update_individual_file():
+    """INVARIANT: Individual project update renders with frontmatter and body."""
+    update = {
+        "id": "update-uuid-1",
+        "body": "## Release 42\n\nDeployed to production.",
+        "health": "onTrack",
+        "createdAt": "2026-02-17T11:04:21Z",
+        "user": {"name": "Oz Shaked"},
+    }
+    md = render_project_update(update)
+    fm, body = _parse_frontmatter(md)
+    assert fm["id"] == "update-uuid-1"
+    assert fm["author"] == "Oz Shaked"
+    assert fm["health"] == "onTrack"
+    assert fm["created"] == "2026-02-17T11:04:21Z"
+    assert "Release 42" in body
+    assert "Deployed to production" in body

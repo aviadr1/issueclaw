@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from issueclaw.models import LinearComment, LinearDocument, LinearInitiative, LinearIssue, LinearProject
+from issueclaw.paths import slugify, update_file_slug
 
 
 def _render_frontmatter(fields: dict[str, Any]) -> str:
@@ -20,17 +21,70 @@ def _render_frontmatter(fields: dict[str, Any]) -> str:
     return f"---\n{fm_yaml}---\n"
 
 
-def _render_comments(comments: list[LinearComment]) -> str:
-    """Render comments as markdown sections."""
-    if not comments:
+def _render_sections(
+    items: list[dict[str, str]],
+    section_header: str,
+    id_marker: str,
+) -> str:
+    """Render a list of section items (comments or updates) to markdown.
+
+    Each item dict must have: id, author, date, body.
+    Optionally: health (rendered as [health] suffix on header).
+    """
+    if not items:
         return ""
-    lines = ["\n# Comments\n"]
-    for comment in comments:
-        lines.append(f"\n## {comment.author_name} - {comment.created}")
-        lines.append(f"<!-- comment-id: {comment.id} -->\n")
-        lines.append(comment.body)
+    lines = [f"\n# {section_header}\n"]
+    for item in items:
+        header = f"\n## {item['author']} - {item['date']}"
+        if item.get("health"):
+            header += f" [{item['health']}]"
+        lines.append(header)
+        lines.append(f"<!-- {id_marker}: {item['id']} -->\n")
+        lines.append(item["body"])
         lines.append("")
     return "\n".join(lines)
+
+
+def _render_comments(comments: list[LinearComment]) -> str:
+    """Render comments as markdown sections."""
+    items = [
+        {"id": c.id, "author": c.author_name, "date": c.created, "body": c.body}
+        for c in comments
+    ]
+    return _render_sections(items, "Comments", "comment-id")
+
+
+def _render_update_refs(updates: list[dict]) -> str:
+    """Render project status updates as a reference list pointing to individual files."""
+    if not updates:
+        return ""
+    lines = ["\n# Status Updates\n"]
+    for u in updates:
+        user = u.get("user", {})
+        author = user.get("name", "") if isinstance(user, dict) else str(user)
+        date = u.get("createdAt", "")
+        health = u.get("health", "")
+        slug = update_file_slug(date, author)
+        health_tag = f" [{health}]" if health else ""
+        lines.append(f"- [{date}](updates/{slug}.md) by {author}{health_tag}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_project_update(update: dict) -> str:
+    """Render an individual project status update to its own markdown file."""
+    user = update.get("user", {})
+    author = user.get("name", "") if isinstance(user, dict) else str(user)
+    fields: dict[str, Any] = {
+        "id": update.get("id", ""),
+        "author": author,
+        "health": update.get("health", ""),
+        "created": update.get("createdAt", ""),
+    }
+    md = _render_frontmatter(fields)
+    if update.get("body"):
+        md += f"\n{update['body']}\n"
+    return md
 
 
 def render_issue(issue: LinearIssue) -> str:
@@ -109,14 +163,7 @@ def render_project(project: LinearProject) -> str:
                 md += f"  {ms['description']}\n"
 
     if project.project_updates:
-        md += "\n# Status Updates\n"
-        for update in project.project_updates:
-            user = update.get("user", {})
-            author = user.get("name", "") if isinstance(user, dict) else str(user)
-            date = update.get("createdAt", "")
-            health = update.get("health", "")
-            md += f"\n## {author} - {date} [{health}]\n\n"
-            md += f"{update.get('body', '')}\n"
+        md += _render_update_refs(project.project_updates)
 
     if project.initiatives:
         md += "\n# Initiatives\n\n"

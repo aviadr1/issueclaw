@@ -9,13 +9,18 @@ import yaml
 
 
 @dataclass
-class ParsedComment:
-    """A comment extracted from a markdown file."""
+class ParsedSection:
+    """A section extracted from a markdown ## block (comment or project update)."""
 
     id: str
     author: str
     timestamp: str
     body: str
+    health: str = ""
+
+
+# Backward-compatible alias
+ParsedComment = ParsedSection
 
 
 @dataclass
@@ -24,15 +29,100 @@ class ParsedMarkdown:
 
     frontmatter: dict
     body: str
-    comments: list[ParsedComment] = field(default_factory=list)
+    comments: list[ParsedSection] = field(default_factory=list)
+    updates: list[ParsedSection] = field(default_factory=list)
 
 
-_COMMENT_HEADER_RE = re.compile(r"^## (.+?) - (\S+)$")
-_COMMENT_ID_RE = re.compile(r"<!-- comment-id: (.+?) -->")
+# Matches: ## Author - Timestamp  or  ## Author - Timestamp [health]
+_SECTION_HEADER_RE = re.compile(r"^## (.+?) - (\S+?)(?:\s+\[(.+?)\])?$")
+_SECTION_ID_RE = re.compile(r"<!-- (?:comment-id|update-id): (.+?) -->")
+
+
+def _parse_sections(text: str) -> list[ParsedSection]:
+    """Parse ## Author - timestamp [health] sections with ID markers."""
+    sections: list[ParsedSection] = []
+    lines = text.split("\n")
+
+    current_author = ""
+    current_timestamp = ""
+    current_id = ""
+    current_health = ""
+    current_body_lines: list[str] = []
+    in_section = False
+
+    for line in lines:
+        header_match = _SECTION_HEADER_RE.match(line)
+        if header_match:
+            # Save previous section if exists
+            if in_section and current_id:
+                sections.append(
+                    ParsedSection(
+                        id=current_id,
+                        author=current_author,
+                        timestamp=current_timestamp,
+                        body="\n".join(current_body_lines).strip(),
+                        health=current_health,
+                    )
+                )
+            # Start new section
+            current_author = header_match.group(1)
+            current_timestamp = header_match.group(2)
+            current_health = header_match.group(3) or ""
+            current_id = ""
+            current_body_lines = []
+            in_section = True
+            continue
+
+        if in_section:
+            id_match = _SECTION_ID_RE.match(line)
+            if id_match:
+                current_id = id_match.group(1)
+                continue
+            current_body_lines.append(line)
+
+    # Save last section
+    if in_section and current_id:
+        sections.append(
+            ParsedSection(
+                id=current_id,
+                author=current_author,
+                timestamp=current_timestamp,
+                body="\n".join(current_body_lines).strip(),
+                health=current_health,
+            )
+        )
+
+    return sections
+
+
+def _extract_named_section(text: str, section_name: str) -> tuple[str, str]:
+    """Extract a named # section from text.
+
+    Returns (remaining_text, section_content).
+    Section content is everything between the header and the next # header or end of text.
+    """
+    pattern = re.compile(rf"\n# {re.escape(section_name)}\n")
+    match = pattern.search(text)
+    if not match:
+        return text, ""
+
+    start = match.start()
+    after = text[match.end():]
+
+    # Find the next H1 heading
+    next_h1 = re.search(r"\n# ", after)
+    if next_h1:
+        section_content = after[:next_h1.start()]
+        remaining = text[:start] + after[next_h1.start():]
+    else:
+        section_content = after
+        remaining = text[:start]
+
+    return remaining, section_content
 
 
 def parse_markdown(content: str) -> ParsedMarkdown:
-    """Parse a markdown file into frontmatter, body, and comments.
+    """Parse a markdown file into frontmatter, body, comments, and updates.
 
     Expected format:
         ---
@@ -47,77 +137,30 @@ def parse_markdown(content: str) -> ParsedMarkdown:
         <!-- comment-id: uuid -->
 
         Comment body.
+
+        # Status Updates
+
+        ## author - timestamp [health]
+        <!-- update-id: uuid -->
+
+        Update body.
     """
     # Split frontmatter
     if not content.startswith("---"):
-        return ParsedMarkdown(frontmatter={}, body=content, comments=[])
+        return ParsedMarkdown(frontmatter={}, body=content, comments=[], updates=[])
 
     parts = content.split("---\n", 2)
     if len(parts) < 3:
-        return ParsedMarkdown(frontmatter={}, body=content, comments=[])
+        return ParsedMarkdown(frontmatter={}, body=content, comments=[], updates=[])
 
     frontmatter = yaml.safe_load(parts[1]) or {}
     rest = parts[2]
 
-    # Split body from comments section
-    comments_split = re.split(r"\n# Comments\n", rest, maxsplit=1)
-    body = comments_split[0]
-    comments: list[ParsedComment] = []
+    # Extract named sections, leaving everything else as body
+    rest, comments_text = _extract_named_section(rest, "Comments")
+    rest, updates_text = _extract_named_section(rest, "Status Updates")
 
-    if len(comments_split) > 1:
-        comments = _parse_comments(comments_split[1])
+    comments = _parse_sections(comments_text) if comments_text else []
+    updates = _parse_sections(updates_text) if updates_text else []
 
-    return ParsedMarkdown(frontmatter=frontmatter, body=body, comments=comments)
-
-
-def _parse_comments(comments_text: str) -> list[ParsedComment]:
-    """Parse the ## Comments section into individual comments."""
-    comments: list[ParsedComment] = []
-    lines = comments_text.split("\n")
-
-    current_author = ""
-    current_timestamp = ""
-    current_id = ""
-    current_body_lines: list[str] = []
-    in_comment = False
-
-    for line in lines:
-        header_match = _COMMENT_HEADER_RE.match(line)
-        if header_match:
-            # Save previous comment if exists
-            if in_comment and current_id:
-                comments.append(
-                    ParsedComment(
-                        id=current_id,
-                        author=current_author,
-                        timestamp=current_timestamp,
-                        body="\n".join(current_body_lines).strip(),
-                    )
-                )
-            # Start new comment
-            current_author = header_match.group(1)
-            current_timestamp = header_match.group(2)
-            current_id = ""
-            current_body_lines = []
-            in_comment = True
-            continue
-
-        if in_comment:
-            id_match = _COMMENT_ID_RE.match(line)
-            if id_match:
-                current_id = id_match.group(1)
-                continue
-            current_body_lines.append(line)
-
-    # Save last comment
-    if in_comment and current_id:
-        comments.append(
-            ParsedComment(
-                id=current_id,
-                author=current_author,
-                timestamp=current_timestamp,
-                body="\n".join(current_body_lines).strip(),
-            )
-        )
-
-    return comments
+    return ParsedMarkdown(frontmatter=frontmatter, body=rest, comments=comments, updates=updates)

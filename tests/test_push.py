@@ -563,3 +563,81 @@ async def test_push_strips_entity_heading_from_description(tmp_path):
     # The description should NOT contain the entity heading
     assert "# AI-1:" not in fields["description"]
     assert "Updated body." in fields["description"]
+
+
+@pytest.mark.asyncio
+async def test_push_new_update_file(tmp_path):
+    """INVARIANT: New update files under projects/*/updates/ push to Linear API."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/projects/weekly-reports/_project.md", "uuid-weekly-reports")
+    state.save()
+
+    update_content = """---
+id: new-update-uuid
+author: Aviad Rozenhek
+health: onTrack
+created: '2026-03-13T21:00:00Z'
+---
+
+Weekly report: 24 shipped, 27 in flight.
+"""
+    update_path = "linear/projects/weekly-reports/updates/2026-03-13-aviad-rozenhek.md"
+    full_path = tmp_path / update_path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    full_path.write_text(update_content)
+
+    changes = [push_mod.FileChange(
+        path=update_path,
+        change_type="added",
+        old_content=None,
+        new_content=update_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.create_project_update.return_value = {"id": "new-update-uuid"}
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    assert result["created"] == 1
+    mock_client.create_project_update.assert_called_once()
+    call_args = mock_client.create_project_update.call_args
+    assert call_args[0][0] == "uuid-weekly-reports"
+    assert "24 shipped" in call_args[0][1]
+    assert call_args[0][2] == "onTrack"
+
+
+@pytest.mark.asyncio
+async def test_push_update_file_without_project_mapping_is_skipped(tmp_path):
+    """INVARIANT: Update files for unknown projects are skipped."""
+    state = SyncState(tmp_path)
+    state.load()
+    state.save()
+
+    update_content = """---
+id: orphan-update
+author: Aviad
+health: onTrack
+---
+
+Some content.
+"""
+    changes = [push_mod.FileChange(
+        path="linear/projects/unknown-project/updates/2026-03-13-aviad.md",
+        change_type="added",
+        old_content=None,
+        new_content=update_content,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    assert result["skipped"] == 1
+    mock_client.create_project_update.assert_not_called()

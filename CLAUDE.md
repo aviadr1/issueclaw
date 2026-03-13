@@ -43,10 +43,12 @@ uv run pyright                          # Type check
 - **Async httpx**: `LinearClient` uses `httpx.AsyncClient` with connection pooling. GraphQL complexity limit is 10000 (projects need page size 5).
 - **Round-trip safety**: Renderer adds `# AI-123: Title` heading. Parser strips it before pushing to avoid duplication.
 - **Field resolution**: Status → stateId and assignee → assigneeId are resolved via lazy-cached API lookups in `linear_client.py`.
+- **Project updates as separate files**: Status updates live in `linear/projects/{slug}/updates/{date-author}.md`, not inline in the project file. The project file lists references. New update files pushed to git are synced to Linear via `create_project_update`.
+- **DRY section parsing**: Comments and project updates share generic `_parse_sections()` and `_render_sections()` infrastructure in parse.py and render.py.
 
 ## Testing conventions
 
-- 127 tests, all passing
+- 151 tests, all passing
 - Use `patch.object`, never `patch` with string paths
 - Never mock Pydantic models — create real instances
 - Tests use Click's `CliRunner` for command testing

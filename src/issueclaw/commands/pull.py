@@ -21,8 +21,8 @@ from issueclaw.models import (
     LinearIssue,
     LinearProject,
 )
-from issueclaw.paths import entity_path
-from issueclaw.render import render_document, render_initiative, render_issue, render_project
+from issueclaw.paths import entity_path, update_file_slug as _update_file_slug
+from issueclaw.render import render_document, render_initiative, render_issue, render_project, render_project_update
 from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
@@ -128,6 +128,21 @@ async def _run_pull(
             full_path.write_text(content)
 
             state.add_mapping(path, project.id)
+
+            # Write individual update files
+            for update in project.project_updates:
+                user = update.get("user", {})
+                author = user.get("name", "") if isinstance(user, dict) else str(user)
+                slug = _update_file_slug(update.get("createdAt", ""), author)
+                update_path = entity_path("update", project_slug=project.slug, slug=slug)
+                update_content = render_project_update(update)
+
+                update_full_path = repo_dir / update_path
+                update_full_path.parent.mkdir(parents=True, exist_ok=True)
+                update_full_path.write_text(update_content)
+
+                state.add_mapping(update_path, update.get("id", ""))
+
             stats["projects"] += 1
 
         state.set_last_sync(datetime.now(timezone.utc).isoformat())

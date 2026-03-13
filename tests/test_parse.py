@@ -1,6 +1,6 @@
-from issueclaw.models import LinearComment, LinearIssue
-from issueclaw.parse import ParsedComment, parse_markdown
-from issueclaw.render import render_issue
+from issueclaw.models import LinearComment, LinearIssue, LinearProject
+from issueclaw.parse import ParsedComment, ParsedSection, parse_markdown
+from issueclaw.render import render_issue, render_project
 
 
 def test_parse_issue_with_comments():
@@ -131,3 +131,139 @@ def test_roundtrip_issue():
     assert parsed.comments[0].id == "c1"
     assert parsed.comments[0].author == "user@test.com"
     assert "Hello." in parsed.comments[0].body
+
+
+def test_parse_project_with_status_updates():
+    """INVARIANT: Parser extracts status updates from project files."""
+    md = '''---
+id: "uuid-proj"
+name: "Test Project"
+status: "started"
+---
+
+# Test Project
+
+Description.
+
+# Status Updates
+
+## Oz Shaked - 2026-02-17T11:04:21Z [onTrack]
+<!-- update-id: u1-uuid -->
+
+## Release 42
+
+Deployed to production.
+
+## Aviad Rozenhek - 2026-03-13T21:00:00Z [onTrack]
+<!-- update-id: u2-uuid -->
+
+Weekly report content here.
+
+# Initiatives
+
+- Community metrics
+'''
+    result = parse_markdown(md)
+    assert result.frontmatter["name"] == "Test Project"
+    assert "Description." in result.body
+    assert len(result.updates) == 2
+    assert result.updates[0].id == "u1-uuid"
+    assert result.updates[0].author == "Oz Shaked"
+    assert result.updates[0].health == "onTrack"
+    assert "Deployed to production." in result.updates[0].body
+    assert result.updates[1].id == "u2-uuid"
+    assert result.updates[1].author == "Aviad Rozenhek"
+    assert "Weekly report content" in result.updates[1].body
+    # Initiatives section should be preserved in body, not in updates
+    assert result.comments == []
+
+
+def test_parse_project_without_updates():
+    """INVARIANT: Parser works when no status updates section exists."""
+    md = '''---
+id: "uuid-proj"
+name: "Empty project"
+---
+
+# Empty project
+'''
+    result = parse_markdown(md)
+    assert result.updates == []
+    assert result.comments == []
+
+
+def test_parse_update_with_multiline_body():
+    """INVARIANT: Parser captures full multi-line update bodies."""
+    md = '''---
+id: "uuid"
+name: "Test"
+---
+
+Body.
+
+# Status Updates
+
+## Author - 2026-01-01T00:00:00Z [onTrack]
+<!-- update-id: u1 -->
+
+First paragraph.
+
+| Column A | Column B |
+|----------|----------|
+| Data     | More     |
+
+- Bullet point
+'''
+    result = parse_markdown(md)
+    assert len(result.updates) == 1
+    assert "First paragraph." in result.updates[0].body
+    assert "Column A" in result.updates[0].body
+    assert "- Bullet point" in result.updates[0].body
+
+
+def test_parsed_comment_is_parsed_section():
+    """INVARIANT: ParsedComment is an alias for ParsedSection (backward compat)."""
+    assert ParsedComment is ParsedSection
+
+
+def test_roundtrip_project_update_file():
+    """INVARIANT: render_project_update -> parse_markdown preserves all fields."""
+    from issueclaw.render import render_project_update
+
+    update = {
+        "id": "u1",
+        "body": "Weekly update content.",
+        "health": "onTrack",
+        "createdAt": "2026-03-13T21:00:00Z",
+        "user": {"name": "Aviad Rozenhek"},
+    }
+    md = render_project_update(update)
+    parsed = parse_markdown(md)
+    assert parsed.frontmatter["id"] == "u1"
+    assert parsed.frontmatter["author"] == "Aviad Rozenhek"
+    assert parsed.frontmatter["health"] == "onTrack"
+    assert "Weekly update content." in parsed.body
+
+
+def test_project_renders_update_refs_not_inline():
+    """INVARIANT: render_project creates reference links, not inline update content."""
+    project = LinearProject(
+        id="uuid-proj",
+        name="Test Project",
+        slug="test-project",
+        status="started",
+        project_updates=[
+            {
+                "id": "u1",
+                "body": "Should not appear inline.",
+                "health": "onTrack",
+                "createdAt": "2026-03-13T21:00:00Z",
+                "user": {"name": "Aviad Rozenhek"},
+            },
+        ],
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+    )
+    md = render_project(project)
+    assert "updates/2026-03-13-aviad-rozenhek.md" in md
+    assert "Should not appear inline." not in md

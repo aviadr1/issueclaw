@@ -269,8 +269,10 @@ repo-root/
 │   ├── projects/
 │   │   ├── chapter-detection/
 │   │   │   ├── _project.md
-│   │   │   └── milestones/
-│   │   │       └── mvp.md
+│   │   │   ├── milestones/
+│   │   │   │   └── mvp.md
+│   │   │   └── updates/
+│   │   │       └── 2026-02-17-oz-shaked.md
 │   │   └── metrics-platform/
 │   │       └── _project.md
 │   ├── initiatives/
@@ -294,6 +296,7 @@ repo-root/
 
 - Issues: `linear/teams/{TEAM_KEY}/issues/{IDENTIFIER}-{title-slug}.md` (e.g., `linear/teams/AI/issues/AI-123-fix-login-bug.md`)
 - Projects: `linear/projects/{name-slug}/_project.md` (e.g., `linear/projects/metrics-platform/_project.md`)
+- Project updates: `linear/projects/{name-slug}/updates/{date-author}.md` (e.g., `linear/projects/metrics-platform/updates/2026-03-13-aviad-rozenhek.md`)
 - Milestones: `linear/projects/{name-slug}/milestones/{name}.md`
 - Initiatives: `linear/initiatives/{name-slug}.md`
 - Documents: `linear/documents/{title-slug}.md`
@@ -409,10 +412,7 @@ Treat data infrastructure identically to application code...
 
 # Status Updates
 
-## Oz Shaked - 2026-02-17T11:04:21Z [onTrack]
-
-Release 42 — Deployed to Production
-Staging dry-run executed successfully...
+- [2026-02-17T11:04:21Z](updates/2026-02-17-oz-shaked.md) by Oz Shaked [onTrack]
 
 # Initiatives
 
@@ -461,6 +461,31 @@ Comment body in markdown.
 ```
 
 New comments are added by appending a new `## ` section. Deleted comments are removed by deleting the section. Edited comments modify the body below the heading.
+
+### Project status updates
+
+Project status updates are stored as individual files under `linear/projects/{slug}/updates/`, not inline in the project file. The project file contains reference links:
+
+```markdown
+# Status Updates
+
+- [2026-03-13T21:00:00Z](updates/2026-03-13-aviad-rozenhek.md) by Aviad Rozenhek [onTrack]
+```
+
+Each update file has its own frontmatter:
+
+```markdown
+---
+id: "update-uuid"
+author: "Aviad Rozenhek"
+health: "onTrack"
+created: "2026-03-13T21:00:00Z"
+---
+
+Update content in full markdown.
+```
+
+To create a new project update, add a new `.md` file under `updates/` and push. The push workflow will call the `projectUpdateCreate` mutation in Linear.
 
 ---
 

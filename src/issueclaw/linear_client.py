@@ -394,3 +394,18 @@ class LinearClient:
         """
         result = await self._graphql(query, {"input": {"issueId": issue_id, "body": body}})
         return result.get("data", {}).get("commentCreate", {}).get("comment", {})
+
+    async def create_project_update(self, project_id: str, body: str, health: str = "onTrack") -> dict:
+        """Create a status update on a project in Linear."""
+        query = """
+        mutation CreateProjectUpdate($input: ProjectUpdateCreateInput!) {
+            projectUpdateCreate(input: $input) {
+                success
+                projectUpdate { id body health }
+            }
+        }
+        """
+        result = await self._graphql(
+            query, {"input": {"projectId": project_id, "body": body, "health": health}}
+        )
+        return result.get("data", {}).get("projectUpdateCreate", {}).get("projectUpdate", {})
