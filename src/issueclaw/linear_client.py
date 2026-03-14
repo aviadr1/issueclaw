@@ -395,6 +395,33 @@ class LinearClient:
         result = await self._graphql(query, {"input": {"issueId": issue_id, "body": body}})
         return result.get("data", {}).get("commentCreate", {}).get("comment", {})
 
+    async def fetch_labels_for_team(self, team_id: str) -> list[dict]:
+        """Fetch all issue labels available for a team."""
+        query = """
+        query TeamLabels($teamId: String!, $after: String) {
+            team(id: $teamId) {
+                labels(first: 50, after: $after) {
+                    nodes { id name }
+                    pageInfo { hasNextPage endCursor }
+                }
+            }
+        }
+        """
+        return await self._paginate(query, ["team", "labels"], {"teamId": team_id})
+
+    async def create_issue(self, team_id: str, fields: dict) -> dict:
+        """Create a new issue in Linear. Returns {id, identifier, title, url}."""
+        query = """
+        mutation CreateIssue($input: IssueCreateInput!) {
+            issueCreate(input: $input) {
+                success
+                issue { id identifier title url createdAt updatedAt state { name } assignee { name } }
+            }
+        }
+        """
+        result = await self._graphql(query, {"input": {"teamId": team_id, **fields}})
+        return result.get("data", {}).get("issueCreate", {}).get("issue", {})
+
     async def create_project_update(self, project_id: str, body: str, health: str = "onTrack") -> dict:
         """Create a status update on a project in Linear."""
         query = """

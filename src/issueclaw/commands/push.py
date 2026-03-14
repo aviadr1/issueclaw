@@ -15,7 +15,7 @@ import click
 from issueclaw.diff import diff_markdown
 from issueclaw.linear_client import LinearClient
 from issueclaw.parse import parse_markdown
-from issueclaw.paths import entity_path, parse_entity_path
+from issueclaw.paths import entity_path, parse_entity_path, slugify
 from issueclaw.sync_state import SyncState
 
 
@@ -82,24 +82,39 @@ async def push_changes(
 
     async with LinearClient(api_key=api_key) as client:
         # Lazy-loaded resolution caches
+        _team_cache: dict[str, str] | None = None  # key -> team_id
         _state_cache: dict[str, dict[str, str]] = {}  # team_id -> {name: state_id}
+        _label_cache: dict[str, dict[str, str]] = {}  # team_id -> {name: label_id}
         _user_cache: dict[str, str] | None = None  # name -> user_id
+
+        async def _resolve_team_id(team_key: str) -> str | None:
+            """Resolve a team key to its Linear UUID."""
+            nonlocal _team_cache
+            if _team_cache is None:
+                teams = await client.fetch_teams()
+                _team_cache = {t["key"]: t["id"] for t in teams}
+            return _team_cache.get(team_key)
 
         async def _resolve_state_id(team_key: str, state_name: str) -> str | None:
             """Resolve a workflow state name to its ID for a given team."""
-            if team_key not in _state_cache:
-                # Find team ID from the entity's team key
-                teams = await client.fetch_teams()
-                team_id = None
-                for t in teams:
-                    if t["key"] == team_key:
-                        team_id = t["id"]
-                        break
-                if not team_id:
-                    return None
+            team_id = await _resolve_team_id(team_key)
+            if not team_id:
+                return None
+            if team_id not in _state_cache:
                 states = await client.fetch_team_states(team_id)
-                _state_cache[team_key] = {s["name"]: s["id"] for s in states}
-            return _state_cache[team_key].get(state_name)
+                _state_cache[team_id] = {s["name"]: s["id"] for s in states}
+            return _state_cache[team_id].get(state_name)
+
+        async def _resolve_label_ids(team_key: str, label_names: list[str]) -> list[str]:
+            """Resolve label names to their IDs for a given team."""
+            team_id = await _resolve_team_id(team_key)
+            if not team_id:
+                return []
+            if team_id not in _label_cache:
+                labels = await client.fetch_labels_for_team(team_id)
+                _label_cache[team_id] = {l["name"]: l["id"] for l in labels}
+            cache = _label_cache[team_id]
+            return [cache[n] for n in label_names if n in cache]
 
         async def _resolve_user_id(user_name: str) -> str | None:
             """Resolve a user name to their ID."""
@@ -185,6 +200,92 @@ async def push_changes(
                         stats["skipped"] += 1
                 else:
                     stats["skipped"] += 1
+
+            if change.change_type == "added" and entity_type == "new_issue" and change.new_content:
+                # Queue file: linear/new/{TEAM}/{slug}.md — create a new issue in Linear,
+                # write the canonical file, and delete the queue file.
+                team_key = entity_info["team_key"]
+                slug = entity_info["slug"]
+                team_id = await _resolve_team_id(team_key)
+                if not team_id:
+                    stats["skipped"] += 1
+                    continue
+
+                parsed = parse_markdown(change.new_content)
+                fm = parsed.frontmatter
+                title = fm.get("title", "")
+                if not title:
+                    stats["skipped"] += 1
+                    continue
+
+                create_fields: dict[str, Any] = {"title": title}
+
+                if fm.get("status"):
+                    sid = await _resolve_state_id(team_key, fm["status"])
+                    if sid:
+                        create_fields["stateId"] = sid
+
+                if fm.get("priority") is not None:
+                    create_fields["priority"] = fm["priority"]
+
+                if fm.get("assignee"):
+                    uid = await _resolve_user_id(fm["assignee"])
+                    if uid:
+                        create_fields["assigneeId"] = uid
+
+                if fm.get("labels"):
+                    label_names = fm["labels"] if isinstance(fm["labels"], list) else [fm["labels"]]
+                    label_ids = await _resolve_label_ids(team_key, label_names)
+                    if label_ids:
+                        create_fields["labelIds"] = label_ids
+
+                body = parsed.body.strip()
+                if body:
+                    create_fields["description"] = body
+
+                issue = await client.create_issue(team_id, create_fields)
+                if not issue.get("id"):
+                    stats["skipped"] += 1
+                    continue
+
+                # Write canonical file to linear/teams/{TEAM}/issues/{ID}-{slug}.md
+                identifier = issue["identifier"]
+                canonical_path = entity_path(
+                    "issue", team_key=team_key, identifier=identifier, issue_title=title
+                )
+                canonical_file = repo_dir / canonical_path
+                canonical_file.parent.mkdir(parents=True, exist_ok=True)
+
+                frontmatter_fields: dict[str, Any] = {
+                    "id": issue["id"],
+                    "identifier": identifier,
+                    "title": title,
+                    "status": fm.get("status"),
+                    "priority": fm.get("priority"),
+                    "assignee": fm.get("assignee"),
+                    "labels": fm.get("labels"),
+                    "created": issue.get("createdAt"),
+                    "updated": issue.get("updatedAt"),
+                    "url": issue.get("url"),
+                }
+                # Filter None values
+                frontmatter_fields = {k: v for k, v in frontmatter_fields.items() if v is not None}
+
+                import yaml as _yaml
+                fm_yaml = _yaml.dump(
+                    frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False
+                )
+                canonical_content = f"---\n{fm_yaml}---\n\n# {identifier}: {title}\n"
+                if body:
+                    canonical_content += f"\n{body}\n"
+                canonical_file.write_text(canonical_content)
+
+                # Delete the queue file
+                queue_file = repo_dir / change.path
+                queue_file.unlink(missing_ok=True)
+
+                state.add_mapping(canonical_path, issue["id"])
+                stats["created"] += 1
 
     state.save()
     return stats

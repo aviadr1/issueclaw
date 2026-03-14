@@ -53,6 +53,7 @@ def entity_path(
 
 # Regex patterns for parsing paths
 _ISSUE_RE = re.compile(r"^linear/teams/([^/]+)/issues/([A-Z]+-\d+)(?:-[^/]+)?\.md$")
+_NEW_ISSUE_RE = re.compile(r"^linear/new/([^/]+)/([^/]+)\.md$")
 _PROJECT_RE = re.compile(r"^linear/projects/([^/]+)/_project\.md$")
 _MILESTONE_RE = re.compile(r"^linear/projects/([^/]+)/milestones/([^/]+)\.md$")
 _UPDATE_RE = re.compile(r"^linear/projects/([^/]+)/updates/([^/]+)\.md$")
@@ -74,10 +75,17 @@ def parse_entity_path(path: str) -> dict | None:
     """Parse a file path to determine entity type and identifiers.
 
     Returns a dict with 'type' and entity-specific keys, or None if not a linear path.
+
+    New issue queue: files at linear/new/{TEAM}/{slug}.md are parsed as type "new_issue".
+    They will be created in Linear and moved to linear/teams/{TEAM}/issues/{ID}-{slug}.md.
     """
     m = _ISSUE_RE.match(path)
     if m:
         return {"type": "issue", "team_key": m.group(1), "identifier": m.group(2)}
+
+    m = _NEW_ISSUE_RE.match(path)
+    if m:
+        return {"type": "new_issue", "team_key": m.group(1), "slug": m.group(2)}
 
     m = _MILESTONE_RE.match(path)
     if m:
