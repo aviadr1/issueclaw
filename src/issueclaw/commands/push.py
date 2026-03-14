@@ -319,14 +319,24 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             new_path = parts[2]
             if not new_path.startswith("linear/"):
                 continue
-            old_content = _git_show(repo_dir, f"HEAD~1:{old_path}")
             new_content = (repo_dir / new_path).read_text()
-            changes.append(FileChange(
-                path=new_path,
-                change_type="modified",
-                old_content=old_content,
-                new_content=new_content,
-            ))
+            # If the rename destination is a new-issue queue path, treat as added
+            # so creation logic fires rather than update logic.
+            dest_info = parse_entity_path(new_path)
+            if dest_info and dest_info["type"] == "new_issue":
+                changes.append(FileChange(
+                    path=new_path,
+                    change_type="added",
+                    new_content=new_content,
+                ))
+            else:
+                old_content = _git_show(repo_dir, f"HEAD~1:{old_path}")
+                changes.append(FileChange(
+                    path=new_path,
+                    change_type="modified",
+                    old_content=old_content,
+                    new_content=new_content,
+                ))
         elif status == "M":
             file_path = parts[1]
             if not file_path.startswith("linear/"):
