@@ -137,6 +137,11 @@ Projects: Backlog, Ready for Dev, Dev In Progress, Done, Needs Refinement, Needs
 # Install
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 
+# Create a new issue directly (no git push needed)
+issueclaw create --team AI --title "Fix login bug" --status Backlog --priority 2 \
+  --assignee Aviad --label Bug --label Task \
+  --description "Login fails when email contains a plus sign."
+
 # Pull all Linear entities to local markdown files
 issueclaw pull --api-key $LINEAR_API_KEY
 
@@ -149,7 +154,8 @@ issueclaw status
 # Preview what would be pushed
 issueclaw diff
 
-# JSON output for scripts
+# JSON output for scripts/agents
+issueclaw --json create --team AI --title "..." --priority 2
 issueclaw --json status
 
 # Self-management
@@ -164,6 +170,8 @@ issueclaw self skill        # Print this guide
 
 | Approach | Best for |
 |----------|----------|
-| Edit file + `git push` | Normal workflow — CI handles the Linear sync automatically |
+| `issueclaw create` | Creating a new issue immediately from the CLI — no git commit needed, writes canonical file right away |
+| Drop file in `linear/new/` + `git push` | Creating issues as part of a larger commit, or from a context without CLI access |
+| Edit file + `git push` | Updating existing issues — CI handles the Linear sync automatically |
 | `issueclaw push` locally | Debugging, one-off pushes without CI, testing changes |
 | `issueclaw pull` locally | Bootstrapping a new local clone, force-refreshing stale files |

@@ -45,6 +45,7 @@ uv run pyright                          # Type check
 - **Field resolution**: Status → stateId and assignee → assigneeId are resolved via lazy-cached API lookups in `linear_client.py`.
 - **Project updates as separate files**: Status updates live in `linear/projects/{slug}/updates/{date-author}.md`, not inline in the project file. The project file lists references. New update files pushed to git are synced to Linear via `create_project_update`.
 - **New issue queue**: Files in `linear/new/{TEAM}/{slug}.md` are created as new Linear issues by `issueclaw push`. The queue is always fully drained (scanned from disk, not just from git diff) so retries work if CI fails mid-run. After creation, the file is moved to `linear/teams/{TEAM}/issues/{ID}-{slug}.md` and the queue file is deleted.
+- **Direct issue creation**: `issueclaw create --team AI --title "..." --priority 2 --assignee Name --label Bug` calls Linear API directly, writes the canonical file, and updates id-map — no git push needed.
 - **DRY section parsing**: Comments and project updates share generic `_parse_sections()` and `_render_sections()` infrastructure in parse.py and render.py.
 
 ## Testing conventions
