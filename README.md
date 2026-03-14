@@ -40,6 +40,13 @@ issueclaw diff --repo-dir /path/to/linear-git
 # JSON output for scripts/agents
 issueclaw --json status --repo-dir /path/to/linear-git
 
+# Create entities directly (no git push required — writes files + updates id-map immediately)
+issueclaw create issue --team AI --title "Fix login bug" --priority 2 --assignee Aviad --label Bug
+issueclaw create comment --issue AI-123 --body "Root cause found."
+issueclaw create project --name "Auth Revamp" --team ENG --lead Aviad
+issueclaw create initiative --name "Q3 Security Hardening" --owner Aviad
+issueclaw create document --title "Auth Revamp PRD" --project auth-revamp
+
 # Self-management
 issueclaw self detect       # Show version, executable, Python info
 issueclaw self skill        # Print the agent usage guide (SKILL.md)
@@ -841,6 +848,7 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 | `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, resolves fields, calls Linear mutations |
 | `issueclaw.commands.status` | Shows sync state summary: entity counts, teams, last sync |
 | `issueclaw.commands.diff_cmd` | Previews field-level changes that would be pushed |
+| `issueclaw.commands.create` | `create issue/project/initiative/document/comment`: direct CLI creation, no git push needed |
 | `issueclaw.commands.self_cmd` | Self-management: `self update`, `self detect`, `self skill` |
 | `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse, mutations |
 | `issueclaw.diff` | Field-level markdown diff: frontmatter, body, and comments |

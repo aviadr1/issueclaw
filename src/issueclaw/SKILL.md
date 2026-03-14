@@ -137,10 +137,21 @@ Projects: Backlog, Ready for Dev, Dev In Progress, Done, Needs Refinement, Needs
 # Install
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 
-# Create a new issue directly (no git push needed)
-issueclaw create --team AI --title "Fix login bug" --status Backlog --priority 2 \
+# Create entities directly (no git push needed)
+issueclaw create issue --team AI --title "Fix login bug" --status Backlog --priority 2 \
   --assignee Aviad --label Bug --label Task \
   --description "Login fails when email contains a plus sign."
+
+issueclaw create comment --issue AI-123 --body "Investigated. Root cause is the URL encoder."
+
+issueclaw create project --name "Auth Revamp" --team ENG --team BE \
+  --lead Aviad --priority 2 --target-date 2026-06-30
+
+issueclaw create initiative --name "Q3 Security Hardening" \
+  --owner Aviad --target-date 2026-09-30
+
+issueclaw create document --title "Auth Revamp PRD" \
+  --project auth-revamp --body "## Context\n..."
 
 # Pull all Linear entities to local markdown files
 issueclaw pull --api-key $LINEAR_API_KEY
@@ -155,7 +166,7 @@ issueclaw status
 issueclaw diff
 
 # JSON output for scripts/agents
-issueclaw --json create --team AI --title "..." --priority 2
+issueclaw --json create issue --team AI --title "..." --priority 2
 issueclaw --json status
 
 # Self-management
@@ -170,8 +181,8 @@ issueclaw self skill        # Print this guide
 
 | Approach | Best for |
 |----------|----------|
-| `issueclaw create` | Creating a new issue immediately from the CLI — no git commit needed, writes canonical file right away |
-| Drop file in `linear/new/` + `git push` | Creating issues as part of a larger commit, or from a context without CLI access |
+| `issueclaw create issue/project/initiative/document/comment` | Creating any entity immediately — no git commit needed, writes canonical file right away |
+| Drop file in `linear/new/` + `git push` | Creating issues as part of a larger commit, or from a context without CLI access (CI handles it) |
 | Edit file + `git push` | Updating existing issues — CI handles the Linear sync automatically |
 | `issueclaw push` locally | Debugging, one-off pushes without CI, testing changes |
 | `issueclaw pull` locally | Bootstrapping a new local clone, force-refreshing stale files |

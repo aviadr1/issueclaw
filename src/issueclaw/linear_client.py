@@ -422,6 +422,47 @@ class LinearClient:
         result = await self._graphql(query, {"input": {"teamId": team_id, **fields}})
         return result.get("data", {}).get("issueCreate", {}).get("issue", {})
 
+    async def create_project(self, name: str, team_ids: list[str], fields: dict) -> dict:
+        """Create a new project in Linear. Returns {id, name, slugId, url}."""
+        query = """
+        mutation CreateProject($input: ProjectCreateInput!) {
+            projectCreate(input: $input) {
+                success
+                project { id name slugId url createdAt updatedAt }
+            }
+        }
+        """
+        result = await self._graphql(
+            query, {"input": {"name": name, "teamIds": team_ids, **fields}}
+        )
+        return result.get("data", {}).get("projectCreate", {}).get("project", {})
+
+    async def create_initiative(self, name: str, fields: dict) -> dict:
+        """Create a new initiative in Linear. Returns {id, name, url}."""
+        query = """
+        mutation CreateInitiative($input: InitiativeCreateInput!) {
+            initiativeCreate(input: $input) {
+                success
+                initiative { id name url createdAt updatedAt }
+            }
+        }
+        """
+        result = await self._graphql(query, {"input": {"name": name, **fields}})
+        return result.get("data", {}).get("initiativeCreate", {}).get("initiative", {})
+
+    async def create_document(self, title: str, fields: dict) -> dict:
+        """Create a new document in Linear. Returns {id, title, slugId, url}."""
+        query = """
+        mutation CreateDocument($input: DocumentCreateInput!) {
+            documentCreate(input: $input) {
+                success
+                document { id title slugId url createdAt updatedAt creator { name } }
+            }
+        }
+        """
+        result = await self._graphql(query, {"input": {"title": title, **fields}})
+        return result.get("data", {}).get("documentCreate", {}).get("document", {})
+
     async def create_project_update(self, project_id: str, body: str, health: str = "onTrack") -> dict:
         """Create a status update on a project in Linear."""
         query = """
