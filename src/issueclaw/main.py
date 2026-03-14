@@ -5,6 +5,7 @@ from issueclaw.commands.diff_cmd import diff_command
 from issueclaw.commands.init import init_command
 from issueclaw.commands.pull import pull_command
 from issueclaw.commands.push import push_command
+from issueclaw.commands.self_cmd import self_group
 from issueclaw.commands.status import status_command
 
 
@@ -28,6 +29,7 @@ cli.add_command(push_command)
 cli.add_command(status_command)
 cli.add_command(diff_command)
 cli.add_command(init_command)
+cli.add_command(self_group)
 
 
 if __name__ == "__main__":
