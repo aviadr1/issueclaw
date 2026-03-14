@@ -294,8 +294,25 @@ async def push_changes(
 def detect_git_changes(repo_dir: Path) -> list[FileChange]:
     """Detect file changes in linear/ by comparing HEAD~1 to HEAD using git diff.
 
+    Also always scans linear/new/ for any existing queue files, since they should
+    be processed even if they were committed in a previous (failed) run.
+
     Returns a list of FileChange objects with old/new content for each changed file.
     """
+    # Always drain the queue: any file currently in linear/new/ should be created.
+    changes: list[FileChange] = []
+    seen_queue_paths: set[str] = set()
+    new_dir = repo_dir / "linear" / "new"
+    if new_dir.exists():
+        for md_file in new_dir.rglob("*.md"):
+            rel_path = str(md_file.relative_to(repo_dir))
+            seen_queue_paths.add(rel_path)
+            changes.append(FileChange(
+                path=rel_path,
+                change_type="added",
+                new_content=md_file.read_text(),
+            ))
+
     result = subprocess.run(
         ["git", "diff", "HEAD~1", "--name-status", "--", "linear/"],
         capture_output=True,
@@ -303,9 +320,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
         cwd=repo_dir,
     )
     if result.returncode != 0:
-        return []
-
-    changes: list[FileChange] = []
+        return changes
     for line in result.stdout.strip().splitlines():
         if not line:
             continue
@@ -318,6 +333,9 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             old_path = parts[1]
             new_path = parts[2]
             if not new_path.startswith("linear/"):
+                continue
+            # Skip queue files — already added by the queue scan above
+            if new_path in seen_queue_paths:
                 continue
             new_content = (repo_dir / new_path).read_text()
             # If the rename destination is a new-issue queue path, treat as added
@@ -339,7 +357,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
                 ))
         elif status == "M":
             file_path = parts[1]
-            if not file_path.startswith("linear/"):
+            if not file_path.startswith("linear/") or file_path in seen_queue_paths:
                 continue
             old_content = _git_show(repo_dir, f"HEAD~1:{file_path}")
             new_content = (repo_dir / file_path).read_text()
@@ -362,7 +380,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             ))
         elif status == "A":
             file_path = parts[1]
-            if not file_path.startswith("linear/"):
+            if not file_path.startswith("linear/") or file_path in seen_queue_paths:
                 continue
             new_content = (repo_dir / file_path).read_text()
             changes.append(FileChange(
