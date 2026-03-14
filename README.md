@@ -9,8 +9,14 @@ Inspired by the [OpenClaw](https://github.com/openclaw/openclaw) philosophy of a
 ## Quick Start
 
 ```bash
-# Install
-uv tool install issueclaw
+# Install (from GitHub — not yet on PyPI)
+curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
+
+# Or install manually with uv
+uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+# Upgrade to latest
+issueclaw self update
 
 # Set up a new repo with workflows, secrets, and Linear webhook
 export LINEAR_API_KEY=lin_api_...
@@ -33,6 +39,11 @@ issueclaw diff --repo-dir /path/to/linear-git
 
 # JSON output for scripts/agents
 issueclaw --json status --repo-dir /path/to/linear-git
+
+# Self-management
+issueclaw self detect       # Show version, executable, Python info
+issueclaw self skill        # Print the agent usage guide (SKILL.md)
+issueclaw self update       # Upgrade to latest from GitHub
 ```
 
 ## Current Status
@@ -830,6 +841,7 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 | `issueclaw.commands.push` | Push sync: detects git changes, diffs markdown, resolves fields, calls Linear mutations |
 | `issueclaw.commands.status` | Shows sync state summary: entity counts, teams, last sync |
 | `issueclaw.commands.diff_cmd` | Previews field-level changes that would be pushed |
+| `issueclaw.commands.self_cmd` | Self-management: `self update`, `self detect`, `self skill` |
 | `issueclaw.linear_client` | Async GraphQL client with pagination, rate limit handling, connection reuse, mutations |
 | `issueclaw.diff` | Field-level markdown diff: frontmatter, body, and comments |
 | `issueclaw.models` | Pydantic models for all Linear entity types |
@@ -905,9 +917,11 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 ### Phase 4: Polish - COMPLETE
 - `issueclaw status`: Shows entity counts, teams, and last sync timestamp.
 - `issueclaw diff`: Previews field-level changes that would be pushed to Linear.
+- `issueclaw self update/detect/skill`: Self-management and bundled agent guide.
+- `install.sh`: One-liner installer via `uv tool install git+...`.
 - Status field resolution: state name → stateId via team workflow states API.
 - Assignee field resolution: user name → assigneeId via workspace users API.
-- Both new commands support `--json` mode for scripting and AI agents.
+- All commands support `--json` mode for scripting and AI agents.
 
 **Remaining items (not yet implemented):**
 - Image handling strategy (Linear uploads need auth tokens).

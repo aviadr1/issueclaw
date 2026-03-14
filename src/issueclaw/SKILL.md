@@ -1,10 +1,55 @@
 # issueclaw — Agent Skill Guide
 
-issueclaw syncs Linear issues, projects, and documents bidirectionally with a git repo. Every entity is a markdown file.
+issueclaw syncs Linear issues, projects, and documents bidirectionally with a git repo. Every entity is a plain markdown file under `linear/`. The repo is the source of truth — search it directly instead of calling the Linear API.
+
+## Repo layout
+
+```
+linear/
+  new/{TEAM}/{slug}.md             ← drop here to create a new issue
+  teams/{TEAM}/issues/{ID}-{slug}.md
+  projects/{slug}/_project.md
+  projects/{slug}/updates/{date-author}.md
+  initiatives/{slug}.md
+  documents/{slug}.md
+.sync/id-map.json                  ← maps file paths → Linear UUIDs (do not edit)
+```
+
+Teams: AI, ENG, WEB, MOB, BE, OPS, PRD, DSG
+
+---
+
+## Searching
+
+The repo is fully local — grep is faster than any API call. When using Claude Code, prefer the **Grep** tool over bash grep.
+
+```
+# Issues by keyword
+Grep pattern="transcription" path="linear/teams/*/issues/"
+
+# Issues by status
+Grep pattern="^status: In Progress" path="linear/teams/*/issues/"
+
+# Issues by assignee
+Grep pattern="^assignee: Aviad" path="linear/teams/*/issues/"
+
+# Issues by label (YAML list item)
+Grep pattern="^- Bug$" path="linear/teams/AI/issues/"
+
+# Issues by team (scope the path)
+Read files under linear/teams/AI/issues/
+
+# Cross-entity search (issues + docs + projects)
+Grep pattern="keyword" path="linear/"
+```
+
+When presenting results, always show: identifier, title, status, assignee, and the `url` from frontmatter.
+
+---
 
 ## Creating a new issue
 
-Drop a file in `linear/new/{TEAM}/{slug}.md` with minimal frontmatter, then commit and push. CI creates the issue in Linear, writes the canonical file to `linear/teams/{TEAM}/issues/{ID}-{slug}.md`, and deletes the queue file.
+Drop a file in `linear/new/{TEAM}/{slug}.md`, commit, and push. CI creates the issue in Linear, writes the canonical file to `linear/teams/{TEAM}/issues/{ID}-{slug}.md`, and deletes the queue file.
 
 ```markdown
 ---
@@ -22,23 +67,44 @@ Description body here...
 
 **Rules:**
 - Never add `id`, `identifier`, `url`, `created`, or `updated` — Linear assigns those
-- File must be in `linear/new/{TEAM}/` not `linear/new/` directly
-- Never put a file directly in `linear/teams/` for a new issue
-
-**Teams:** AI, ENG, WEB, MOB, BE, OPS, PRD, DSG
+- File must be in `linear/new/{TEAM}/` — never directly in `linear/new/` or `linear/teams/`
+- Filename should match the title slug (e.g., `fix-login-bug.md` for "Fix login bug")
 
 **Priority values:** 0=No priority, 1=Urgent, 2=High, 3=Medium, 4=Low
 
 **Labels:** Bug, Feature, Improvement, TechDebt, HotFix, Regression, Research, Task, Story, ReleaseBlocking, DX, UX
 
+---
+
 ## Updating an existing issue
 
-Edit the markdown file at `linear/teams/{TEAM}/issues/{ID}-{slug}.md`:
-- Change YAML frontmatter fields: `status`, `priority`, `assignee`, `labels`, `estimate`, `due_date`
-- Edit the markdown body to change the description
-- Add a `## Author - timestamp` section under `# Comments` to add a comment
+Edit the markdown file at `linear/teams/{TEAM}/issues/{ID}-{slug}.md`, then commit and push. CI syncs changes to Linear automatically.
 
-Then commit and push. CI syncs changes to Linear automatically.
+**Editable frontmatter fields:**
+
+| Field | Type | Example |
+|-------|------|---------|
+| `title` | string | `Fix login bug` |
+| `status` | string | `In Progress` |
+| `priority` | int | `2` (High) |
+| `assignee` | string | `Aviad` |
+| `labels` | list | `- Bug` |
+| `estimate` | int | `3` |
+| `due_date` | date | `2026-04-01` |
+
+**Read-only fields** (set by Linear, don't edit): `id`, `identifier`, `url`, `created`, `updated`
+
+**To add a comment:** append a new `## Author - timestamp` section under `# Comments`:
+
+```markdown
+# Comments
+
+## Aviad - 2026-03-14T10:00:00Z
+
+Your comment text here.
+```
+
+---
 
 ## Creating a project status update
 
@@ -53,27 +119,19 @@ author: Name
 Update body here...
 ```
 
-## Searching the repo
+Health values: `onTrack`, `atRisk`, `offTrack`
 
-The git repo is the source of truth. Use grep on the `linear/` directory:
+---
 
-```bash
-# Find issues by keyword
-grep -rl "keyword" linear/teams/*/issues/
+## Statuses reference
 
-# Find by status
-grep -rl "^status: In Progress" linear/teams/*/issues/
+Issues: Backlog, Todo, Needs Refinement, Needs Designs, In Progress, Code Review, To QA, Product Verification, To Fix, Done, Canceled, Duplicate, Blocked, Triage
 
-# Find by assignee
-grep -rl "^assignee: Aviad" linear/teams/*/issues/
+Projects: Backlog, Ready for Dev, Dev In Progress, Done, Needs Refinement, Needs Designs, Canceled
 
-# Find by label
-grep -rl "^- Bug$" linear/teams/AI/issues/
-```
+---
 
-## CLI usage (alternative to git push)
-
-issueclaw also provides direct CLI commands:
+## CLI commands
 
 ```bash
 # Install
@@ -82,17 +140,30 @@ curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh |
 # Pull all Linear entities to local markdown files
 issueclaw pull --api-key $LINEAR_API_KEY
 
-# Push local changes to Linear
+# Push local changes to Linear (CI does this automatically on git push)
 issueclaw push --api-key $LINEAR_API_KEY
 
-# Show sync status
+# Show sync status (entity counts, teams, last sync)
 issueclaw status
 
 # Preview what would be pushed
 issueclaw diff
 
+# JSON output for scripts
+issueclaw --json status
+
 # Self-management
-issueclaw self update       # Upgrade to latest version
-issueclaw self detect       # Show installation info
-issueclaw self skill        # Print this skill guide
+issueclaw self update       # Upgrade to latest from GitHub
+issueclaw self detect       # Show version, executable, Python info
+issueclaw self skill        # Print this guide
 ```
+
+---
+
+## When to use CLI vs git push
+
+| Approach | Best for |
+|----------|----------|
+| Edit file + `git push` | Normal workflow — CI handles the Linear sync automatically |
+| `issueclaw push` locally | Debugging, one-off pushes without CI, testing changes |
+| `issueclaw pull` locally | Bootstrapping a new local clone, force-refreshing stale files |
