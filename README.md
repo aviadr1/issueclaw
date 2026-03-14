@@ -257,6 +257,11 @@ Issueclaw breaks this silo by storing Linear data as plain markdown files in git
 ```
 repo-root/
 ├── linear/
+│   ├── new/                            ← drop new issue files here to create them
+│   │   ├── AI/
+│   │   │   └── fix-login-bug.md        ← CI creates the issue, moves to teams/
+│   │   └── ENG/
+│   │       └── refactor-api-client.md
 │   ├── teams/
 │   │   ├── AI/
 │   │   │   └── issues/
@@ -294,6 +299,7 @@ repo-root/
 
 ### Path conventions
 
+- **New issue queue**: `linear/new/{TEAM_KEY}/{title-slug}.md` — drop files here to create new issues; CI moves them to `linear/teams/` after creation
 - Issues: `linear/teams/{TEAM_KEY}/issues/{IDENTIFIER}-{title-slug}.md` (e.g., `linear/teams/AI/issues/AI-123-fix-login-bug.md`)
 - Projects: `linear/projects/{name-slug}/_project.md` (e.g., `linear/projects/metrics-platform/_project.md`)
 - Project updates: `linear/projects/{name-slug}/updates/{date-author}.md` (e.g., `linear/projects/metrics-platform/updates/2026-03-13-aviad-rozenhek.md`)
@@ -521,17 +527,27 @@ This is the only expensive operation. It scales with workspace size but supports
 Triggered by: push to `main` modifying `linear/**` files, where commit author is not `issueclaw-bot`.
 
 ```
-1. Run: git diff --name-status HEAD~1..HEAD -- linear/
+1. Scan linear/new/ for any queue files (processed regardless of git diff,
+   so retries work if a previous CI run failed mid-way).
+
+2. Run: git diff --name-status HEAD~1..HEAD -- linear/
    Output: A/M/D status for each changed file
 
-2. For each ADDED file:
-   a. Parse frontmatter + body
-   b. Determine entity type from path (issues/, projects/, etc.)
-   c. Call Linear API to create (e.g., save_issue with title + team)
-   d. Write back assigned id + identifier to frontmatter
-   e. Update .sync/id-map.json
+3. For each NEW ISSUE queue file (linear/new/{TEAM}/{slug}.md):
+   a. Parse frontmatter: title, status, priority, assignee, labels
+   b. Resolve team ID, state ID, assignee ID, label IDs via Linear API
+   c. Call Linear API issueCreate mutation
+   d. Write canonical file to linear/teams/{TEAM}/issues/{ID}-{slug}.md
+   e. Delete the queue file
+   f. Update .sync/id-map.json
 
-3. For each MODIFIED file:
+4. For each other ADDED file:
+   a. Parse frontmatter + body
+   b. Determine entity type from path (projects/updates/, etc.)
+   c. Call Linear API to create the entity
+   d. Update .sync/id-map.json
+
+5. For each MODIFIED file:
    a. Run: git show HEAD~1:{path} to get previous version
    b. Parse old and new frontmatter
    c. Diff field-by-field to find only changed fields
@@ -741,7 +757,7 @@ jobs:
         run: |
           git config user.name "issueclaw-bot"
           git config user.email "issueclaw-bot@users.noreply.github.com"
-          git add .sync/
+          git add .sync/ linear/   # linear/ captures queue file moves on issue creation
           if git diff --cached --quiet; then
             echo "No sync state changes"
           else
@@ -883,7 +899,8 @@ The tool is a pip-installable Python package (`uv tool install issueclaw`) with 
 - Pushes title, description, priority, estimate, due date changes. Creates comments.
 - Archives issues on file deletion. Strips entity headings to prevent round-trip duplication.
 - Loop prevention via author gating (`issueclaw-bot` commits are skipped).
-- **Value**: Full bidirectional sync. Edit issues as markdown, push, done.
+- **New issue queue**: Drop a file in `linear/new/{TEAM}/` with title/priority/assignee/labels — CI creates the issue in Linear and moves the file to the canonical path. Queue is always drained on push (not just on first commit of the file).
+- **Value**: Full bidirectional sync. Edit issues as markdown, push, done. Create new issues by dropping files in the queue.
 
 ### Phase 4: Polish - COMPLETE
 - `issueclaw status`: Shows entity counts, teams, and last sync timestamp.
