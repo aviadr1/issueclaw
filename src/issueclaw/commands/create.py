@@ -49,7 +49,12 @@ def create_group() -> None:
 @click.option("--priority", default=None, type=int, help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.")
 @click.option("--assignee", default=None, help="Assignee name.")
 @click.option("--label", "labels", multiple=True, help="Label name (repeatable).")
-@click.option("--description", default=None, help="Issue description body.")
+@click.option(
+    "--description",
+    type=click.File("r"),
+    default=None,
+    help="Description body: path to a file, or '-' to read from stdin.",
+)
 @click.pass_context
 def create_issue(
     ctx: click.Context,
@@ -61,14 +66,15 @@ def create_issue(
     priority: int | None,
     assignee: str | None,
     labels: tuple[str, ...],
-    description: str | None,
+    description: click.File | None,
 ) -> None:
     """Create a new Linear issue. Writes canonical file to the repo immediately."""
     if not api_key:
         raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
+    description_text = description.read().strip() if description else None
     result = asyncio.run(
-        _create_issue(api_key, repo_dir, team.upper(), title, status, priority, assignee, list(labels), description)
+        _create_issue(api_key, repo_dir, team.upper(), title, status, priority, assignee, list(labels), description_text)
     )
     if json_mode:
         click.echo(json.dumps(result))
@@ -83,20 +89,28 @@ def create_issue(
 @_api_key_option()
 @_repo_dir_option()
 @click.option("--issue", "identifier", required=True, help="Issue identifier (e.g. AI-123).")
-@click.option("--body", required=True, help="Comment body.")
+@click.option(
+    "--body",
+    type=click.File("r"),
+    default="-",
+    help="Comment body: path to a file, or '-' to read from stdin (default).",
+)
 @click.pass_context
 def create_comment(
     ctx: click.Context,
     api_key: str | None,
     repo_dir: Path,
     identifier: str,
-    body: str,
+    body: click.File,
 ) -> None:
     """Add a comment to an existing issue. Updates the local file immediately."""
     if not api_key:
         raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    result = asyncio.run(_create_comment(api_key, repo_dir, identifier.upper(), body))
+    body_text = body.read().strip()
+    if not body_text:
+        raise click.UsageError("Comment body cannot be empty.")
+    result = asyncio.run(_create_comment(api_key, repo_dir, identifier.upper(), body_text))
     if json_mode:
         click.echo(json.dumps(result))
     else:
@@ -109,7 +123,12 @@ def create_comment(
 @_repo_dir_option()
 @click.option("--name", required=True, help="Project name.")
 @click.option("--team", "teams", multiple=True, required=True, help="Team key (repeatable: --team AI --team ENG).")
-@click.option("--description", default=None, help="Project description.")
+@click.option(
+    "--description",
+    type=click.File("r"),
+    default=None,
+    help="Description body: path to a file, or '-' to read from stdin.",
+)
 @click.option("--lead", default=None, help="Lead user name.")
 @click.option("--priority", default=None, type=int, help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.")
 @click.option("--start-date", default=None, help="Start date (YYYY-MM-DD).")
@@ -121,7 +140,7 @@ def create_project(
     repo_dir: Path,
     name: str,
     teams: tuple[str, ...],
-    description: str | None,
+    description: click.File | None,
     lead: str | None,
     priority: int | None,
     start_date: str | None,
@@ -131,8 +150,9 @@ def create_project(
     if not api_key:
         raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
+    description_text = description.read().strip() if description else None
     result = asyncio.run(
-        _create_project(api_key, repo_dir, name, [t.upper() for t in teams], description, lead, priority, start_date, target_date)
+        _create_project(api_key, repo_dir, name, [t.upper() for t in teams], description_text, lead, priority, start_date, target_date)
     )
     if json_mode:
         click.echo(json.dumps(result))
@@ -147,7 +167,12 @@ def create_project(
 @_api_key_option()
 @_repo_dir_option()
 @click.option("--name", required=True, help="Initiative name.")
-@click.option("--description", default=None, help="Initiative description.")
+@click.option(
+    "--description",
+    type=click.File("r"),
+    default=None,
+    help="Description body: path to a file, or '-' to read from stdin.",
+)
 @click.option("--owner", default=None, help="Owner user name.")
 @click.option("--target-date", default=None, help="Target date (YYYY-MM-DD).")
 @click.option("--status", default=None, help="Status (e.g. 'planned', 'inProgress', 'completed').")
@@ -157,7 +182,7 @@ def create_initiative(
     api_key: str | None,
     repo_dir: Path,
     name: str,
-    description: str | None,
+    description: click.File | None,
     owner: str | None,
     target_date: str | None,
     status: str | None,
@@ -166,7 +191,8 @@ def create_initiative(
     if not api_key:
         raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    result = asyncio.run(_create_initiative(api_key, repo_dir, name, description, owner, target_date, status))
+    description_text = description.read().strip() if description else None
+    result = asyncio.run(_create_initiative(api_key, repo_dir, name, description_text, owner, target_date, status))
     if json_mode:
         click.echo(json.dumps(result))
     else:
@@ -180,7 +206,12 @@ def create_initiative(
 @_api_key_option()
 @_repo_dir_option()
 @click.option("--title", required=True, help="Document title.")
-@click.option("--body", default=None, help="Document body content.")
+@click.option(
+    "--body",
+    type=click.File("r"),
+    default="-",
+    help="Document body: path to a file, or '-' to read from stdin (default).",
+)
 @click.option("--project", "project_slug", default=None, help="Associate with a project (slug, e.g. 'metrics-platform').")
 @click.pass_context
 def create_document(
@@ -188,14 +219,15 @@ def create_document(
     api_key: str | None,
     repo_dir: Path,
     title: str,
-    body: str | None,
+    body: click.File,
     project_slug: str | None,
 ) -> None:
     """Create a new Linear document. Writes the markdown file to the repo immediately."""
     if not api_key:
         raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    result = asyncio.run(_create_document(api_key, repo_dir, title, body, project_slug))
+    body_text = body.read().strip() if body else None
+    result = asyncio.run(_create_document(api_key, repo_dir, title, body_text or None, project_slug))
     if json_mode:
         click.echo(json.dumps(result))
     else:

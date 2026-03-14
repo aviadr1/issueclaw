@@ -138,12 +138,25 @@ Projects: Backlog, Ready for Dev, Dev In Progress, Done, Needs Refinement, Needs
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 
 # Create entities directly (no git push needed)
+# --description / --body accepts a file path or '-' for stdin
+
+# From a file
 issueclaw create issue --team AI --title "Fix login bug" --status Backlog --priority 2 \
   --assignee Aviad --label Bug --label Task \
-  --description "Login fails when email contains a plus sign."
+  --description ./description.md
 
-issueclaw create comment --issue AI-123 --body "Investigated. Root cause is the URL encoder."
+# From stdin (heredoc)
+issueclaw create issue --team AI --title "Fix login bug" --priority 2 \
+  --description - <<'EOF'
+Login fails when the email address contains a plus sign.
+Steps to reproduce: sign up with user+tag@example.com.
+EOF
 
+# Comment from stdin
+echo "Root cause is the URL encoder stripping '+' before auth." | \
+  issueclaw create comment --issue AI-123
+
+# Project / initiative / document
 issueclaw create project --name "Auth Revamp" --team ENG --team BE \
   --lead Aviad --priority 2 --target-date 2026-06-30
 
@@ -151,7 +164,7 @@ issueclaw create initiative --name "Q3 Security Hardening" \
   --owner Aviad --target-date 2026-09-30
 
 issueclaw create document --title "Auth Revamp PRD" \
-  --project auth-revamp --body "## Context\n..."
+  --project auth-revamp < prd.md
 
 # Pull all Linear entities to local markdown files
 issueclaw pull --api-key $LINEAR_API_KEY

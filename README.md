@@ -41,11 +41,13 @@ issueclaw diff --repo-dir /path/to/linear-git
 issueclaw --json status --repo-dir /path/to/linear-git
 
 # Create entities directly (no git push required — writes files + updates id-map immediately)
-issueclaw create issue --team AI --title "Fix login bug" --priority 2 --assignee Aviad --label Bug
-issueclaw create comment --issue AI-123 --body "Root cause found."
+# --description / --body accepts a file path or '-' for stdin
+issueclaw create issue --team AI --title "Fix login bug" --priority 2 --assignee Aviad \
+  --label Bug --description issue-body.md
+echo "Root cause found." | issueclaw create comment --issue AI-123
 issueclaw create project --name "Auth Revamp" --team ENG --lead Aviad
 issueclaw create initiative --name "Q3 Security Hardening" --owner Aviad
-issueclaw create document --title "Auth Revamp PRD" --project auth-revamp
+issueclaw create document --title "Auth Revamp PRD" --project auth-revamp < prd.md
 
 # Self-management
 issueclaw self detect       # Show version, executable, Python info
