@@ -107,11 +107,16 @@ class LinearClient:
         """
         return await self._paginate(query, ["teams"])
 
-    async def fetch_issues(self, team_id: str, include_comments: bool = True) -> list[dict]:
+    async def fetch_issues(
+        self, team_id: str, include_comments: bool = True, updated_after: str | None = None
+    ) -> list[dict]:
         """Fetch all issues for a team, paginated.
 
         When include_comments=True, comments are fetched inline (up to 50 per issue),
         avoiding the need for separate comment API calls.
+
+        When updated_after is provided (ISO 8601), only issues updated at or after
+        that timestamp are returned, making incremental syncs cheap.
         """
         comments_fragment = """
                         comments(first: 50) {
@@ -121,10 +126,17 @@ class LinearClient:
                             }
                         }""" if include_comments else ""
 
+        if updated_after:
+            filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
+            updated_after_var = ", $updatedAfter: DateTime"
+        else:
+            filter_arg = ""
+            updated_after_var = ""
+
         query = f"""
-        query TeamIssues($teamId: String!, $after: String) {{
+        query TeamIssues($teamId: String!, $after: String{updated_after_var}) {{
             team(id: $teamId) {{
-                issues(first: 50, after: $after) {{
+                issues(first: 50, after: $after{filter_arg}) {{
                     nodes {{
                         id identifier title description
                         priority priorityLabel
@@ -144,7 +156,10 @@ class LinearClient:
             }}
         }}
         """
-        return await self._paginate(query, ["team", "issues"], {"teamId": team_id})
+        variables: dict = {"teamId": team_id}
+        if updated_after:
+            variables["updatedAfter"] = updated_after
+        return await self._paginate(query, ["team", "issues"], variables)
 
     async def fetch_issue(self, issue_id: str) -> dict:
         """Fetch a single issue by ID with full data including team and comments."""
@@ -254,76 +269,117 @@ class LinearClient:
         result = await self._graphql(query, {"issueId": issue_id})
         return result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
 
-    async def fetch_projects(self) -> list[dict]:
+    async def fetch_projects(self, updated_after: str | None = None) -> list[dict]:
         """Fetch all projects in the workspace.
 
         Uses smaller page size (5) due to query complexity from nested connections
         (milestones, updates, members, initiatives, documents).
+
+        When updated_after is provided (ISO 8601), only projects updated at or after
+        that timestamp are returned.
         """
-        query = """
-        query Projects($after: String) {
-            projects(first: 5, after: $after) {
-                nodes {
+        if updated_after:
+            filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
+            updated_after_var = ", $updatedAfter: DateTime"
+        else:
+            filter_arg = ""
+            updated_after_var = ""
+
+        query = f"""
+        query Projects($after: String{updated_after_var}) {{
+            projects(first: 5, after: $after{filter_arg}) {{
+                nodes {{
                     id name slugId description content
                     priority health progress scope
                     url createdAt updatedAt
                     startDate targetDate
-                    status { id name color type }
-                    lead { id name email }
-                    teams { nodes { id name key } }
-                    members { nodes { id name } }
-                    labels { nodes { id name } }
-                    projectMilestones {
-                        nodes { id name description targetDate status progress }
-                    }
-                    projectUpdates(first: 10) {
-                        nodes { id body health createdAt user { id name } }
-                    }
-                    initiatives { nodes { id name } }
-                    documents { nodes { id title } }
-                }
-                pageInfo { hasNextPage endCursor }
-            }
-        }
+                    status {{ id name color type }}
+                    lead {{ id name email }}
+                    teams {{ nodes {{ id name key }} }}
+                    members {{ nodes {{ id name }} }}
+                    labels {{ nodes {{ id name }} }}
+                    projectMilestones {{
+                        nodes {{ id name description targetDate status progress }}
+                    }}
+                    projectUpdates(first: 10) {{
+                        nodes {{ id body health createdAt user {{ id name }} }}
+                    }}
+                    initiatives {{ nodes {{ id name }} }}
+                    documents {{ nodes {{ id title }} }}
+                }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+        }}
         """
-        return await self._paginate(query, ["projects"])
+        variables: dict = {}
+        if updated_after:
+            variables["updatedAfter"] = updated_after
+        return await self._paginate(query, ["projects"], variables or None)
 
-    async def fetch_initiatives(self) -> list[dict]:
-        """Fetch all initiatives in the workspace."""
-        query = """
-        query Initiatives($after: String) {
-            initiatives(first: 50, after: $after) {
-                nodes {
+    async def fetch_initiatives(self, updated_after: str | None = None) -> list[dict]:
+        """Fetch all initiatives in the workspace.
+
+        When updated_after is provided (ISO 8601), only initiatives updated at or
+        after that timestamp are returned.
+        """
+        if updated_after:
+            filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
+            updated_after_var = ", $updatedAfter: DateTime"
+        else:
+            filter_arg = ""
+            updated_after_var = ""
+
+        query = f"""
+        query Initiatives($after: String{updated_after_var}) {{
+            initiatives(first: 50, after: $after{filter_arg}) {{
+                nodes {{
                     id name description content
                     status health
                     targetDate createdAt updatedAt
                     url
-                    owner { id name email }
-                    projects { nodes { id name } }
-                }
-                pageInfo { hasNextPage endCursor }
-            }
-        }
+                    owner {{ id name email }}
+                    projects {{ nodes {{ id name }} }}
+                }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+        }}
         """
-        return await self._paginate(query, ["initiatives"])
+        variables: dict = {}
+        if updated_after:
+            variables["updatedAfter"] = updated_after
+        return await self._paginate(query, ["initiatives"], variables or None)
 
-    async def fetch_documents(self) -> list[dict]:
-        """Fetch all documents in the workspace."""
-        query = """
-        query Documents($after: String) {
-            documents(first: 50, after: $after) {
-                nodes {
+    async def fetch_documents(self, updated_after: str | None = None) -> list[dict]:
+        """Fetch all documents in the workspace.
+
+        When updated_after is provided (ISO 8601), only documents updated at or
+        after that timestamp are returned.
+        """
+        if updated_after:
+            filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
+            updated_after_var = ", $updatedAfter: DateTime"
+        else:
+            filter_arg = ""
+            updated_after_var = ""
+
+        query = f"""
+        query Documents($after: String{updated_after_var}) {{
+            documents(first: 50, after: $after{filter_arg}) {{
+                nodes {{
                     id title content slugId icon color
                     url createdAt updatedAt
-                    creator { id name }
-                    updatedBy { id name }
-                    project { id name }
-                }
-                pageInfo { hasNextPage endCursor }
-            }
-        }
+                    creator {{ id name }}
+                    updatedBy {{ id name }}
+                    project {{ id name }}
+                }}
+                pageInfo {{ hasNextPage endCursor }}
+            }}
+        }}
         """
-        return await self._paginate(query, ["documents"])
+        variables: dict = {}
+        if updated_after:
+            variables["updatedAfter"] = updated_after
+        return await self._paginate(query, ["documents"], variables or None)
 
     async def fetch_team_states(self, team_id: str) -> list[dict]:
         """Fetch all workflow states for a team."""

@@ -58,16 +58,24 @@ async def _run_pull(
     api_key: str,
     repo_dir: Path,
     teams_filter: list[str] | None,
+    since: str | None = None,
     log: Callable[[str], None] = _default_log,
     show_progress: bool = True,
 ) -> dict:
     """Execute the pull sync operation.
 
     Returns a stats dict with counts of synced entities.
+
+    When since is not provided, it defaults to state.last_sync so that
+    subsequent runs only fetch entities changed since the previous sync.
+    Pass since='' explicitly to force a full sync regardless of last_sync.
     """
     async with LinearClient(api_key=api_key) as client:
         state = SyncState(repo_dir)
         state.load()
+
+        # Default to last_sync for incremental syncs. None means no filter (full sync).
+        updated_after: str | None = since if since is not None else state.last_sync
 
         stats = {"issues": 0, "projects": 0, "initiatives": 0, "documents": 0}
 
@@ -82,13 +90,18 @@ async def _run_pull(
             teams = [t for t in teams if t["key"].upper() in filter_set]
             log(f"Filtered to {len(teams)} teams: {', '.join(t['key'] for t in teams)}")
 
+        if updated_after:
+            log(f"Incremental sync: fetching entities updated after {updated_after}")
+        else:
+            log("Full sync: fetching all entities")
+
         # Sync issues per team
         for team in teams:
             team_key = team["key"]
             team_id = team["id"]
 
             log(f"Fetching issues for team {team_key}...")
-            raw_issues = await client.fetch_issues(team_id, include_comments=True)
+            raw_issues = await client.fetch_issues(team_id, include_comments=True, updated_after=updated_after)
             log(f"  {len(raw_issues)} issues in {team_key}")
 
             with _progress_bar(f"Writing {team_key} issues", len(raw_issues), enabled=show_progress) as advance:
@@ -116,7 +129,7 @@ async def _run_pull(
 
         # Sync projects
         log("Fetching projects...")
-        raw_projects = await client.fetch_projects()
+        raw_projects = await client.fetch_projects(updated_after=updated_after)
         log(f"  {len(raw_projects)} projects")
         for raw_proj in raw_projects:
             project = LinearProject.from_api(raw_proj)
@@ -150,7 +163,7 @@ async def _run_pull(
 
         # Sync initiatives
         log("Fetching initiatives...")
-        raw_inits = await client.fetch_initiatives()
+        raw_inits = await client.fetch_initiatives(updated_after=updated_after)
         log(f"  {len(raw_inits)} initiatives")
         for raw_init in raw_inits:
             initiative = LinearInitiative.from_api(raw_init)
@@ -169,7 +182,7 @@ async def _run_pull(
 
         # Sync documents
         log("Fetching documents...")
-        raw_docs = await client.fetch_documents()
+        raw_docs = await client.fetch_documents(updated_after=updated_after)
         log(f"  {len(raw_docs)} documents")
         for raw_doc in raw_docs:
             doc = LinearDocument.from_api(raw_doc)
