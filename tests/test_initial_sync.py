@@ -113,13 +113,13 @@ def _make_mock_client(
     """Create a mock LinearClient with specified return values."""
     mock = MagicMock(spec=LinearClient)
     mock.fetch_teams = AsyncMock(return_value=teams)
-    mock.fetch_projects = AsyncMock(return_value=projects)
-    mock.fetch_initiatives = AsyncMock(return_value=initiatives)
-    mock.fetch_documents = AsyncMock(return_value=documents)
+    mock.fetch_projects = AsyncMock(side_effect=lambda updated_after=None: projects)
+    mock.fetch_initiatives = AsyncMock(side_effect=lambda updated_after=None: initiatives)
+    mock.fetch_documents = AsyncMock(side_effect=lambda updated_after=None: documents)
 
     # fetch_issues returns raw API dicts (LinearClient returns dicts)
     mock.fetch_issues = AsyncMock(
-        side_effect=lambda team_id, include_comments=True: issues_by_team.get(team_id, [])
+        side_effect=lambda team_id, include_comments=True, updated_after=None: issues_by_team.get(team_id, [])
     )
     mock.fetch_comments = AsyncMock(side_effect=lambda issue_id: comments_by_issue.get(issue_id, []))
 
