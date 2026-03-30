@@ -74,6 +74,11 @@ async def _run_pull(
         state = SyncState(repo_dir)
         state.load()
 
+        # Record sync start time NOW, before any fetching. This is what we save as
+        # last_sync so that any entity updated during this sync run (after their team
+        # was already processed) will be caught by the next incremental sync.
+        sync_start = datetime.now(timezone.utc).isoformat()
+
         # Default to last_sync for incremental syncs. None means no filter (full sync).
         updated_after: str | None = since if since is not None else state.last_sync
 
@@ -123,7 +128,7 @@ async def _run_pull(
                     advance()
 
             # Save after each team
-            state.set_last_sync(datetime.now(timezone.utc).isoformat())
+            state.set_last_sync(sync_start)
             state.save()
             log(f"  Saved ({stats['issues']} issues total)")
 
@@ -158,7 +163,7 @@ async def _run_pull(
 
             stats["projects"] += 1
 
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
         # Sync initiatives
@@ -177,7 +182,7 @@ async def _run_pull(
             state.add_mapping(path, initiative.id)
             stats["initiatives"] += 1
 
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
         # Sync documents
@@ -197,7 +202,7 @@ async def _run_pull(
             stats["documents"] += 1
 
         # Final save
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
     return stats

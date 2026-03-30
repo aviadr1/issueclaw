@@ -279,3 +279,136 @@ class TestGraphQLFilterIsActuallySentToLinear:
         assert "updatedAfter" in captured["variables"]
         assert "updatedAt" in captured["query"]
         assert "gte" in captured["query"]
+
+class TestLastSyncRecordedAtRunStart:
+    """
+    last_sync must be recorded at the START of _run_pull, not the end.
+
+    WHY THIS IS A SILENT DATA-LOSS BUG:
+      _run_pull processes teams sequentially. A sync run for 8 teams takes
+      several minutes. An issue updated at T_start+2min (after ENG was already
+      processed, while MOB is still being fetched) is NOT fetched in this run —
+      it arrived after its team's turn. But if last_sync is recorded as T_end
+      (current behavior), the NEXT incremental sync uses updated_after=T_end.
+      Since the issue has updatedAt=T_start+2min < T_end, Linear won't return it.
+      It is permanently invisible until a manual full re-sync.
+
+    THE FIX:
+      Record sync_start = datetime.now() ONCE before any fetching begins.
+      Use sync_start for all state.set_last_sync() calls throughout the run.
+      Now updated_after=T_start on the next run, and T_start+2min > T_start,
+      so the issue IS returned. No data is ever silently dropped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_last_sync_is_set_to_run_start_not_end(self, repo: Path) -> None:
+        """
+        INVARIANT: After _run_pull completes, last_sync must equal the time
+        datetime.now() was called BEFORE fetching started, not after.
+
+        We control datetime.now() to return T_START on the first call and
+        T_END on every subsequent call. If last_sync == T_START, the run
+        captured the start time. If last_sync == T_END, it captured the end
+        time and the mid-run gap is invisible to the next incremental sync.
+        """
+        import issueclaw.commands.pull as pull_mod
+        from datetime import datetime as real_datetime, timezone
+        from unittest.mock import MagicMock
+
+        T_START = real_datetime(2026, 3, 30, 10, 0, 0, tzinfo=timezone.utc)
+        T_END   = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
+
+        call_count = 0
+        def controlled_now(tz=None):
+            nonlocal call_count
+            call_count += 1
+            return T_START if call_count == 1 else T_END
+
+        mock_dt = MagicMock()
+        mock_dt.now.side_effect = controlled_now
+
+        with patch.object(pull_mod, "datetime", mock_dt):
+            with _pull_stack():
+                await _run_pull(
+                    api_key="test-key", repo_dir=repo,
+                    teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+                )
+
+        from issueclaw.sync_state import SyncState
+        state = SyncState(repo)
+        state.load()
+
+        assert state.last_sync == T_START.isoformat(), (
+            f"last_sync must be the run START time {T_START.isoformat()!r}, "
+            f"not the run END time {T_END.isoformat()!r}. "
+            "Issues updated during the sync run would otherwise be missed by "
+            "the next incremental sync."
+        )
+
+    @pytest.mark.asyncio
+    async def test_issue_updated_during_sync_run_is_caught_by_next_incremental_sync(
+        self, repo: Path
+    ) -> None:
+        """
+        INVARIANT: An issue updated at T_mid (where T_start < T_mid < T_end of a
+        sync run) must be fetched by the NEXT incremental sync.
+
+        If last_sync = T_end: T_mid < T_end → updated_after=T_end → issue missed.
+        If last_sync = T_start: T_mid > T_start → updated_after=T_start → issue caught.
+
+        This test directly verifies the data-safety consequence of the bug.
+        """
+        import issueclaw.commands.pull as pull_mod
+        from datetime import datetime as real_datetime, timezone
+        from unittest.mock import MagicMock
+        from issueclaw.sync_state import SyncState
+
+        T_START = real_datetime(2026, 3, 30, 10, 0, 0, tzinfo=timezone.utc)
+        T_MID   = real_datetime(2026, 3, 30, 10, 2, 30, tzinfo=timezone.utc)
+        T_END   = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
+
+        # Simulate the first sync run: datetime.now() returns T_START then T_END.
+        first_run_count = 0
+        def first_run_now(tz=None):
+            nonlocal first_run_count
+            first_run_count += 1
+            return T_START if first_run_count == 1 else T_END
+
+        mock_dt_first = MagicMock()
+        mock_dt_first.now.side_effect = first_run_now
+
+        with patch.object(pull_mod, "datetime", mock_dt_first):
+            with _pull_stack():
+                await _run_pull(
+                    api_key="test-key", repo_dir=repo,
+                    teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+                )
+
+        # Record what last_sync was saved as after the first run.
+        state = SyncState(repo)
+        state.load()
+        saved_last_sync = state.last_sync
+
+        # Now run the second (incremental) sync. The issue was updated at T_MID —
+        # during the first sync run, after ENG was already processed.
+        mock_fetch_issues_2 = AsyncMock(return_value=[])
+        with _pull_stack(mock_fetch_issues=mock_fetch_issues_2):
+            await _run_pull(
+                api_key="test-key", repo_dir=repo,
+                teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+            )
+
+        # The second run must use updated_after=saved_last_sync.
+        # For the issue (updatedAt=T_MID) to be fetched, saved_last_sync <= T_MID.
+        # With bug (last_sync=T_END): T_END > T_MID → issue is invisible.
+        # With fix (last_sync=T_START): T_START < T_MID → issue is fetched.
+        mock_fetch_issues_2.assert_called_once_with(
+            TEAM_ENG["id"],
+            include_comments=True,
+            updated_after=saved_last_sync,
+        )
+        assert saved_last_sync <= T_MID.isoformat(), (
+            f"last_sync={saved_last_sync!r} must be <= T_MID={T_MID.isoformat()!r} "
+            "so the issue updated during the sync run is caught by the next incremental sync. "
+            "Fix: record last_sync = datetime.now() at run START, not at run END."
+        )
