@@ -31,7 +31,7 @@ import pytest
 from issueclaw.commands.pull import _run_pull
 from issueclaw.linear_client import LinearClient
 
-LAST_SYNC_TS = "2026-03-29T10:00:00.000Z"
+LAST_SYNC_TS = "2026-03-29T10:00:00Z"
 TEAM_ENG = {"id": "team-eng", "key": "ENG", "name": "Engineering"}
 
 
@@ -338,9 +338,10 @@ class TestLastSyncRecordedAtRunStart:
         state = SyncState(repo)
         state.load()
 
-        assert state.last_sync == T_START.isoformat(), (
-            f"last_sync must be the run START time {T_START.isoformat()!r}, "
-            f"not the run END time {T_END.isoformat()!r}. "
+        expected = T_START.strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert state.last_sync == expected, (
+            f"last_sync must be the run START time {expected!r}, "
+            f"not the run END time {T_END.strftime('%Y-%m-%dT%H:%M:%SZ')!r}. "
             "Issues updated during the sync run would otherwise be missed by "
             "the next incremental sync."
         )

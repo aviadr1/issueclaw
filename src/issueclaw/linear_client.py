@@ -60,10 +60,18 @@ class LinearClient:
             if response.status_code >= 500 and attempt < 4:
                 await asyncio.sleep(2 * (attempt + 1))
                 continue
-            response.raise_for_status()
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} from Linear: {response.text[:500]}",
+                    request=response.request,
+                    response=response,
+                )
             return response.json()
-        response.raise_for_status()
-        return response.json()
+        raise httpx.HTTPStatusError(
+            f"{response.status_code} from Linear: {response.text[:500]}",
+            request=response.request,
+            response=response,
+        )
 
     async def _paginate(
         self, query: str, path: list[str], variables: dict[str, Any] | None = None

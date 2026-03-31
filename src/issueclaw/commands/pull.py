@@ -27,6 +27,17 @@ from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
 
+
+def _normalize_dt(dt_str: str) -> str:
+    """Normalize a datetime string to RFC3339 Z-suffix format required by Linear's API.
+
+    Converts Python isoformat() output (e.g. '2026-03-10T00:20:35.213169+00:00')
+    to '2026-03-10T00:20:35Z' which Linear's DateTime scalar accepts.
+    """
+    dt = datetime.fromisoformat(dt_str)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _default_log(msg: str) -> None:
     _console.print(msg)
 
@@ -77,10 +88,12 @@ async def _run_pull(
         # Record sync start time NOW, before any fetching. This is what we save as
         # last_sync so that any entity updated during this sync run (after their team
         # was already processed) will be caught by the next incremental sync.
-        sync_start = datetime.now(timezone.utc).isoformat()
+        sync_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # Default to last_sync for incremental syncs. None means no filter (full sync).
-        updated_after: str | None = since if since is not None else state.last_sync
+        # Normalize to Z-suffix format that Linear's API requires.
+        raw_since = since if since is not None else state.last_sync
+        updated_after: str | None = _normalize_dt(raw_since) if raw_since else None
 
         stats = {"issues": 0, "projects": 0, "initiatives": 0, "documents": 0}
 
