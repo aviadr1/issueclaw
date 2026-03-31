@@ -111,7 +111,7 @@ def _copy_workflow_files(repo_dir: Path) -> None:
     wf_dir.mkdir(parents=True, exist_ok=True)
 
     workflows_pkg = importlib.resources.files("issueclaw") / "workflows"
-    for name in ("issueclaw-webhook.yaml", "issueclaw-push.yaml"):
+    for name in ("issueclaw-webhook.yaml", "issueclaw-push.yaml", "issueclaw-sync.yaml"):
         src = workflows_pkg / name
         dst = wf_dir / name
         dst.write_text(src.read_text())
