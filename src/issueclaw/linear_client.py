@@ -136,7 +136,7 @@ class LinearClient:
 
         if updated_after:
             filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
-            updated_after_var = ", $updatedAfter: DateTime"
+            updated_after_var = ", $updatedAfter: DateTimeOrDuration"
         else:
             filter_arg = ""
             updated_after_var = ""
@@ -288,7 +288,7 @@ class LinearClient:
         """
         if updated_after:
             filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
-            updated_after_var = ", $updatedAfter: DateTime"
+            updated_after_var = ", $updatedAfter: DateTimeOrDuration"
         else:
             filter_arg = ""
             updated_after_var = ""
@@ -332,7 +332,7 @@ class LinearClient:
         """
         if updated_after:
             filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
-            updated_after_var = ", $updatedAfter: DateTime"
+            updated_after_var = ", $updatedAfter: DateTimeOrDuration"
         else:
             filter_arg = ""
             updated_after_var = ""
@@ -365,7 +365,7 @@ class LinearClient:
         """
         if updated_after:
             filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
-            updated_after_var = ", $updatedAfter: DateTime"
+            updated_after_var = ", $updatedAfter: DateTimeOrDuration"
         else:
             filter_arg = ""
             updated_after_var = ""
