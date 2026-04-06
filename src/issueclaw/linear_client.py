@@ -450,6 +450,19 @@ class LinearClient:
         result = await self._graphql(query, {"input": {"name": name, **fields}})
         return result.get("data", {}).get("initiativeCreate", {}).get("initiative", {})
 
+    async def update_document(self, document_id: str, fields: dict) -> dict:
+        """Update a document's fields in Linear."""
+        query = """
+        mutation UpdateDocument($documentId: String!, $input: DocumentUpdateInput!) {
+            documentUpdate(id: $documentId, input: $input) {
+                success
+                document { id title slugId url }
+            }
+        }
+        """
+        result = await self._graphql(query, {"documentId": document_id, "input": fields})
+        return result.get("data", {}).get("documentUpdate", {}).get("document", {})
+
     async def create_document(self, title: str, fields: dict) -> dict:
         """Create a new document in Linear. Returns {id, title, slugId, url}."""
         query = """

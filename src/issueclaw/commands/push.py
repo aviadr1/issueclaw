@@ -31,6 +31,7 @@ _ISSUE_FIELD_MAP = {
 
 
 _ENTITY_HEADING_RE = re.compile(r"^# [A-Z]+-\d+:.*\n?", re.MULTILINE)
+_DOCUMENT_HEADING_RE = re.compile(r"^# .+\n?", re.MULTILINE)
 
 
 def _strip_entity_heading(body: str) -> str:
@@ -180,6 +181,26 @@ async def push_changes(
                         await client.create_comment(entity_id, comment.body)
 
                     stats["updated"] += 1
+
+                elif entity_type == "document" and entity_id:
+                    update_fields: dict[str, Any] = {}
+
+                    # Push title changes
+                    if "title" in diff.frontmatter_changes:
+                        title_diff = diff.frontmatter_changes["title"]
+                        if title_diff.new is not None:
+                            update_fields["title"] = title_diff.new
+
+                    # Push body/content changes (strip the document heading we generate)
+                    if diff.body_changed:
+                        desc = _DOCUMENT_HEADING_RE.sub("", diff.new_body, count=1)
+                        update_fields["content"] = desc.strip()
+
+                    if update_fields:
+                        await client.update_document(entity_id, update_fields)
+                        stats["updated"] += 1
+                    else:
+                        stats["skipped"] += 1
 
                 else:
                     stats["skipped"] += 1
