@@ -27,6 +27,17 @@ from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
 
+
+def _normalize_dt(dt_str: str) -> str:
+    """Normalize a datetime string to RFC3339 Z-suffix format required by Linear's API.
+
+    Converts Python isoformat() output (e.g. '2026-03-10T00:20:35.213169+00:00')
+    to '2026-03-10T00:20:35Z' which Linear's DateTime scalar accepts.
+    """
+    dt = datetime.fromisoformat(dt_str)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _default_log(msg: str) -> None:
     _console.print(msg)
 
@@ -58,16 +69,31 @@ async def _run_pull(
     api_key: str,
     repo_dir: Path,
     teams_filter: list[str] | None,
+    since: str | None = None,
     log: Callable[[str], None] = _default_log,
     show_progress: bool = True,
 ) -> dict:
     """Execute the pull sync operation.
 
     Returns a stats dict with counts of synced entities.
+
+    When since is not provided, it defaults to state.last_sync so that
+    subsequent runs only fetch entities changed since the previous sync.
+    Pass since='' explicitly to force a full sync regardless of last_sync.
     """
     async with LinearClient(api_key=api_key) as client:
         state = SyncState(repo_dir)
         state.load()
+
+        # Record sync start time NOW, before any fetching. This is what we save as
+        # last_sync so that any entity updated during this sync run (after their team
+        # was already processed) will be caught by the next incremental sync.
+        sync_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Default to last_sync for incremental syncs. None means no filter (full sync).
+        # Normalize to Z-suffix format that Linear's API requires.
+        raw_since = since if since is not None else state.last_sync
+        updated_after: str | None = _normalize_dt(raw_since) if raw_since else None
 
         stats = {"issues": 0, "projects": 0, "initiatives": 0, "documents": 0}
 
@@ -82,13 +108,18 @@ async def _run_pull(
             teams = [t for t in teams if t["key"].upper() in filter_set]
             log(f"Filtered to {len(teams)} teams: {', '.join(t['key'] for t in teams)}")
 
+        if updated_after:
+            log(f"Incremental sync: fetching entities updated after {updated_after}")
+        else:
+            log("Full sync: fetching all entities")
+
         # Sync issues per team
         for team in teams:
             team_key = team["key"]
             team_id = team["id"]
 
             log(f"Fetching issues for team {team_key}...")
-            raw_issues = await client.fetch_issues(team_id, include_comments=True)
+            raw_issues = await client.fetch_issues(team_id, include_comments=True, updated_after=updated_after)
             log(f"  {len(raw_issues)} issues in {team_key}")
 
             with _progress_bar(f"Writing {team_key} issues", len(raw_issues), enabled=show_progress) as advance:
@@ -110,13 +141,13 @@ async def _run_pull(
                     advance()
 
             # Save after each team
-            state.set_last_sync(datetime.now(timezone.utc).isoformat())
+            state.set_last_sync(sync_start)
             state.save()
             log(f"  Saved ({stats['issues']} issues total)")
 
         # Sync projects
         log("Fetching projects...")
-        raw_projects = await client.fetch_projects()
+        raw_projects = await client.fetch_projects(updated_after=updated_after)
         log(f"  {len(raw_projects)} projects")
         for raw_proj in raw_projects:
             project = LinearProject.from_api(raw_proj)
@@ -145,12 +176,12 @@ async def _run_pull(
 
             stats["projects"] += 1
 
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
         # Sync initiatives
         log("Fetching initiatives...")
-        raw_inits = await client.fetch_initiatives()
+        raw_inits = await client.fetch_initiatives(updated_after=updated_after)
         log(f"  {len(raw_inits)} initiatives")
         for raw_init in raw_inits:
             initiative = LinearInitiative.from_api(raw_init)
@@ -164,12 +195,12 @@ async def _run_pull(
             state.add_mapping(path, initiative.id)
             stats["initiatives"] += 1
 
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
         # Sync documents
         log("Fetching documents...")
-        raw_docs = await client.fetch_documents()
+        raw_docs = await client.fetch_documents(updated_after=updated_after)
         log(f"  {len(raw_docs)} documents")
         for raw_doc in raw_docs:
             doc = LinearDocument.from_api(raw_doc)
@@ -184,7 +215,7 @@ async def _run_pull(
             stats["documents"] += 1
 
         # Final save
-        state.set_last_sync(datetime.now(timezone.utc).isoformat())
+        state.set_last_sync(sync_start)
         state.save()
 
     return stats

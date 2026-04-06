@@ -2,6 +2,18 @@
 
 Bidirectional sync between Linear and Git. Issues, projects, initiatives, and documents live as `.md` files in a git repo.
 
+## Ecosystem ownership
+
+issueclaw and figmaclaw are **general-purpose open-source tools** — they work for any company, not just Gigaverse. Consumer repos (e.g. `gigaverse_app/linear-git`) are company-specific knowledge repositories.
+
+| Repo | Role | Owns |
+|------|------|------|
+| **issueclaw** (this repo) | General-purpose Linear→Git sync | CLI, sync/push/webhook logic, reusable CI workflows |
+| **figmaclaw** | General-purpose Figma→Git sync | CLI, sync/enrichment logic, reusable CI workflows, LLM skills |
+| **Consumer repos** (e.g. linear-git) | Company-specific knowledge repo | Accumulated markdown data. Consumes issueclaw + figmaclaw via pip + reusable workflows |
+
+**The rule:** All reusable algorithms, scripts, CI workflows, and LLM prompts belong in the tooling repos (issueclaw / figmaclaw). Consumer repos are pure data — they call reusable workflows with repo-specific config (secrets, schedules, team IDs) but never define tooling logic locally. If you find tooling code in a consumer repo, port it upstream to the appropriate tooling repo.
+
 ## Project structure
 
 ```
