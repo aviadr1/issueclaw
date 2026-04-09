@@ -87,6 +87,67 @@ def test_diff_no_changes(tmp_path):
     assert "no changes" in result.output.lower()
 
 
+def test_diff_shows_pending_comments(tmp_path):
+    """INVARIANT: Diff command distinguishes pending (human) from synced (Linear) comments."""
+    old_content = """---
+id: uuid-1
+identifier: AI-1
+title: Fix bug
+status: Todo
+priority: 2
+created: '2026-01-01T00:00:00Z'
+updated: '2026-01-01T00:00:00Z'
+url: https://linear.app/test
+---
+
+# AI-1: Fix bug
+
+Body.
+"""
+    new_content = """---
+id: uuid-1
+identifier: AI-1
+title: Fix bug
+status: Todo
+priority: 2
+created: '2026-01-01T00:00:00Z'
+updated: '2026-01-01T00:00:00Z'
+url: https://linear.app/test
+---
+
+# AI-1: Fix bug
+
+Body.
+
+# Comments
+
+## Human - 2026-04-09T15:00:00Z
+
+My new comment.
+
+## Bot - 2026-04-08T12:00:00Z
+<!-- comment-id: from-linear -->
+
+Synced from Linear.
+"""
+    fake_changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        ),
+    ]
+
+    with patch.object(diff_mod, "detect_git_changes", return_value=fake_changes):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["diff", "--repo-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "1 pending (will push)" in result.output
+    assert "1 synced (already in Linear)" in result.output
+
+
 def test_diff_json_mode(tmp_path):
     """INVARIANT: Diff command outputs JSON in json mode."""
     import json
