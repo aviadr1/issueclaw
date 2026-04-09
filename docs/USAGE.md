@@ -21,6 +21,7 @@ After initial setup (`init` + webhook/workflow hooks), ongoing administration is
 
 - webhook-triggered sync keeps local mirror fresh
 - push workflows sync markdown changes back to Linear
+- guard checks fail fast if new files are added in unsupported `linear/**` paths
 - `workflows doctor` catches drift after upgrades
 
 ## Typical Workflow
@@ -42,6 +43,7 @@ After initial setup (`init` + webhook/workflow hooks), ongoing administration is
 ```bash
 issueclaw status --repo-dir /path/to/linear-git
 issueclaw diff --repo-dir /path/to/linear-git
+issueclaw guard --repo-dir /path/to/linear-git
 issueclaw pull --repo-dir /path/to/linear-git --teams AI,ENG
 issueclaw --json status --repo-dir /path/to/linear-git
 ```

@@ -32,6 +32,7 @@ _ISSUE_FIELD_MAP = {
 
 _ENTITY_HEADING_RE = re.compile(r"^# [A-Z]+-\d+:.*\n?", re.MULTILINE)
 _DOCUMENT_HEADING_RE = re.compile(r"^# .+\n?", re.MULTILINE)
+_TEAM_ISSUES_DIR_RE = re.compile(r"^linear/teams/([^/]+)/issues/([^/]+)\.md$")
 
 
 def _strip_entity_heading(body: str) -> str:
@@ -65,6 +66,69 @@ def _write_back_comment_id(
             break
 
     file_path.write_text("\n".join(lines))
+
+
+def find_misplaced_added_files(
+    changes: list["FileChange"], repo_dir: Path
+) -> list[str]:
+    """Return newly added linear paths that are not valid creation inputs.
+
+    Allowed new files:
+    - Any file that already has an id-map entry (created by pull/create flows)
+    - New-issue queue files: linear/new/{TEAM}/{slug}.md
+    - Project update files: linear/projects/{project}/updates/{slug}.md
+    """
+    state = SyncState(repo_dir)
+    state.load()
+
+    misplaced: list[str] = []
+    for change in changes:
+        if change.change_type != "added" or not change.path.startswith("linear/"):
+            continue
+        if state.get_uuid(change.path):
+            continue
+        info = parse_entity_path(change.path)
+        if info and info["type"] in {"new_issue", "update"}:
+            continue
+        misplaced.append(change.path)
+    return sorted(misplaced)
+
+
+def format_misplaced_added_files_error(paths: list[str]) -> str:
+    """Build an actionable error message for misplaced new linear files."""
+    lines = [
+        "Refusing to push: found new markdown files in unsupported locations.",
+        "",
+        "These additions will NOT be created in Linear automatically:",
+    ]
+    for path in paths:
+        lines.append(f"- {path}")
+
+    lines.extend(
+        [
+            "",
+            "Use one of the supported creation flows instead:",
+            "- New issue: `issueclaw create issue ...`",
+            '- New comment: `issueclaw create comment --issue AI-123 --body "..."`',
+            "- New project: `issueclaw create project ...`",
+            "- New initiative: `issueclaw create initiative ...`",
+            "- New document: `issueclaw create document ...`",
+            "- Queue-file issue creation: `linear/new/{TEAM}/{slug}.md`",
+            "",
+            "Suggested move commands (for likely issue files):",
+        ]
+    )
+
+    for path in paths:
+        match = _TEAM_ISSUES_DIR_RE.match(path)
+        if not match:
+            continue
+        team_key, stem = match.group(1), match.group(2)
+        lines.append(f"- mv {path} linear/new/{team_key}/{stem}.md")
+
+    lines.append("")
+    lines.append("Then run: `issueclaw diff` and `issueclaw push`.")
+    return "\n".join(lines)
 
 
 @dataclass
@@ -582,6 +646,10 @@ def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> Non
         else:
             click.echo("No changes detected in linear/ files.")
         return
+
+    misplaced_added = find_misplaced_added_files(changes, repo_dir)
+    if misplaced_added:
+        raise click.ClickException(format_misplaced_added_files_error(misplaced_added))
 
     stats = asyncio.run(push_changes(changes, api_key, repo_dir))
 
