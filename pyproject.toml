@@ -51,6 +51,7 @@ dev = [
 
 [project.scripts]
 issueclaw = "issueclaw.main:cli"
+precommit = "pre_commit.main:main"
 
 [build-system]
 requires = ["hatchling"]
