@@ -3,17 +3,28 @@ from issueclaw.paths import entity_path, parse_entity_path, slugify
 
 def test_issue_path():
     """INVARIANT: Issue path includes identifier and slugified title."""
-    assert entity_path("issue", team_key="AI", identifier="AI-123", issue_title="Fix login bug") == "linear/teams/AI/issues/AI-123-fix-login-bug.md"
+    assert (
+        entity_path(
+            "issue", team_key="AI", identifier="AI-123", issue_title="Fix login bug"
+        )
+        == "linear/teams/AI/issues/AI-123-fix-login-bug.md"
+    )
 
 
 def test_issue_path_without_title():
     """INVARIANT: Issue path works without title (just identifier)."""
-    assert entity_path("issue", team_key="AI", identifier="AI-123") == "linear/teams/AI/issues/AI-123.md"
+    assert (
+        entity_path("issue", team_key="AI", identifier="AI-123")
+        == "linear/teams/AI/issues/AI-123.md"
+    )
 
 
 def test_project_path():
     """INVARIANT: Project path follows linear/projects/{slug}/_project.md convention."""
-    assert entity_path("project", slug="chapter-detection") == "linear/projects/chapter-detection/_project.md"
+    assert (
+        entity_path("project", slug="chapter-detection")
+        == "linear/projects/chapter-detection/_project.md"
+    )
 
 
 def test_milestone_path():
@@ -24,7 +35,10 @@ def test_milestone_path():
 
 def test_initiative_path():
     """INVARIANT: Initiative path uses slugified name."""
-    assert entity_path("initiative", name="Q1 2026 Roadmap") == "linear/initiatives/q1-2026-roadmap.md"
+    assert (
+        entity_path("initiative", name="Q1 2026 Roadmap")
+        == "linear/initiatives/q1-2026-roadmap.md"
+    )
 
 
 def test_document_path():
@@ -36,6 +50,7 @@ def test_document_path():
 def test_parse_issue_path():
     """INVARIANT: Parsing an issue path returns type and identifiers."""
     result = parse_entity_path("linear/teams/AI/issues/AI-123-fix-login-bug.md")
+    assert result is not None
     assert result["type"] == "issue"
     assert result["team_key"] == "AI"
     assert result["identifier"] == "AI-123"
@@ -44,6 +59,7 @@ def test_parse_issue_path():
 def test_parse_issue_path_without_slug():
     """INVARIANT: Parsing an issue path without slug still works."""
     result = parse_entity_path("linear/teams/AI/issues/AI-123.md")
+    assert result is not None
     assert result["type"] == "issue"
     assert result["identifier"] == "AI-123"
 
@@ -51,6 +67,7 @@ def test_parse_issue_path_without_slug():
 def test_parse_project_path():
     """INVARIANT: Parsing a project path returns type and slug."""
     result = parse_entity_path("linear/projects/chapter-detection/_project.md")
+    assert result is not None
     assert result["type"] == "project"
     assert result["slug"] == "chapter-detection"
 
@@ -58,6 +75,7 @@ def test_parse_project_path():
 def test_parse_milestone_path():
     """INVARIANT: Parsing a milestone path returns project slug and name."""
     result = parse_entity_path("linear/projects/chapter-detection/milestones/mvp.md")
+    assert result is not None
     assert result["type"] == "milestone"
     assert result["project_slug"] == "chapter-detection"
     assert result["name"] == "mvp"
@@ -66,6 +84,7 @@ def test_parse_milestone_path():
 def test_parse_initiative_path():
     """INVARIANT: Parsing an initiative path returns type and name."""
     result = parse_entity_path("linear/initiatives/q1-2026-roadmap.md")
+    assert result is not None
     assert result["type"] == "initiative"
     assert result["name"] == "q1-2026-roadmap"
 
@@ -73,6 +92,7 @@ def test_parse_initiative_path():
 def test_parse_document_path():
     """INVARIANT: Parsing a document path returns type and slug."""
     result = parse_entity_path("linear/documents/architecture-overview.md")
+    assert result is not None
     assert result["type"] == "document"
     assert result["slug"] == "architecture-overview"
 

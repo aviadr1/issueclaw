@@ -32,31 +32,12 @@ jobs:
       - name: Install issueclaw
         run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
-      - name: Check for merge commits with bot-generated changes
-        id: check-merge
-        run: |
-          # Defense-in-depth guard. issueclaw push already uses P1~1..P1 for
-          # merge commits (not HEAD~1..HEAD), so it won't re-post bot comments.
-          # This step catches any edge case the code doesn't cover.
-          PARENTS=$(git log --format="%P" -n 1 HEAD | tr ' ' '\n' | grep -v '^$' | wc -l)
-          if [ "$PARENTS" -gt "1" ]; then
-            NEW_IDS=$(git diff HEAD~1 HEAD -- linear/ | grep -c '^+<!-- comment-id:' || true)
-            if [ "$NEW_IDS" -gt "0" ]; then
-              echo "Merge commit includes $NEW_IDS bot-generated comment-ids — skipping push"
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-
       - name: Push changes to Linear
-        if: steps.check-merge.outputs.skip != 'true'
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: issueclaw push
 
       - name: Commit updated sync state
-        if: steps.check-merge.outputs.skip != 'true'
         run: |
           git config user.name "issueclaw-bot"
           git config user.email "issueclaw-bot@users.noreply.github.com"

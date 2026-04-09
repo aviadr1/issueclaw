@@ -1,7 +1,6 @@
 """Tests for the initial sync (pull) command."""
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,6 +23,7 @@ def runner():
 
 
 # Fixtures: real model instances per CLAUDE.md rules
+
 
 @pytest.fixture
 def sample_team():
@@ -114,14 +114,20 @@ def _make_mock_client(
     mock = MagicMock(spec=LinearClient)
     mock.fetch_teams = AsyncMock(return_value=teams)
     mock.fetch_projects = AsyncMock(side_effect=lambda updated_after=None: projects)
-    mock.fetch_initiatives = AsyncMock(side_effect=lambda updated_after=None: initiatives)
+    mock.fetch_initiatives = AsyncMock(
+        side_effect=lambda updated_after=None: initiatives
+    )
     mock.fetch_documents = AsyncMock(side_effect=lambda updated_after=None: documents)
 
     # fetch_issues returns raw API dicts (LinearClient returns dicts)
     mock.fetch_issues = AsyncMock(
-        side_effect=lambda team_id, include_comments=True, updated_after=None: issues_by_team.get(team_id, [])
+        side_effect=lambda team_id, include_comments=True, updated_after=None: (
+            issues_by_team.get(team_id, [])
+        )
     )
-    mock.fetch_comments = AsyncMock(side_effect=lambda issue_id: comments_by_issue.get(issue_id, []))
+    mock.fetch_comments = AsyncMock(
+        side_effect=lambda issue_id: comments_by_issue.get(issue_id, [])
+    )
 
     # Support async context manager usage
     mock.__aenter__ = AsyncMock(return_value=mock)
@@ -164,7 +170,9 @@ def test_sync_creates_issue_files(runner, tmp_path, sample_team, sample_issue):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
@@ -207,7 +215,9 @@ def test_sync_creates_id_map(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     id_map = tmp_path / ".sync" / "id-map.json"
@@ -247,7 +257,9 @@ def test_sync_creates_project_files(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     proj_file = tmp_path / "linear" / "projects" / "chapter-detection" / "_project.md"
@@ -281,7 +293,9 @@ def test_sync_creates_initiative_files(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     init_file = tmp_path / "linear" / "initiatives" / "q1-roadmap.md"
@@ -319,7 +333,9 @@ def test_sync_creates_document_files(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     doc_file = tmp_path / "linear" / "documents" / "architecture-overview.md"
@@ -367,7 +383,16 @@ def test_sync_filters_teams(runner, tmp_path):
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
         result = runner.invoke(
-            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key", "--teams", "AI"]
+            cli,
+            [
+                "pull",
+                "--repo-dir",
+                str(tmp_path),
+                "--api-key",
+                "test-key",
+                "--teams",
+                "AI",
+            ],
         )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -424,7 +449,9 @@ def test_sync_includes_comments_in_issues(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
@@ -501,7 +528,9 @@ def test_sync_shows_progress(runner, tmp_path, sample_team):
     import issueclaw.commands.pull as pull_mod
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0
     # Should show team progress
@@ -532,7 +561,11 @@ def test_sync_saves_state_incrementally(runner, tmp_path, sample_team):
     }
 
     save_calls = []
-    original_save = None
+
+    import issueclaw.commands.pull as pull_mod
+    from issueclaw.sync_state import SyncState
+
+    original_save = SyncState.save
 
     def tracking_save(self_state):
         # Record what's in the id-map at each save
@@ -548,16 +581,13 @@ def test_sync_saves_state_incrementally(runner, tmp_path, sample_team):
         documents=[],
     )
 
-    import issueclaw.commands.pull as pull_mod
-    from issueclaw.sync_state import SyncState
-
-    original_save = SyncState.save
-
     with (
         patch.object(pull_mod, "LinearClient", return_value=mock_client),
         patch.object(SyncState, "save", tracking_save),
     ):
-        result = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     # Should have saved at least twice (after issues, and final save)
@@ -579,7 +609,8 @@ def test_sync_json_output(runner, tmp_path, sample_team):
 
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
         result = runner.invoke(
-            cli, ["--json", "pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+            cli,
+            ["--json", "pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"],
         )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
@@ -624,12 +655,16 @@ def test_sync_resumes_after_interruption(runner, tmp_path, sample_team):
 
     # First run
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result1 = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result1 = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
     assert result1.exit_code == 0
 
     # Second run - should succeed and overwrite (idempotent)
     with patch.object(pull_mod, "LinearClient", return_value=mock_client):
-        result2 = runner.invoke(cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"])
+        result2 = runner.invoke(
+            cli, ["pull", "--repo-dir", str(tmp_path), "--api-key", "test-key"]
+        )
     assert result2.exit_code == 0
 
     # Files should still exist and be correct

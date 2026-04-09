@@ -1,0 +1,32 @@
+# Installed by: issueclaw init (or issueclaw workflows upgrade)
+# Upgrade after tool update: issueclaw workflows upgrade
+# Logic lives in: aviadr1/issueclaw/.github/workflows/sync.yml
+#
+# Required repository secrets:
+#   LINEAR_API_KEY - Linear API key for fetching entity data
+#
+# Periodic full sync from Linear to ensure eventual consistency.
+# Webhooks handle real-time updates but this is the correctness guarantee.
+
+name: Sync from Linear
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # every 15 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Must be in caller: concurrency groups are repo-scoped.
+# Shared with push and webhook so all queue behind each other.
+# cancel-in-progress: false — never drop a scheduled sync run.
+concurrency:
+  group: linear-git-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    uses: aviadr1/issueclaw/.github/workflows/sync.yml@main
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

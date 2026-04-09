@@ -1,5 +1,6 @@
-# GitHub Actions workflow for the TARGET repo (e.g., gigaverse-app/linear-git).
-# Copy this file to .github/workflows/issueclaw-push.yaml in your target repo.
+# Installed by: issueclaw init (or issueclaw workflows upgrade)
+# Upgrade after tool update: issueclaw workflows upgrade
+# Logic lives in: aviadr1/issueclaw/.github/workflows/push.yml
 #
 # Required repository secrets:
 #   LINEAR_API_KEY - Linear API key for pushing updates
@@ -18,41 +19,16 @@ on:
 permissions:
   contents: write
 
+# Must be in caller: concurrency groups are repo-scoped.
+# Shared with sync and webhook so all queue behind each other.
+concurrency:
+  group: linear-git-sync
+  cancel-in-progress: false
+
 jobs:
   push-to-linear:
-    runs-on: ubuntu-latest
     # Loop prevention: skip commits made by the bot itself
     if: github.event.head_commit.author.name != 'issueclaw-bot'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2  # Need parent commit for diff
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install issueclaw
-        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
-
-      - name: Push changes to Linear
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        run: issueclaw push
-
-      - name: Commit updated sync state
-        run: |
-          git config user.name "issueclaw-bot"
-          git config user.email "issueclaw-bot@users.noreply.github.com"
-          git add .sync/ linear/
-          if git diff --cached --quiet; then
-            echo "No sync state changes"
-          else
-            git commit -m "sync: update sync state after push to Linear"
-            git push
-          fi
+    uses: aviadr1/issueclaw/.github/workflows/push.yml@main
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

@@ -19,12 +19,13 @@ THE FIX (two parts):
 
 These tests are written FIRST. They fail until the issueclaw implementation lands.
 """
+
 from __future__ import annotations
 
 import json
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -49,25 +50,57 @@ def repo_with_last_sync(repo: Path) -> Path:
     return repo
 
 
-def _pull_stack(mock_fetch_issues=None, mock_fetch_projects=None,
-                mock_fetch_initiatives=None, mock_fetch_documents=None) -> ExitStack:
+def _pull_stack(
+    mock_fetch_issues=None,
+    mock_fetch_projects=None,
+    mock_fetch_initiatives=None,
+    mock_fetch_documents=None,
+) -> ExitStack:
     stack = ExitStack()
-    stack.enter_context(patch.object(LinearClient, "fetch_teams",
-        new=AsyncMock(return_value=[TEAM_ENG])))
-    stack.enter_context(patch.object(LinearClient, "fetch_issues",
-        new=mock_fetch_issues or AsyncMock(return_value=[])))
-    stack.enter_context(patch.object(LinearClient, "fetch_projects",
-        new=mock_fetch_projects or AsyncMock(return_value=[])))
-    stack.enter_context(patch.object(LinearClient, "fetch_initiatives",
-        new=mock_fetch_initiatives or AsyncMock(return_value=[])))
-    stack.enter_context(patch.object(LinearClient, "fetch_documents",
-        new=mock_fetch_documents or AsyncMock(return_value=[])))
+    stack.enter_context(
+        patch.object(
+            LinearClient, "fetch_teams", new=AsyncMock(return_value=[TEAM_ENG])
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            LinearClient,
+            "fetch_issues",
+            new=mock_fetch_issues or AsyncMock(return_value=[]),
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            LinearClient,
+            "fetch_projects",
+            new=mock_fetch_projects or AsyncMock(return_value=[]),
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            LinearClient,
+            "fetch_initiatives",
+            new=mock_fetch_initiatives or AsyncMock(return_value=[]),
+        )
+    )
+    stack.enter_context(
+        patch.object(
+            LinearClient,
+            "fetch_documents",
+            new=mock_fetch_documents or AsyncMock(return_value=[]),
+        )
+    )
     return stack
 
 
 async def _run(repo, **mocks):
-    await _run_pull(api_key="test-key", repo_dir=repo,
-                    teams_filter=["ENG"], log=lambda _: None, show_progress=False)
+    await _run_pull(
+        api_key="test-key",
+        repo_dir=repo,
+        teams_filter=["ENG"],
+        log=lambda _: None,
+        show_progress=False,
+    )
 
 
 class TestPullPassesUpdatedAfterFromLastSync:
@@ -78,7 +111,9 @@ class TestPullPassesUpdatedAfterFromLastSync:
     """
 
     @pytest.mark.asyncio
-    async def test_fetch_issues_receives_updated_after(self, repo_with_last_sync: Path) -> None:
+    async def test_fetch_issues_receives_updated_after(
+        self, repo_with_last_sync: Path
+    ) -> None:
         """
         INVARIANT: When last_sync is recorded, fetch_issues is called with
         updated_after=<last_sync> so Linear only returns recently-changed issues.
@@ -92,7 +127,9 @@ class TestPullPassesUpdatedAfterFromLastSync:
         )
 
     @pytest.mark.asyncio
-    async def test_fetch_projects_receives_updated_after(self, repo_with_last_sync: Path) -> None:
+    async def test_fetch_projects_receives_updated_after(
+        self, repo_with_last_sync: Path
+    ) -> None:
         """
         INVARIANT: fetch_projects is called with updated_after when last_sync is set.
         """
@@ -103,7 +140,9 @@ class TestPullPassesUpdatedAfterFromLastSync:
         mock_fetch_projects.assert_called_once_with(updated_after=LAST_SYNC_TS)
 
     @pytest.mark.asyncio
-    async def test_fetch_initiatives_receives_updated_after(self, repo_with_last_sync: Path) -> None:
+    async def test_fetch_initiatives_receives_updated_after(
+        self, repo_with_last_sync: Path
+    ) -> None:
         """
         INVARIANT: fetch_initiatives is called with updated_after when last_sync is set.
         """
@@ -114,7 +153,9 @@ class TestPullPassesUpdatedAfterFromLastSync:
         mock_fetch_initiatives.assert_called_once_with(updated_after=LAST_SYNC_TS)
 
     @pytest.mark.asyncio
-    async def test_fetch_documents_receives_updated_after(self, repo_with_last_sync: Path) -> None:
+    async def test_fetch_documents_receives_updated_after(
+        self, repo_with_last_sync: Path
+    ) -> None:
         """
         INVARIANT: fetch_documents is called with updated_after when last_sync is set.
         """
@@ -133,7 +174,9 @@ class TestFirstSyncFetchesEverything:
     """
 
     @pytest.mark.asyncio
-    async def test_fetch_issues_has_no_updated_after_on_first_sync(self, repo: Path) -> None:
+    async def test_fetch_issues_has_no_updated_after_on_first_sync(
+        self, repo: Path
+    ) -> None:
         """
         INVARIANT: Without last_sync, fetch_issues is called with no updated_after
         (or updated_after=None) so all issues are returned.
@@ -147,7 +190,9 @@ class TestFirstSyncFetchesEverything:
         )
 
     @pytest.mark.asyncio
-    async def test_fetch_projects_has_no_updated_after_on_first_sync(self, repo: Path) -> None:
+    async def test_fetch_projects_has_no_updated_after_on_first_sync(
+        self, repo: Path
+    ) -> None:
         mock_fetch_projects = AsyncMock(return_value=[])
         with _pull_stack(mock_fetch_projects=mock_fetch_projects):
             await _run(repo)
@@ -155,7 +200,9 @@ class TestFirstSyncFetchesEverything:
         mock_fetch_projects.assert_called_once_with(updated_after=None)
 
     @pytest.mark.asyncio
-    async def test_fetch_initiatives_has_no_updated_after_on_first_sync(self, repo: Path) -> None:
+    async def test_fetch_initiatives_has_no_updated_after_on_first_sync(
+        self, repo: Path
+    ) -> None:
         mock_fetch_initiatives = AsyncMock(return_value=[])
         with _pull_stack(mock_fetch_initiatives=mock_fetch_initiatives):
             await _run(repo)
@@ -163,7 +210,9 @@ class TestFirstSyncFetchesEverything:
         mock_fetch_initiatives.assert_called_once_with(updated_after=None)
 
     @pytest.mark.asyncio
-    async def test_fetch_documents_has_no_updated_after_on_first_sync(self, repo: Path) -> None:
+    async def test_fetch_documents_has_no_updated_after_on_first_sync(
+        self, repo: Path
+    ) -> None:
         mock_fetch_documents = AsyncMock(return_value=[])
         with _pull_stack(mock_fetch_documents=mock_fetch_documents):
             await _run(repo)
@@ -187,55 +236,84 @@ class TestGraphQLFilterIsActuallySentToLinear:
         """
         captured: dict = {}
 
-        async def mock_graphql(self_arg, query: str, variables: dict | None = None) -> dict:
+        async def mock_graphql(
+            self_arg, query: str, variables: dict | None = None
+        ) -> dict:
             captured["query"] = query
             captured["variables"] = dict(variables or {})
-            return {"data": {"team": {"issues": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}}
+            return {
+                "data": {
+                    "team": {
+                        "issues": {"nodes": [], "pageInfo": {"hasNextPage": False}}
+                    }
+                }
+            }
 
         with patch.object(LinearClient, "_graphql", new=mock_graphql):
             async with LinearClient(api_key="test-key") as client:
                 await client.fetch_issues("team-id", updated_after=LAST_SYNC_TS)
 
-        assert "updatedAfter" in captured["variables"], \
+        assert "updatedAfter" in captured["variables"], (
             "updatedAfter must be passed as a GraphQL variable"
-        assert captured["variables"]["updatedAfter"] == LAST_SYNC_TS, \
+        )
+        assert captured["variables"]["updatedAfter"] == LAST_SYNC_TS, (
             "The variable must carry the exact last_sync timestamp"
-        assert "updatedAt" in captured["query"], \
+        )
+        assert "updatedAt" in captured["query"], (
             "The GraphQL query must reference the updatedAt field in a filter"
-        assert "gte" in captured["query"], \
+        )
+        assert "gte" in captured["query"], (
             "The filter must use gte (greater-than-or-equal) to include the boundary timestamp"
+        )
 
     @pytest.mark.asyncio
-    async def test_fetch_issues_graphql_query_has_no_filter_when_updated_after_is_none(self) -> None:
+    async def test_fetch_issues_graphql_query_has_no_filter_when_updated_after_is_none(
+        self,
+    ) -> None:
         """
         INVARIANT: When updated_after is None, the GraphQL query must NOT include
         an updatedAt filter — so all issues are returned on the initial sync.
         """
         captured: dict = {}
 
-        async def mock_graphql(self_arg, query: str, variables: dict | None = None) -> dict:
+        async def mock_graphql(
+            self_arg, query: str, variables: dict | None = None
+        ) -> dict:
             captured["query"] = query
             captured["variables"] = dict(variables or {})
-            return {"data": {"team": {"issues": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}}
+            return {
+                "data": {
+                    "team": {
+                        "issues": {"nodes": [], "pageInfo": {"hasNextPage": False}}
+                    }
+                }
+            }
 
         with patch.object(LinearClient, "_graphql", new=mock_graphql):
             async with LinearClient(api_key="test-key") as client:
                 await client.fetch_issues("team-id", updated_after=None)
 
-        assert "updatedAfter" not in captured.get("variables", {}), \
+        assert "updatedAfter" not in captured.get("variables", {}), (
             "No updatedAfter variable should be sent when updated_after is None"
+        )
 
     @pytest.mark.asyncio
-    async def test_fetch_projects_graphql_query_contains_updated_at_filter(self) -> None:
+    async def test_fetch_projects_graphql_query_contains_updated_at_filter(
+        self,
+    ) -> None:
         """
         INVARIANT: fetch_projects with updated_after sends a filtered GraphQL query.
         """
         captured: dict = {}
 
-        async def mock_graphql(self_arg, query: str, variables: dict | None = None) -> dict:
+        async def mock_graphql(
+            self_arg, query: str, variables: dict | None = None
+        ) -> dict:
             captured["query"] = query
             captured["variables"] = dict(variables or {})
-            return {"data": {"projects": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}
+            return {
+                "data": {"projects": {"nodes": [], "pageInfo": {"hasNextPage": False}}}
+            }
 
         with patch.object(LinearClient, "_graphql", new=mock_graphql):
             async with LinearClient(api_key="test-key") as client:
@@ -247,13 +325,21 @@ class TestGraphQLFilterIsActuallySentToLinear:
         assert "gte" in captured["query"]
 
     @pytest.mark.asyncio
-    async def test_fetch_initiatives_graphql_query_contains_updated_at_filter(self) -> None:
+    async def test_fetch_initiatives_graphql_query_contains_updated_at_filter(
+        self,
+    ) -> None:
         captured: dict = {}
 
-        async def mock_graphql(self_arg, query: str, variables: dict | None = None) -> dict:
+        async def mock_graphql(
+            self_arg, query: str, variables: dict | None = None
+        ) -> dict:
             captured["query"] = query
             captured["variables"] = dict(variables or {})
-            return {"data": {"initiatives": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}
+            return {
+                "data": {
+                    "initiatives": {"nodes": [], "pageInfo": {"hasNextPage": False}}
+                }
+            }
 
         with patch.object(LinearClient, "_graphql", new=mock_graphql):
             async with LinearClient(api_key="test-key") as client:
@@ -264,13 +350,19 @@ class TestGraphQLFilterIsActuallySentToLinear:
         assert "gte" in captured["query"]
 
     @pytest.mark.asyncio
-    async def test_fetch_documents_graphql_query_contains_updated_at_filter(self) -> None:
+    async def test_fetch_documents_graphql_query_contains_updated_at_filter(
+        self,
+    ) -> None:
         captured: dict = {}
 
-        async def mock_graphql(self_arg, query: str, variables: dict | None = None) -> dict:
+        async def mock_graphql(
+            self_arg, query: str, variables: dict | None = None
+        ) -> dict:
             captured["query"] = query
             captured["variables"] = dict(variables or {})
-            return {"data": {"documents": {"nodes": [], "pageInfo": {"hasNextPage": False}}}}
+            return {
+                "data": {"documents": {"nodes": [], "pageInfo": {"hasNextPage": False}}}
+            }
 
         with patch.object(LinearClient, "_graphql", new=mock_graphql):
             async with LinearClient(api_key="test-key") as client:
@@ -279,6 +371,7 @@ class TestGraphQLFilterIsActuallySentToLinear:
         assert "updatedAfter" in captured["variables"]
         assert "updatedAt" in captured["query"]
         assert "gte" in captured["query"]
+
 
 class TestLastSyncRecordedAtRunStart:
     """
@@ -316,9 +409,10 @@ class TestLastSyncRecordedAtRunStart:
         from unittest.mock import MagicMock
 
         T_START = real_datetime(2026, 3, 30, 10, 0, 0, tzinfo=timezone.utc)
-        T_END   = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
+        T_END = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
 
         call_count = 0
+
         def controlled_now(tz=None):
             nonlocal call_count
             call_count += 1
@@ -330,11 +424,15 @@ class TestLastSyncRecordedAtRunStart:
         with patch.object(pull_mod, "datetime", mock_dt):
             with _pull_stack():
                 await _run_pull(
-                    api_key="test-key", repo_dir=repo,
-                    teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+                    api_key="test-key",
+                    repo_dir=repo,
+                    teams_filter=["ENG"],
+                    log=lambda _: None,
+                    show_progress=False,
                 )
 
         from issueclaw.sync_state import SyncState
+
         state = SyncState(repo)
         state.load()
 
@@ -365,11 +463,12 @@ class TestLastSyncRecordedAtRunStart:
         from issueclaw.sync_state import SyncState
 
         T_START = real_datetime(2026, 3, 30, 10, 0, 0, tzinfo=timezone.utc)
-        T_MID   = real_datetime(2026, 3, 30, 10, 2, 30, tzinfo=timezone.utc)
-        T_END   = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
+        T_MID = real_datetime(2026, 3, 30, 10, 2, 30, tzinfo=timezone.utc)
+        T_END = real_datetime(2026, 3, 30, 10, 5, 0, tzinfo=timezone.utc)
 
         # Simulate the first sync run: datetime.now() returns T_START then T_END.
         first_run_count = 0
+
         def first_run_now(tz=None):
             nonlocal first_run_count
             first_run_count += 1
@@ -381,8 +480,11 @@ class TestLastSyncRecordedAtRunStart:
         with patch.object(pull_mod, "datetime", mock_dt_first):
             with _pull_stack():
                 await _run_pull(
-                    api_key="test-key", repo_dir=repo,
-                    teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+                    api_key="test-key",
+                    repo_dir=repo,
+                    teams_filter=["ENG"],
+                    log=lambda _: None,
+                    show_progress=False,
                 )
 
         # Record what last_sync was saved as after the first run.
@@ -395,8 +497,11 @@ class TestLastSyncRecordedAtRunStart:
         mock_fetch_issues_2 = AsyncMock(return_value=[])
         with _pull_stack(mock_fetch_issues=mock_fetch_issues_2):
             await _run_pull(
-                api_key="test-key", repo_dir=repo,
-                teams_filter=["ENG"], log=lambda _: None, show_progress=False,
+                api_key="test-key",
+                repo_dir=repo,
+                teams_filter=["ENG"],
+                log=lambda _: None,
+                show_progress=False,
             )
 
         # The second run must use updated_after=saved_last_sync.
@@ -408,6 +513,7 @@ class TestLastSyncRecordedAtRunStart:
             include_comments=True,
             updated_after=saved_last_sync,
         )
+        assert saved_last_sync is not None
         assert saved_last_sync <= T_MID.isoformat(), (
             f"last_sync={saved_last_sync!r} must be <= T_MID={T_MID.isoformat()!r} "
             "so the issue updated during the sync run is caught by the next incremental sync. "

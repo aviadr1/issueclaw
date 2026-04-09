@@ -42,14 +42,18 @@ class LinearClient:
     async def __aexit__(self, *args: Any) -> None:
         await self.close()
 
-    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
+    async def _graphql(
+        self, query: str, variables: dict[str, Any] | None = None
+    ) -> dict:
         """Execute a GraphQL query against the Linear API with retry."""
         client = await self._ensure_client()
+        last_response: httpx.Response | None = None
         for attempt in range(5):
             response = await client.post(
                 self.api_url,
                 json={"query": query, "variables": variables or {}},
             )
+            last_response = response
             # Linear returns 400 for rate limits with RATELIMITED in body
             if response.status_code == 429 or (
                 response.status_code == 400 and "RATELIMITED" in response.text
@@ -67,10 +71,12 @@ class LinearClient:
                     response=response,
                 )
             return response.json()
+        if last_response is None:
+            raise RuntimeError("No response received from Linear API")
         raise httpx.HTTPStatusError(
-            f"{response.status_code} from Linear: {response.text[:500]}",
-            request=response.request,
-            response=response,
+            f"{last_response.status_code} from Linear: {last_response.text[:500]}",
+            request=last_response.request,
+            response=last_response,
         )
 
     async def _paginate(
@@ -116,7 +122,10 @@ class LinearClient:
         return await self._paginate(query, ["teams"])
 
     async def fetch_issues(
-        self, team_id: str, include_comments: bool = True, updated_after: str | None = None
+        self,
+        team_id: str,
+        include_comments: bool = True,
+        updated_after: str | None = None,
     ) -> list[dict]:
         """Fetch all issues for a team, paginated.
 
@@ -126,13 +135,17 @@ class LinearClient:
         When updated_after is provided (ISO 8601), only issues updated at or after
         that timestamp are returned, making incremental syncs cheap.
         """
-        comments_fragment = """
+        comments_fragment = (
+            """
                         comments(first: 50) {
                             nodes {
                                 id body createdAt updatedAt
                                 user { id name email }
                             }
-                        }""" if include_comments else ""
+                        }"""
+            if include_comments
+            else ""
+        )
 
         if updated_after:
             filter_arg = ", filter: { updatedAt: { gte: $updatedAfter } }"
@@ -275,7 +288,9 @@ class LinearClient:
         }
         """
         result = await self._graphql(query, {"issueId": issue_id})
-        return result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
+        return (
+            result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
+        )
 
     async def fetch_projects(self, updated_after: str | None = None) -> list[dict]:
         """Fetch all projects in the workspace.
@@ -456,7 +471,9 @@ class LinearClient:
             }
         }
         """
-        result = await self._graphql(query, {"input": {"issueId": issue_id, "body": body}})
+        result = await self._graphql(
+            query, {"input": {"issueId": issue_id, "body": body}}
+        )
         return result.get("data", {}).get("commentCreate", {}).get("comment", {})
 
     async def fetch_labels_for_team(self, team_id: str) -> list[dict]:
@@ -486,7 +503,9 @@ class LinearClient:
         result = await self._graphql(query, {"input": {"teamId": team_id, **fields}})
         return result.get("data", {}).get("issueCreate", {}).get("issue", {})
 
-    async def create_project(self, name: str, team_ids: list[str], fields: dict) -> dict:
+    async def create_project(
+        self, name: str, team_ids: list[str], fields: dict
+    ) -> dict:
         """Create a new project in Linear. Returns {id, name, slugId, url}."""
         query = """
         mutation CreateProject($input: ProjectCreateInput!) {
@@ -524,7 +543,9 @@ class LinearClient:
             }
         }
         """
-        result = await self._graphql(query, {"documentId": document_id, "input": fields})
+        result = await self._graphql(
+            query, {"documentId": document_id, "input": fields}
+        )
         return result.get("data", {}).get("documentUpdate", {}).get("document", {})
 
     async def create_document(self, title: str, fields: dict) -> dict:
@@ -540,7 +561,9 @@ class LinearClient:
         result = await self._graphql(query, {"input": {"title": title, **fields}})
         return result.get("data", {}).get("documentCreate", {}).get("document", {})
 
-    async def create_project_update(self, project_id: str, body: str, health: str = "onTrack") -> dict:
+    async def create_project_update(
+        self, project_id: str, body: str, health: str = "onTrack"
+    ) -> dict:
         """Create a status update on a project in Linear."""
         query = """
         mutation CreateProjectUpdate($input: ProjectUpdateCreateInput!) {
@@ -553,4 +576,8 @@ class LinearClient:
         result = await self._graphql(
             query, {"input": {"projectId": project_id, "body": body, "health": health}}
         )
-        return result.get("data", {}).get("projectUpdateCreate", {}).get("projectUpdate", {})
+        return (
+            result.get("data", {})
+            .get("projectUpdateCreate", {})
+            .get("projectUpdate", {})
+        )

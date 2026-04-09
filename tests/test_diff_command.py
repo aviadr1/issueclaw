@@ -1,8 +1,6 @@
 """Tests for the diff preview command."""
 
-import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from click.testing import CliRunner
 

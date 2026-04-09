@@ -48,7 +48,9 @@ def test_diff_frontmatter_field_change():
     new = _issue_md(status="In Progress")
     result = diff_markdown(old, new)
     assert "status" in result.frontmatter_changes
-    assert result.frontmatter_changes["status"] == FieldDiff(old="Todo", new="In Progress")
+    assert result.frontmatter_changes["status"] == FieldDiff(
+        old="Todo", new="In Progress"
+    )
     assert result.has_changes is True
 
 
