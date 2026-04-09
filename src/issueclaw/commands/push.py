@@ -68,7 +68,9 @@ def _write_back_comment_id(
     file_path.write_text("\n".join(lines))
 
 
-def find_misplaced_added_files(changes: list["FileChange"], repo_dir: Path) -> list[str]:
+def find_misplaced_added_files(
+    changes: list["FileChange"], repo_dir: Path
+) -> list[str]:
     """Return newly added linear paths that are not valid creation inputs.
 
     Allowed new files:
@@ -107,7 +109,7 @@ def format_misplaced_added_files_error(paths: list[str]) -> str:
             "",
             "Use one of the supported creation flows instead:",
             "- New issue: `issueclaw create issue ...`",
-            "- New comment: `issueclaw create comment --issue AI-123 --body \"...\"`",
+            '- New comment: `issueclaw create comment --issue AI-123 --body "..."`',
             "- New project: `issueclaw create project ...`",
             "- New initiative: `issueclaw create initiative ...`",
             "- New document: `issueclaw create document ...`",

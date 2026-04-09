@@ -52,4 +52,3 @@ def guard_command(ctx: click.Context, repo_dir: Path, strict: bool) -> None:
         raise click.ClickException(
             f"Guard failed: {len(misplaced)} misplaced new linear file(s)."
         )
-
