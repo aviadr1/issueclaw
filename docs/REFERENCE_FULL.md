@@ -168,7 +168,7 @@ Issueclaw breaks this silo by storing Linear data as plain markdown files in git
 ### Functional Requirements
 
 #### FR-1: Linear to Git sync (Pull direction)
-- **FR-1.1**: On any Linear entity change (issue, project, initiative, document, comment), the corresponding `.md` file in git must be updated within 30 seconds.
+- **FR-1.1**: High-signal Linear entity changes (issue/project/initiative and issue comments) should update git in near-real-time via webhook. Low-signal churn (documents) is allowed to batch and converge via the scheduled sync backstop (10-minute target).
 - **FR-1.2**: Linear webhooks deliver entity IDs and changed fields, but use IDs for relationships (e.g., `stateId` instead of state name). The sync must re-fetch the full entity via the Linear API to render complete markdown.
 - **FR-1.3**: The sync must handle all Linear entity types: issues, projects, initiatives, milestones, documents, and comments.
 - **FR-1.4**: Comments must be embedded in their parent issue's `.md` file, not as separate files.
@@ -196,7 +196,7 @@ Issueclaw breaks this silo by storing Linear data as plain markdown files in git
 
 #### FR-6: Concurrency safety
 - **FR-6.1**: All GitHub Actions workflows must use a concurrency group to prevent parallel runs from conflicting.
-- **FR-6.2**: The concurrency group must queue (not cancel) concurrent runs.
+- **FR-6.2**: Sync and push runs must queue (not cancel). Webhook runs may cancel in-progress work to debounce bursts, with scheduled sync guaranteeing eventual consistency.
 
 ### Non-Functional Requirements
 
