@@ -25,6 +25,24 @@ async def test_linear_client_create_document_handles_null_data():
     assert doc == {}
 
 
+@pytest.mark.asyncio
+async def test_linear_client_create_document_handles_graphql_errors_payload():
+    """INVARIANT: GraphQL errors payload does not crash create_document parsing."""
+    client = LinearClient(api_key="test-key")
+    with patch.object(
+        client,
+        "_graphql",
+        new_callable=AsyncMock,
+        return_value={
+            "errors": [{"message": "Forbidden"}],
+            "data": {"documentCreate": None},
+        },
+    ):
+        doc = await client.create_document("Doc title", {"content": "body"})
+
+    assert doc == {}
+
+
 def test_create_document_cli_fails_cleanly_when_linear_returns_no_document(tmp_path):
     """INVARIANT: CLI create document exits with a clear error (no AttributeError)."""
     mock_client = AsyncMock()
