@@ -17,7 +17,7 @@ jobs:
   sweep-linear-queue:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -36,12 +36,12 @@ jobs:
             printf '%s\n' "${files[@]}"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.queue.outputs.has_queue == 'true'
         with:
           python-version: "3.12"
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v6
         if: steps.queue.outputs.has_queue == 'true'
         with:
           enable-cache: true
