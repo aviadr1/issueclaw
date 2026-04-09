@@ -34,7 +34,16 @@ After setup, administration is minimal:
 - CI executes pull/push hooks automatically
 - `issueclaw workflows doctor` detects drift when upgrading
 
-## Install
+## Setup Is Two Separate Steps
+
+`issueclaw` has two different setup scopes:
+
+1. Install the `issueclaw` CLI tool on your machine/CI runner.
+2. Initialize a target repository that will hold the Linear markdown mirror (`linear/**`).
+
+Installing the CLI does not create a mirror repo. `issueclaw init` does.
+
+## Step 1: Install The CLI
 
 ### Quick install
 
@@ -54,19 +63,40 @@ uv tool install git+https://github.com/aviadr1/issueclaw.git
 issueclaw self update
 ```
 
-## Quick Start
+## Step 2: Initialize A Mirror Repo
+
+Choose or create the repository that should store your Linear mirror files.
+
+```bash
+# Example: create a dedicated mirror repo
+mkdir -p /path/to/linear-git
+cd /path/to/linear-git
+git init
+```
+
+Then run `issueclaw init` against that repo:
+
+```bash
+export LINEAR_API_KEY=lin_api_...
+issueclaw init --repo-dir /path/to/linear-git --webhook-url https://your-worker.workers.dev
+```
+
+What `init` sets up in that target repo:
+
+- `linear/**` markdown mirror (issues/projects/documents/etc.)
+- `.sync/**` sync metadata
+- `.github/workflows/issueclaw-*.yaml` workflow stubs/hooks
+
+## Quick Start (After Init)
 
 ```bash
 # 1) API key
 export LINEAR_API_KEY=lin_api_...
 
-# 2) Initialize repo + webhook/workflow hooks
-issueclaw init --repo-dir /path/to/linear-git --webhook-url https://your-worker.workers.dev
-
-# 3) Verify hooks/workflow stubs after upgrades
+# 2) Verify hooks/workflow stubs after upgrades
 issueclaw workflows doctor --repo-dir /path/to/linear-git
 
-# 4) Day-to-day usage
+# 3) Day-to-day usage
 issueclaw pull --repo-dir /path/to/linear-git
 issueclaw diff --repo-dir /path/to/linear-git
 issueclaw push --repo-dir /path/to/linear-git
