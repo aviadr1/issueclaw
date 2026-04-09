@@ -14,13 +14,9 @@ permissions:
   security-events: write
 
 jobs:
-  analyze:
-    name: Analyze (Python)
+  analyze_python:
+    name: CodeQL Python Analysis
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        language: [python]
 
     steps:
       - name: Checkout
@@ -29,7 +25,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
+          languages: python
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
