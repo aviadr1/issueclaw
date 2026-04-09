@@ -53,6 +53,8 @@ def diff_command(ctx: click.Context, repo_dir: Path) -> None:
                 entry["comments_added"] = len(md_diff.comments_added)
                 entry["comments_removed"] = len(md_diff.comments_removed)
                 entry["comments_edited"] = len(md_diff.comments_edited)
+                entry["comments_pending"] = len(md_diff.comments_pending)
+                entry["updates_pending"] = len(md_diff.updates_pending)
             result.append(entry)
         click.echo(json.dumps(result, indent=2, default=str))
     else:
@@ -72,9 +74,13 @@ def diff_command(ctx: click.Context, repo_dir: Path) -> None:
                     )
                 if md_diff.body_changed:
                     click.echo("             body: changed")
+                if md_diff.comments_pending:
+                    click.echo(
+                        f"             comments: +{len(md_diff.comments_pending)} pending (will push)"
+                    )
                 if md_diff.comments_added:
                     click.echo(
-                        f"             comments: +{len(md_diff.comments_added)} added"
+                        f"             comments: {len(md_diff.comments_added)} synced (already in Linear)"
                     )
                 if md_diff.comments_removed:
                     click.echo(
@@ -83,4 +89,8 @@ def diff_command(ctx: click.Context, repo_dir: Path) -> None:
                 if md_diff.comments_edited:
                     click.echo(
                         f"             comments: ~{len(md_diff.comments_edited)} edited"
+                    )
+                if md_diff.updates_pending:
+                    click.echo(
+                        f"             updates: +{len(md_diff.updates_pending)} pending (will push)"
                     )
