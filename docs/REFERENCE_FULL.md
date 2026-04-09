@@ -8,6 +8,20 @@ For a concise overview focused on what issueclaw does, installation, and AI-deve
 
 ---
 
+## Split Docs Index
+
+For practical day-to-day docs, prefer:
+
+- [USAGE.md](USAGE.md)
+- [WHY_ISSUECLAW.md](WHY_ISSUECLAW.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md)
+- [MARKDOWN_FORMAT.md](MARKDOWN_FORMAT.md)
+- [QUALITY.md](QUALITY.md)
+- [WORKFLOW_LIFECYCLE.md](WORKFLOW_LIFECYCLE.md)
+
+---
+
 # issueclaw: Issues as Code
 
 [![CI (main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain)

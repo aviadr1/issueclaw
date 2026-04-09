@@ -1,49 +1,48 @@
-# issueclaw: Issues as Code for AI-Native Development
+# issueclaw
 
 [![CI (main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain)
 [![CodeQL (main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml?query=branch%3Amain)
 [![Coverage (main)](https://codecov.io/gh/aviadr1/issueclaw/branch/main/graph/badge.svg)](https://app.codecov.io/gh/aviadr1/issueclaw/tree/main)
-[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](https://github.com/aviadr1/issueclaw/security/dependabot)
 [![Ruff](https://img.shields.io/badge/lint-ruff-46a2f1?logo=ruff&logoColor=white)](https://docs.astral.sh/ruff/)
 [![Basedpyright](https://img.shields.io/badge/types-basedpyright-5a45ff)](https://github.com/DetachHead/basedpyright)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://pre-commit.com/)
 [![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](https://github.com/aviadr1/issueclaw/security/dependabot)
 
-`issueclaw` syncs Linear <-> Git using Markdown files and git diffs.
+Mirror Linear into local markdown so developers and agents can work against files, not slow paginated API calls.
 
-You edit issues like code, review them in PRs, and let CI push the changes back to Linear.
+## Why Developers Care
 
-## Why This Is Awesome For AI Developers
+- `linear/**` gives you a full local mirror of Linear in `.md` files.
+- Local grep and file reads are dramatically faster than repeated API requests.
+- Requirement/status changes are reviewed in the same PR as code.
+- One commit can update code and project state together.
 
-AI coding agents are best with local files, fast grep, and versioned context.
+## Why This Is Great For Claude/Codex
 
-With `issueclaw`, your backlog becomes local Markdown in your repo:
+Agent systems are best with local files. `issueclaw` gives them all Linear context as markdown, so they can:
 
-- Agents can `rg` your issues instantly.
-- Agents can propose code + issue updates in one PR.
-- Reviewers can see product intent and code changes together.
-- Git history gives full traceability of requirement changes.
+- search backlog context instantly with `rg`
+- edit issues and code in one branch
+- reason over issue history via git instead of remote-only state
 
-In short: your project management stops being an API silo and becomes first-class repo context for humans and agents.
+## Low-Ops by Design
 
-## What issueclaw Does
+After setup, administration is minimal:
 
-- Pulls Linear entities into Markdown files (`issueclaw pull`).
-- Applies Linear webhooks into Git commits (`issueclaw apply-webhook`).
-- Pushes Markdown diffs back to Linear (`issueclaw push`).
-- Keeps workflow stubs healthy (`issueclaw workflows doctor|upgrade`).
-
-Supported entities include issues, comments, projects, initiatives, and documents.
+- workflow stubs + webhook hooks handle synchronization
+- CI executes pull/push hooks automatically
+- `issueclaw workflows doctor` detects drift when upgrading
 
 ## Install
 
-### Quick Install
+### Quick install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 ```
 
-### Manual Install
+### Manual install
 
 ```bash
 uv tool install git+https://github.com/aviadr1/issueclaw.git
@@ -58,32 +57,38 @@ issueclaw self update
 ## Quick Start
 
 ```bash
-# 1) Set Linear API key
+# 1) API key
 export LINEAR_API_KEY=lin_api_...
 
-# 2) Initialize a target repo (installs workflow stubs + sets up pull bootstrap)
+# 2) Initialize repo + webhook/workflow hooks
 issueclaw init --repo-dir /path/to/linear-git --webhook-url https://your-worker.workers.dev
 
-# 3) Validate workflow stubs after upgrades
+# 3) Verify hooks/workflow stubs after upgrades
 issueclaw workflows doctor --repo-dir /path/to/linear-git
-issueclaw workflows upgrade --repo-dir /path/to/linear-git
 
-# 4) Pull / diff / push loop
+# 4) Day-to-day usage
 issueclaw pull --repo-dir /path/to/linear-git
 issueclaw diff --repo-dir /path/to/linear-git
 issueclaw push --repo-dir /path/to/linear-git
 ```
 
-## Deep Docs
+## Common Commands
 
-- Install and operational setup: [docs/INSTALL.md](docs/INSTALL.md)
-- Workflow lifecycle and drift prevention: [docs/WORKFLOW_LIFECYCLE.md](docs/WORKFLOW_LIFECYCLE.md)
-- Full technical reference (architecture, protocol, mappings, tradeoffs): [docs/REFERENCE_FULL.md](docs/REFERENCE_FULL.md)
-- Original implementation plan: [docs/plans/2026-03-09-issueclaw-implementation.md](docs/plans/2026-03-09-issueclaw-implementation.md)
+- `issueclaw pull`: sync Linear -> local markdown mirror.
+- `issueclaw push`: sync markdown diffs -> Linear.
+- `issueclaw diff`: preview what would be pushed.
+- `issueclaw apply-webhook`: apply one webhook payload locally.
+- `issueclaw workflows doctor|upgrade`: detect/repair workflow hook drift.
+- `issueclaw create issue|comment|project|initiative|document`: create entities directly.
 
-## CI And Reports
+## Documentation
 
-- CI runs on `main`: <https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain>
-- CodeQL runs on `main`: <https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml?query=branch%3Amain>
-- Coverage dashboard: <https://app.codecov.io/gh/aviadr1/issueclaw/tree/main>
-- Dependabot alerts/PRs: <https://github.com/aviadr1/issueclaw/security/dependabot>
+- Installation and setup: [docs/INSTALL.md](docs/INSTALL.md)
+- Usage guide: [docs/USAGE.md](docs/USAGE.md)
+- Why issueclaw: [docs/WHY_ISSUECLAW.md](docs/WHY_ISSUECLAW.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Sync protocol: [docs/SYNC_PROTOCOL.md](docs/SYNC_PROTOCOL.md)
+- Markdown schema: [docs/MARKDOWN_FORMAT.md](docs/MARKDOWN_FORMAT.md)
+- Workflow lifecycle and drift handling: [docs/WORKFLOW_LIFECYCLE.md](docs/WORKFLOW_LIFECYCLE.md)
+- CI/quality/reporting: [docs/QUALITY.md](docs/QUALITY.md)
+- Full technical legacy reference: [docs/REFERENCE_FULL.md](docs/REFERENCE_FULL.md)
