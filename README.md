@@ -37,6 +37,10 @@ issueclaw self update
 export LINEAR_API_KEY=lin_api_...
 issueclaw init --repo-dir /path/to/linear-git --webhook-url https://your-worker.workers.dev
 
+# Validate and repair managed workflow stubs after upgrades
+issueclaw workflows doctor --repo-dir /path/to/linear-git
+issueclaw workflows upgrade --repo-dir /path/to/linear-git
+
 # Pull all Linear data into a local repo
 issueclaw pull --repo-dir /path/to/linear-git
 
@@ -93,6 +97,7 @@ The developer workflow is just git — `git pull` to get changes, edit files, `g
 - [Sync Protocol](#sync-protocol)
 - [Loop Prevention](#loop-prevention)
 - [Implementation Guide](#implementation-guide)
+- [Workflow Lifecycle Doc](docs/WORKFLOW_LIFECYCLE.md)
 - [Limitations and Tradeoffs](#limitations-and-tradeoffs)
 - [Build Phases](#build-phases)
 

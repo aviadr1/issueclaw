@@ -8,6 +8,7 @@ from issueclaw.commands.pull import pull_command
 from issueclaw.commands.push import push_command
 from issueclaw.commands.self_cmd import self_group
 from issueclaw.commands.status import status_command
+from issueclaw.commands.workflows_cmd import workflows_group
 
 
 @click.group()
@@ -34,6 +35,7 @@ cli.add_command(status_command)
 cli.add_command(diff_command)
 cli.add_command(init_command)
 cli.add_command(self_group)
+cli.add_command(workflows_group)
 
 
 if __name__ == "__main__":
