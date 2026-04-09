@@ -85,4 +85,5 @@ def test_workflows_doctor_json_output(tmp_path):
     payload = json.loads(result.output)
     assert payload["healthy"] is False
     assert "issueclaw-push.yaml" in payload["expected"]
+    assert "issueclaw-queue-sweep.yaml" in payload["expected"]
     assert any(file["name"] == "issueclaw-push.yaml" for file in payload["files"])
