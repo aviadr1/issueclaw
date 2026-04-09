@@ -559,7 +559,16 @@ class LinearClient:
         }
         """
         result = await self._graphql(query, {"input": {"title": title, **fields}})
-        return result.get("data", {}).get("documentCreate", {}).get("document", {})
+        if not isinstance(result, dict):
+            return {}
+        data = result.get("data")
+        if not isinstance(data, dict):
+            return {}
+        created = data.get("documentCreate")
+        if not isinstance(created, dict):
+            return {}
+        document = created.get("document")
+        return document if isinstance(document, dict) else {}
 
     async def create_project_update(
         self, project_id: str, body: str, health: str = "onTrack"
