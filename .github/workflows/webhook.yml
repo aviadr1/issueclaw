@@ -1,0 +1,65 @@
+# Reusable workflow — called by host repos via:
+#   uses: aviadr1/issueclaw/.github/workflows/webhook.yml@main
+#
+# NOTE: concurrency must be set in the CALLER, not here.
+# github.event.client_payload is not available in the callee —
+# the caller must pass it as the webhook_payload input.
+
+on:
+  workflow_call:
+    inputs:
+      webhook_payload:
+        required: true
+        type: string
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  apply-webhook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+      - name: Pull latest changes
+        run: git pull --no-rebase
+
+      - name: Apply webhook payload
+        id: apply
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          WEBHOOK_PAYLOAD: ${{ inputs.webhook_payload }}
+        run: |
+          OUTPUT=$(issueclaw apply-webhook 2>&1)
+          echo "$OUTPUT"
+          COMMIT_MSG=$(echo "$OUTPUT" | grep '^COMMIT_MSG:' | head -1 | sed 's/^COMMIT_MSG://')
+          if [ -n "$COMMIT_MSG" ]; then
+            echo "commit_msg=$COMMIT_MSG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push changes
+        env:
+          COMMIT_MSG_RICH: ${{ steps.apply.outputs.commit_msg }}
+        run: |
+          git config user.name "issueclaw-bot"
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            COMMIT_MSG="${COMMIT_MSG_RICH:-sync: apply Linear webhook}"
+            git commit -m "$COMMIT_MSG"
+            git push
+          fi

@@ -1,0 +1,70 @@
+# Reusable workflow — called by host repos via:
+#   uses: aviadr1/issueclaw/.github/workflows/push.yml@main
+#
+# Pushes local Linear file changes back to Linear.
+# Loop prevention (skip bot commits) must be handled in the caller via `if:`.
+#
+# NOTE: concurrency must be set in the CALLER — groups are repo-scoped.
+
+on:
+  workflow_call:
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  push-to-linear:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # Need parent commit for diff
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+      - name: Check for merge commits with bot-generated changes
+        id: check-merge
+        run: |
+          # Defense-in-depth guard. issueclaw push already uses P1~1..P1 for
+          # merge commits (not HEAD~1..HEAD), so it won't re-post bot comments.
+          # This step catches any edge case the code doesn't cover.
+          PARENTS=$(git log --format="%P" -n 1 HEAD | tr ' ' '\n' | grep -v '^$' | wc -l)
+          if [ "$PARENTS" -gt "1" ]; then
+            NEW_IDS=$(git diff HEAD~1 HEAD -- linear/ | grep -c '^+<!-- comment-id:' || true)
+            if [ "$NEW_IDS" -gt "0" ]; then
+              echo "Merge commit includes $NEW_IDS bot-generated comment-ids — skipping push"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Push changes to Linear
+        if: steps.check-merge.outputs.skip != 'true'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: issueclaw push
+
+      - name: Commit updated sync state
+        if: steps.check-merge.outputs.skip != 'true'
+        run: |
+          git config user.name "issueclaw-bot"
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git pull --no-rebase
+          git add .sync/ linear/
+          if git diff --cached --quiet; then
+            echo "No sync state changes"
+          else
+            git commit -m "sync: update sync state after push to Linear"
+            git push
+          fi

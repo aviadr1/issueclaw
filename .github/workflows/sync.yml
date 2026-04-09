@@ -1,0 +1,62 @@
+# Reusable workflow — called by host repos via:
+#   uses: aviadr1/issueclaw/.github/workflows/sync.yml@main
+#
+# Periodic full sync from Linear to ensure eventual consistency.
+# Webhooks handle real-time updates but can fail or arrive out of order.
+# This job is the correctness guarantee.
+#
+# .sync/state.json (last_sync timestamp) is cached, not committed.
+# Only actual content changes (linear/, .sync/id-map.json) produce commits.
+#
+# NOTE: concurrency must be set in the CALLER — groups are repo-scoped.
+
+on:
+  workflow_call:
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore sync timestamp
+        uses: actions/cache@v4
+        with:
+          path: .sync/state.json
+          key: issueclaw-state-${{ github.run_id }}
+          restore-keys: issueclaw-state-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install issueclaw
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+      - name: Pull latest changes
+        run: git pull --no-rebase
+
+      - name: Pull from Linear
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: issueclaw pull
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "issueclaw-bot"
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git add linear/ .sync/id-map.json
+          if git diff --cached --quiet; then
+            echo "Already in sync"
+          else
+            git commit -m "sync: pull from Linear"
+            git push
+          fi

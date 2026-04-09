@@ -332,6 +332,188 @@ def test_detect_git_changes_handles_renamed_files(tmp_path):
     assert changes[0].change_type == "modified"
 
 
+# Tests for merge commit handling
+
+
+def test_get_diff_refs_normal_commit(tmp_path):
+    """INVARIANT: Non-merge commits produce (HEAD~1, None) for old_ref, new_ref."""
+    mock_log = MagicMock(stdout="abc1234\n", returncode=0)
+
+    with patch.object(subprocess, "run", return_value=mock_log):
+        old_ref, new_ref = push_mod._get_diff_refs(tmp_path)
+
+    assert old_ref == "HEAD~1"
+    assert new_ref is None
+
+
+def test_get_diff_refs_merge_commit(tmp_path):
+    """INVARIANT: Merge commits produce (P1~1, P1) so only first-parent changes are diffed."""
+    # Two parents = merge commit
+    mock_log = MagicMock(stdout="abc1234 def5678\n", returncode=0)
+
+    with patch.object(subprocess, "run", return_value=mock_log):
+        old_ref, new_ref = push_mod._get_diff_refs(tmp_path)
+
+    assert old_ref == "abc1234~1"
+    assert new_ref == "abc1234"
+
+
+def test_detect_git_changes_merge_commit_uses_first_parent_diff(tmp_path):
+    """INVARIANT: For merge commits, detect_git_changes diffs P1~1..P1, not HEAD~1..HEAD.
+
+    This is the core invariant that prevents bot-generated comment-ids from the
+    merged branch appearing as 'new' and being re-posted to Linear.
+    """
+    issue_dir = tmp_path / "linear" / "teams" / "AI" / "issues"
+    issue_dir.mkdir(parents=True)
+    issue_file = issue_dir / "AI-1-fix-bug.md"
+    issue_file.write_text("merge result content")
+
+    # Two parents in git log → merge commit
+    mock_parents = MagicMock(stdout="parent1hash parent2hash\n", returncode=0)
+    diff_output = "M\tlinear/teams/AI/issues/AI-1-fix-bug.md\n"
+    mock_diff = MagicMock(stdout=diff_output, returncode=0)
+    # _git_show is called for old_content (P1~1:file) and new_content (P1:file)
+    mock_show = MagicMock(stdout="old content at P1~1", returncode=0)
+    mock_new_show = MagicMock(stdout="new content at P1", returncode=0)
+
+    show_call_count = 0
+
+    def fake_run(cmd, **kwargs):
+        nonlocal show_call_count
+        if "log" in cmd:
+            return mock_parents
+        if "diff" in cmd:
+            # Verify it's diffing P1~1..P1, not HEAD~1
+            assert "parent1hash~1" in cmd, f"Expected P1~1 in diff cmd, got: {cmd}"
+            assert "parent1hash" in cmd, f"Expected P1 in diff cmd, got: {cmd}"
+            return mock_diff
+        if "show" in cmd:
+            show_call_count += 1
+            if show_call_count == 1:
+                return mock_show     # old_content: P1~1:file
+            return mock_new_show     # new_content: P1:file
+        return MagicMock(returncode=0, stdout="")
+
+    with patch.object(subprocess, "run", side_effect=fake_run):
+        changes = push_mod.detect_git_changes(tmp_path)
+
+    assert len(changes) == 1
+    assert changes[0].change_type == "modified"
+    assert changes[0].old_content == "old content at P1~1"
+    assert changes[0].new_content == "new content at P1"
+
+
+@pytest.mark.asyncio
+async def test_merge_commit_with_bot_comments_does_not_repost(tmp_path):
+    """INVARIANT: Comments added by issueclaw-bot (with comment-ids) that appear via a
+    merge commit are NOT re-posted to Linear.
+
+    This is the root cause scenario: Aviad merges remote issueclaw-bot changes into
+    his local work. The bot added comment-ids during webhook/pull syncs. Without the
+    fix, git diff HEAD~1 on the merge commit shows those comment-ids as 'added',
+    causing push to create duplicate comments in Linear.
+
+    With the fix, detect_git_changes uses P1~1..P1 for merge commits, which only
+    shows Aviad's actual pre-merge changes — not the bot's merged-in changes.
+    """
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-292-fix.md", "uuid-ai-292")
+    state.save()
+
+    # P1~1 content: human's version before merge — no comments yet (bot hadn't synced them)
+    old_content_p1 = _write_issue_md(tmp_path, "AI-292", "Fix API", status="In Progress").read_text()
+
+    # P1 content: human's version — same, just status changed (still no bot comments)
+    new_content_p1 = _write_issue_md(tmp_path, "AI-292", "Fix API", status="Done").read_text()
+
+    # Simulate detect_git_changes using P1~1..P1 (the fix): shows status change, no comments
+    changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-292-fix.md",
+        change_type="modified",
+        old_content=old_content_p1,
+        new_content=new_content_p1,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-292"}
+    mock_client.fetch_teams.return_value = [{"id": "team-ai", "key": "AI"}]
+    mock_client.fetch_team_states.return_value = [
+        {"id": "state-done", "name": "Done"},
+        {"id": "state-ip", "name": "In Progress"},
+    ]
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+
+    # Status should be pushed (stateId resolved)
+    assert result["updated"] == 1
+    mock_client.update_issue.assert_called_once()
+
+    # No comments should be created — they came from the bot, not from the human
+    mock_client.create_comment.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_merge_commit_with_bot_comments_without_fix_would_repost(tmp_path):
+    """INVARIANT (regression test): If detect_git_changes incorrectly used HEAD~1..HEAD
+    for a merge commit, bot-added comment-ids would appear as 'added' and be re-posted.
+
+    This test documents the failure mode by directly constructing what the WRONG diff
+    would look like (HEAD~1..HEAD on a merge), and verifies that push_changes would
+    call create_comment for each bot-added comment-id.
+    """
+    state = SyncState(tmp_path)
+    state.load()
+    state.add_mapping("linear/teams/AI/issues/AI-292-fix.md", "uuid-ai-292")
+    state.save()
+
+    old_content = _write_issue_md(tmp_path, "AI-292", "Fix API").read_text()
+
+    # This is what HEAD~1..HEAD shows on a merge: bot-added comment-ids look 'new'
+    comments_added_by_bot = """
+# Comments
+
+## Oz Shaked - 2026-04-08T13:00:00Z
+<!-- comment-id: aaa-111 -->
+
+Code looks good, but check the edge case.
+
+## Jakub Drozdek - 2026-04-08T14:00:00Z
+<!-- comment-id: bbb-222 -->
+
+Agreed, also verify the tests pass.
+"""
+    new_content_with_bot_comments = _write_issue_md(
+        tmp_path, "AI-292", "Fix API", comments=comments_added_by_bot
+    ).read_text()
+
+    # Simulating the WRONG behavior (old code): using HEAD~1 on a merge commit
+    wrong_changes = [push_mod.FileChange(
+        path="linear/teams/AI/issues/AI-292-fix.md",
+        change_type="modified",
+        old_content=old_content,
+        new_content=new_content_with_bot_comments,
+    )]
+
+    mock_client = AsyncMock()
+    mock_client.update_issue.return_value = {"id": "uuid-ai-292"}
+    mock_client.create_comment.return_value = {"id": "new-comment"}
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(push_mod, "LinearClient", return_value=mock_client):
+        await push_mod.push_changes(wrong_changes, "test-key", tmp_path)
+
+    # This IS the bug: 2 comments get re-posted because old code used HEAD~1..HEAD
+    assert mock_client.create_comment.call_count == 2, (
+        "Bug confirmed: bot-added comment-ids in HEAD~1..HEAD diff cause duplicate comments"
+    )
+
+
 # Tests for push_command CLI integration
 
 def test_push_command_calls_detect_and_push(tmp_path):

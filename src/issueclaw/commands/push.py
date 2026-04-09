@@ -312,8 +312,39 @@ async def push_changes(
     return stats
 
 
+def _get_diff_refs(repo_dir: Path) -> tuple[str, str | None]:
+    """Return (old_ref, new_ref) for the git diff that detect_git_changes should run.
+
+    For regular commits: (HEAD~1, None) — diff HEAD~1 to HEAD (working tree).
+    For merge commits: (P1~1, P1) — diff only the first parent's changes.
+
+    Merge commits bring in the entire history of the second parent (e.g. all
+    issueclaw-bot webhook/pull commits). Using HEAD~1 for a merge commit would
+    expose all those bot-generated comment-ids as "added", causing push to
+    re-post comments that already exist in Linear. Limiting the diff to P1~1..P1
+    (the human's pre-merge commit) avoids this.
+    """
+    parents_result = subprocess.run(
+        ["git", "log", "--format=%P", "-n", "1", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_dir,
+    )
+    parents = parents_result.stdout.strip().split()
+    if len(parents) > 1:
+        # Merge commit: use only the first parent's changes
+        return f"{parents[0]}~1", parents[0]
+    # Normal commit
+    return "HEAD~1", None
+
+
 def detect_git_changes(repo_dir: Path) -> list[FileChange]:
     """Detect file changes in linear/ by comparing HEAD~1 to HEAD using git diff.
+
+    For merge commits, only changes in the first parent (the human's pre-merge
+    commit) are considered. This prevents bot-generated changes (e.g. comment-ids
+    added by issueclaw-bot webhook commits that were merged in) from appearing as
+    new human edits and being re-posted to Linear.
 
     Also always scans linear/new/ for any existing queue files, since they should
     be processed even if they were committed in a previous (failed) run.
@@ -334,8 +365,14 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
                 new_content=md_file.read_text(),
             ))
 
+    old_ref, new_ref = _get_diff_refs(repo_dir)
+    diff_cmd = ["git", "diff", old_ref]
+    if new_ref:
+        diff_cmd.append(new_ref)
+    diff_cmd += ["--name-status", "--", "linear/"]
+
     result = subprocess.run(
-        ["git", "diff", "HEAD~1", "--name-status", "--", "linear/"],
+        diff_cmd,
         capture_output=True,
         text=True,
         cwd=repo_dir,
@@ -358,7 +395,10 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             # Skip queue files — already added by the queue scan above
             if new_path in seen_queue_paths:
                 continue
-            new_content = (repo_dir / new_path).read_text()
+            if new_ref:
+                new_content = _git_show(repo_dir, f"{new_ref}:{new_path}")
+            else:
+                new_content = (repo_dir / new_path).read_text()
             # If the rename destination is a new-issue queue path, treat as added
             # so creation logic fires rather than update logic.
             dest_info = parse_entity_path(new_path)
@@ -369,7 +409,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
                     new_content=new_content,
                 ))
             else:
-                old_content = _git_show(repo_dir, f"HEAD~1:{old_path}")
+                old_content = _git_show(repo_dir, f"{old_ref}:{old_path}")
                 changes.append(FileChange(
                     path=new_path,
                     change_type="modified",
@@ -380,8 +420,11 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             file_path = parts[1]
             if not file_path.startswith("linear/") or file_path in seen_queue_paths:
                 continue
-            old_content = _git_show(repo_dir, f"HEAD~1:{file_path}")
-            new_content = (repo_dir / file_path).read_text()
+            old_content = _git_show(repo_dir, f"{old_ref}:{file_path}")
+            if new_ref:
+                new_content = _git_show(repo_dir, f"{new_ref}:{file_path}")
+            else:
+                new_content = (repo_dir / file_path).read_text()
             changes.append(FileChange(
                 path=file_path,
                 change_type="modified",
@@ -392,7 +435,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             file_path = parts[1]
             if not file_path.startswith("linear/"):
                 continue
-            old_content = _git_show(repo_dir, f"HEAD~1:{file_path}")
+            old_content = _git_show(repo_dir, f"{old_ref}:{file_path}")
             changes.append(FileChange(
                 path=file_path,
                 change_type="deleted",
@@ -403,7 +446,10 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             file_path = parts[1]
             if not file_path.startswith("linear/") or file_path in seen_queue_paths:
                 continue
-            new_content = (repo_dir / file_path).read_text()
+            if new_ref:
+                new_content = _git_show(repo_dir, f"{new_ref}:{file_path}")
+            else:
+                new_content = (repo_dir / file_path).read_text()
             changes.append(FileChange(
                 path=file_path,
                 change_type="added",
