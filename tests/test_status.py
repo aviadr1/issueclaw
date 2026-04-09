@@ -1,7 +1,5 @@
 """Tests for the status command."""
 
-from pathlib import Path
-
 from click.testing import CliRunner
 
 from issueclaw.main import cli
@@ -52,7 +50,9 @@ def test_status_no_sync_state(tmp_path):
     result = runner.invoke(cli, ["status", "--repo-dir", str(tmp_path)])
 
     assert result.exit_code == 0
-    assert "no sync" in result.output.lower() or "not initialized" in result.output.lower()
+    assert (
+        "no sync" in result.output.lower() or "not initialized" in result.output.lower()
+    )
 
 
 def test_status_json_mode(tmp_path):

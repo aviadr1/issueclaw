@@ -143,7 +143,11 @@ class LinearProject(BaseModel):
     def from_api(cls, data: dict) -> Self:
         lead = data.get("lead") or {}
         status_obj = data.get("status") or {}
-        status_name = status_obj.get("name", "") if isinstance(status_obj, dict) else str(status_obj)
+        status_name = (
+            status_obj.get("name", "")
+            if isinstance(status_obj, dict)
+            else str(status_obj)
+        )
 
         # Extract label names
         labels_raw = _extract_nodes(data.get("labels", []))
@@ -154,7 +158,11 @@ class LinearProject(BaseModel):
 
         # Extract member names
         members_raw = _extract_nodes(data.get("members", []))
-        members = [m.get("name", "") for m in members_raw] if members_raw and isinstance(members_raw[0], dict) else []
+        members = (
+            [m.get("name", "") for m in members_raw]
+            if members_raw and isinstance(members_raw[0], dict)
+            else []
+        )
 
         return cls(
             id=data["id"],
@@ -177,7 +185,9 @@ class LinearProject(BaseModel):
             updated=data.get("updatedAt", ""),
             teams=_extract_nodes(data.get("teams", [])),
             members=members,
-            milestones=_extract_nodes(data.get("projectMilestones") or data.get("milestones", [])),
+            milestones=_extract_nodes(
+                data.get("projectMilestones") or data.get("milestones", [])
+            ),
             project_updates=_extract_nodes(data.get("projectUpdates", [])),
             initiatives=_extract_nodes(data.get("initiatives", [])),
             documents=_extract_nodes(data.get("documents", [])),

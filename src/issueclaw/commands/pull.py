@@ -11,7 +11,13 @@ from typing import Callable
 
 import click
 from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+)
 
 from issueclaw.linear_client import LinearClient
 from issueclaw.models import (
@@ -22,7 +28,13 @@ from issueclaw.models import (
     LinearProject,
 )
 from issueclaw.paths import entity_path, update_file_slug as _update_file_slug
-from issueclaw.render import render_document, render_initiative, render_issue, render_project, render_project_update
+from issueclaw.render import (
+    render_document,
+    render_initiative,
+    render_issue,
+    render_project,
+    render_project_update,
+)
 from issueclaw.sync_state import SyncState
 
 _console = Console(stderr=True)
@@ -119,17 +131,26 @@ async def _run_pull(
             team_id = team["id"]
 
             log(f"Fetching issues for team {team_key}...")
-            raw_issues = await client.fetch_issues(team_id, include_comments=True, updated_after=updated_after)
+            raw_issues = await client.fetch_issues(
+                team_id, include_comments=True, updated_after=updated_after
+            )
             log(f"  {len(raw_issues)} issues in {team_key}")
 
-            with _progress_bar(f"Writing {team_key} issues", len(raw_issues), enabled=show_progress) as advance:
+            with _progress_bar(
+                f"Writing {team_key} issues", len(raw_issues), enabled=show_progress
+            ) as advance:
                 for raw_issue in raw_issues:
                     issue = _parse_issue(raw_issue, team_key)
                     # Comments are included inline from the issue query
                     raw_comments = (raw_issue.get("comments") or {}).get("nodes", [])
                     issue.comments = [LinearComment.from_api(c) for c in raw_comments]
 
-                    path = entity_path("issue", team_key=team_key, identifier=issue.identifier, issue_title=issue.title)
+                    path = entity_path(
+                        "issue",
+                        team_key=team_key,
+                        identifier=issue.identifier,
+                        issue_title=issue.title,
+                    )
                     content = render_issue(issue)
 
                     full_path = repo_dir / path
@@ -165,7 +186,9 @@ async def _run_pull(
                 user = update.get("user", {})
                 author = user.get("name", "") if isinstance(user, dict) else str(user)
                 slug = _update_file_slug(update.get("createdAt", ""), author)
-                update_path = entity_path("update", project_slug=project.slug, slug=slug)
+                update_path = entity_path(
+                    "update", project_slug=project.slug, slug=slug
+                )
                 update_content = render_project_update(update)
 
                 update_full_path = repo_dir / update_path
@@ -226,7 +249,9 @@ def _parse_issue(raw: dict, team_key: str) -> LinearIssue:
     state = raw.get("state") or {}
     assignee = raw.get("assignee") or {}
     labels_data = raw.get("labels") or {}
-    labels_nodes = labels_data.get("nodes", []) if isinstance(labels_data, dict) else labels_data
+    labels_nodes = (
+        labels_data.get("nodes", []) if isinstance(labels_data, dict) else labels_data
+    )
     project = raw.get("project") or {}
     milestone = raw.get("projectMilestone") or {}
     parent = raw.get("parent") or {}
@@ -276,10 +301,14 @@ def _parse_issue(raw: dict, team_key: str) -> LinearIssue:
     help="Comma-separated team keys to sync (e.g. AI,ENG). Syncs all if omitted.",
 )
 @click.pass_context
-def pull_command(ctx: click.Context, api_key: str | None, repo_dir: Path, teams: str | None) -> None:
+def pull_command(
+    ctx: click.Context, api_key: str | None, repo_dir: Path, teams: str | None
+) -> None:
     """Pull Linear data into the repository as markdown files."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
 
     teams_filter = [t.strip() for t in teams.split(",")] if teams else None
 
@@ -289,12 +318,16 @@ def pull_command(ctx: click.Context, api_key: str | None, repo_dir: Path, teams:
     log = _noop_log if (json_mode or quiet) else _default_log
     show_progress = not (json_mode or quiet)
 
-    stats = asyncio.run(_run_pull(api_key, repo_dir, teams_filter, log=log, show_progress=show_progress))
+    stats = asyncio.run(
+        _run_pull(api_key, repo_dir, teams_filter, log=log, show_progress=show_progress)
+    )
 
     if json_mode:
         click.echo(json.dumps(stats))
     elif not quiet:
         total = sum(stats.values())
-        click.echo(f"Synced {total} entities: {stats['issues']} issues, "
-                    f"{stats['projects']} projects, {stats['initiatives']} initiatives, "
-                    f"{stats['documents']} documents")
+        click.echo(
+            f"Synced {total} entities: {stats['issues']} issues, "
+            f"{stats['projects']} projects, {stats['initiatives']} initiatives, "
+            f"{stats['documents']} documents"
+        )

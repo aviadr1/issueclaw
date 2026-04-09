@@ -2,7 +2,6 @@
 
 import os
 from contextlib import contextmanager
-from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -20,9 +19,17 @@ def mock_init_externals(**overrides):
         "_create_linear_webhook": ("webhook-id-123", "wh-secret-abc"),
     }
     defaults.update(overrides)
-    with patch.object(init_mod, "_run_gh_secret_set", return_value=defaults["_run_gh_secret_set"]) as m_gh:
-        with patch.object(init_mod, "_run_initial_pull", return_value=defaults["_run_initial_pull"]) as m_pull:
-            with patch.object(init_mod, "_create_linear_webhook", return_value=defaults["_create_linear_webhook"]) as m_wh:
+    with patch.object(
+        init_mod, "_run_gh_secret_set", return_value=defaults["_run_gh_secret_set"]
+    ) as m_gh:
+        with patch.object(
+            init_mod, "_run_initial_pull", return_value=defaults["_run_initial_pull"]
+        ) as m_pull:
+            with patch.object(
+                init_mod,
+                "_create_linear_webhook",
+                return_value=defaults["_create_linear_webhook"],
+            ) as m_wh:
                 yield {"gh": m_gh, "pull": m_pull, "webhook": m_wh}
 
 
@@ -96,7 +103,10 @@ def test_init_reports_gh_unavailable(tmp_path):
             result = runner.invoke(cli, ["init", "--repo-dir", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
-    assert "set it manually" in result.output.lower() or "not available" in result.output.lower()
+    assert (
+        "set it manually" in result.output.lower()
+        or "not available" in result.output.lower()
+    )
 
 
 def test_init_does_not_duplicate_env_entries(tmp_path):
@@ -145,7 +155,13 @@ def test_init_creates_linear_webhook(tmp_path):
         with mock_init_externals() as mocks:
             result = runner.invoke(
                 cli,
-                ["init", "--repo-dir", str(tmp_path), "--webhook-url", "https://my-worker.workers.dev"],
+                [
+                    "init",
+                    "--repo-dir",
+                    str(tmp_path),
+                    "--webhook-url",
+                    "https://my-worker.workers.dev",
+                ],
             )
 
     assert result.exit_code == 0, result.output
@@ -163,7 +179,13 @@ def test_init_handles_existing_webhook(tmp_path):
         with mock_init_externals(_create_linear_webhook=(None, None)):
             result = runner.invoke(
                 cli,
-                ["init", "--repo-dir", str(tmp_path), "--webhook-url", "https://example.com"],
+                [
+                    "init",
+                    "--repo-dir",
+                    str(tmp_path),
+                    "--webhook-url",
+                    "https://example.com",
+                ],
             )
 
     assert result.exit_code == 0, result.output

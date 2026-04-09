@@ -55,7 +55,9 @@ def _run_initial_pull(repo_dir: Path, api_key: str) -> None:
     )
 
 
-def _create_linear_webhook(api_key: str, webhook_url: str) -> tuple[str, str]:
+def _create_linear_webhook(
+    api_key: str, webhook_url: str
+) -> tuple[str | None, str | None]:
     """Create a webhook in Linear. Returns (webhook_id, signing_secret)."""
     import httpx
 
@@ -168,7 +170,9 @@ def init_command(ctx: click.Context, repo_dir: Path, webhook_url: str | None) ->
     if _run_gh_secret_set(api_key):
         click.echo("Set LINEAR_API_KEY as GitHub repo secret")
     else:
-        click.echo("Could not set GitHub secret (gh CLI not available). Set it manually.")
+        click.echo(
+            "Could not set GitHub secret (gh CLI not available). Set it manually."
+        )
 
     # Run initial pull
     click.echo("Running initial pull...")

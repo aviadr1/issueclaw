@@ -1,5 +1,3 @@
-import json
-
 from issueclaw.sync_state import SyncState
 
 

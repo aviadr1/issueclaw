@@ -1,5 +1,16 @@
 # issueclaw: Issues as Code
 
+[![CI (main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain)
+[![CodeQL (main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml?query=branch%3Amain)
+[![Coverage (main)](https://codecov.io/gh/aviadr1/issueclaw/branch/main/graph/badge.svg)](https://app.codecov.io/gh/aviadr1/issueclaw/tree/main)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot)](https://github.com/aviadr1/issueclaw/security/dependabot)
+
+CI reports for `main`:
+- CI runs: <https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain>
+- CodeQL runs: <https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml?query=branch%3Amain>
+- Coverage dashboard: <https://app.codecov.io/gh/aviadr1/issueclaw/tree/main>
+- Dependabot alerts/PRs: <https://github.com/aviadr1/issueclaw/security/dependabot>
+
 **Bidirectional sync between Linear and Git using markdown files and git diffs.**
 
 Issueclaw treats your project management data as code. Issues, projects, initiatives, and documents live as `.md` files in a git repository. Changes flow bidirectionally: edit a markdown file and push to update Linear, or let Linear webhooks update your git repo automatically. Git diffs are the change detection mechanism. Git merge is the conflict resolution strategy. No custom sync logic for problems git already solves.

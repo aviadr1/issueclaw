@@ -1,6 +1,5 @@
 """Tests for push sync: detect git changes and push to Linear API."""
 
-import json
 import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,12 +12,21 @@ from issueclaw.main import cli
 from issueclaw.sync_state import SyncState
 
 
-def _write_issue_md(repo_dir: Path, identifier: str, title: str, status: str = "Todo",
-                    body: str = "Description.", team_key: str = "AI",
-                    comments: str = "") -> Path:
+def _write_issue_md(
+    repo_dir: Path,
+    identifier: str,
+    title: str,
+    status: str = "Todo",
+    body: str = "Description.",
+    team_key: str = "AI",
+    comments: str = "",
+) -> Path:
     """Write a minimal issue markdown file and return its path."""
     from issueclaw.paths import entity_path
-    rel_path = entity_path("issue", team_key=team_key, identifier=identifier, issue_title=title)
+
+    rel_path = entity_path(
+        "issue", team_key=team_key, identifier=identifier, issue_title=title
+    )
     full_path = repo_dir / rel_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
     md = f"""---
@@ -53,12 +61,14 @@ async def test_push_detects_modified_frontmatter(tmp_path):
     new_path = _write_issue_md(tmp_path, "AI-1", "Fix critical bug")
     new_content = new_path.read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -85,16 +95,20 @@ async def test_push_detects_modified_body(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Original.").read_text()
+    old_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", body="Original."
+    ).read_text()
     new_path = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Updated description.")
     new_content = new_path.read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -115,12 +129,14 @@ async def test_push_deleted_file_archives_issue(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="deleted",
-        old_content="old content",
-        new_content=None,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="deleted",
+            old_content="old content",
+            new_content=None,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.archive_issue.return_value = {"id": "uuid-ai-1"}
@@ -135,8 +151,12 @@ async def test_push_deleted_file_archives_issue(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_push_new_comment(tmp_path):
-    """INVARIANT: New comments in issue files create comments via API."""
+async def test_push_comment_with_id_is_not_created(tmp_path):
+    """INVARIANT: Comments WITH a comment-id already exist in Linear — never re-create them.
+
+    A comment-id is assigned by Linear and enters the file via issueclaw pull.
+    Calling create_comment for it would create a duplicate.
+    """
     state = SyncState(tmp_path)
     state.load()
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
@@ -147,19 +167,21 @@ async def test_push_new_comment(tmp_path):
 # Comments
 
 ## Aviad - 2026-03-09T10:00:00Z
-<!-- comment-id: new-comment -->
+<!-- comment-id: existing-linear-uuid -->
 
-This is a new comment from git.
+This comment already exists in Linear.
 """
     new_path = _write_issue_md(tmp_path, "AI-1", "Fix bug", comments=comments)
     new_content = new_path.read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -168,12 +190,10 @@ This is a new comment from git.
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch.object(push_mod, "LinearClient", return_value=mock_client):
-        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+        await push_mod.push_changes(changes, "test-key", tmp_path)
 
-    mock_client.create_comment.assert_called_once()
-    call_args = mock_client.create_comment.call_args
-    assert call_args[0][0] == "uuid-ai-1"  # issue ID
-    assert "new comment from git" in call_args[0][1]  # comment body
+    # Comment with ID must NOT be re-created
+    mock_client.create_comment.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -187,18 +207,21 @@ async def test_push_no_changes_is_noop(tmp_path):
 @pytest.mark.asyncio
 async def test_push_skips_non_linear_files(tmp_path):
     """INVARIANT: Files outside linear/ directory are ignored."""
-    changes = [push_mod.FileChange(
-        path="README.md",
-        change_type="modified",
-        old_content="old",
-        new_content="new",
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="README.md",
+            change_type="modified",
+            old_content="old",
+            new_content="new",
+        )
+    ]
 
     result = await push_mod.push_changes(changes, "test-key", tmp_path)
     assert result["skipped"] == 1
 
 
 # Tests for detect_git_changes
+
 
 def test_detect_git_changes_parses_modified_files(tmp_path):
     """INVARIANT: Modified files in linear/ produce FileChange with old and new content."""
@@ -391,8 +414,8 @@ def test_detect_git_changes_merge_commit_uses_first_parent_diff(tmp_path):
         if "show" in cmd:
             show_call_count += 1
             if show_call_count == 1:
-                return mock_show     # old_content: P1~1:file
-            return mock_new_show     # new_content: P1:file
+                return mock_show  # old_content: P1~1:file
+            return mock_new_show  # new_content: P1:file
         return MagicMock(returncode=0, stdout="")
 
     with patch.object(subprocess, "run", side_effect=fake_run):
@@ -423,18 +446,24 @@ async def test_merge_commit_with_bot_comments_does_not_repost(tmp_path):
     state.save()
 
     # P1~1 content: human's version before merge — no comments yet (bot hadn't synced them)
-    old_content_p1 = _write_issue_md(tmp_path, "AI-292", "Fix API", status="In Progress").read_text()
+    old_content_p1 = _write_issue_md(
+        tmp_path, "AI-292", "Fix API", status="In Progress"
+    ).read_text()
 
     # P1 content: human's version — same, just status changed (still no bot comments)
-    new_content_p1 = _write_issue_md(tmp_path, "AI-292", "Fix API", status="Done").read_text()
+    new_content_p1 = _write_issue_md(
+        tmp_path, "AI-292", "Fix API", status="Done"
+    ).read_text()
 
     # Simulate detect_git_changes using P1~1..P1 (the fix): shows status change, no comments
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-292-fix.md",
-        change_type="modified",
-        old_content=old_content_p1,
-        new_content=new_content_p1,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-292-fix.md",
+            change_type="modified",
+            old_content=old_content_p1,
+            new_content=new_content_p1,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-292"}
@@ -458,13 +487,13 @@ async def test_merge_commit_with_bot_comments_does_not_repost(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_merge_commit_with_bot_comments_without_fix_would_repost(tmp_path):
-    """INVARIANT (regression test): If detect_git_changes incorrectly used HEAD~1..HEAD
-    for a merge commit, bot-added comment-ids would appear as 'added' and be re-posted.
+async def test_merge_commit_bot_comments_never_reposted_even_with_wrong_diff(tmp_path):
+    """INVARIANT: Even if detect_git_changes incorrectly used HEAD~1..HEAD for a merge
+    commit, bot-added comments (WITH comment-ids) are NEVER re-posted to Linear.
 
-    This test documents the failure mode by directly constructing what the WRONG diff
-    would look like (HEAD~1..HEAD on a merge), and verifies that push_changes would
-    call create_comment for each bot-added comment-id.
+    The semantic fix makes this safe regardless of git diff behavior: comment-ids
+    mean "already exists in Linear", so push_changes never calls create_comment
+    for them. This is defense-in-depth beyond the P1~1..P1 diff fix.
     """
     state = SyncState(tmp_path)
     state.load()
@@ -491,13 +520,15 @@ Agreed, also verify the tests pass.
         tmp_path, "AI-292", "Fix API", comments=comments_added_by_bot
     ).read_text()
 
-    # Simulating the WRONG behavior (old code): using HEAD~1 on a merge commit
-    wrong_changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-292-fix.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content_with_bot_comments,
-    )]
+    # Simulating the WRONG diff (HEAD~1 on a merge) — the semantic fix still protects
+    wrong_changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-292-fix.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content_with_bot_comments,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-292"}
@@ -508,27 +539,39 @@ Agreed, also verify the tests pass.
     with patch.object(push_mod, "LinearClient", return_value=mock_client):
         await push_mod.push_changes(wrong_changes, "test-key", tmp_path)
 
-    # This IS the bug: 2 comments get re-posted because old code used HEAD~1..HEAD
-    assert mock_client.create_comment.call_count == 2, (
-        "Bug confirmed: bot-added comment-ids in HEAD~1..HEAD diff cause duplicate comments"
-    )
+    # Category fix: comments with IDs are NEVER re-created, regardless of diff
+    mock_client.create_comment.assert_not_called()
 
 
 # Tests for push_command CLI integration
 
+
 def test_push_command_calls_detect_and_push(tmp_path):
     """INVARIANT: push CLI command detects changes and pushes them."""
-    fake_changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content="old",
-        new_content="new",
-    )]
+    fake_changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content="old",
+            new_content="new",
+        )
+    ]
 
-    with patch.object(push_mod, "detect_git_changes", return_value=fake_changes) as mock_detect, \
-         patch.object(push_mod, "push_changes", new_callable=AsyncMock, return_value={"updated": 1, "archived": 0, "created": 0, "skipped": 0}) as mock_push:
+    with (
+        patch.object(
+            push_mod, "detect_git_changes", return_value=fake_changes
+        ) as mock_detect,
+        patch.object(
+            push_mod,
+            "push_changes",
+            new_callable=AsyncMock,
+            return_value={"updated": 1, "archived": 0, "created": 0, "skipped": 0},
+        ) as mock_push,
+    ):
         runner = CliRunner()
-        result = runner.invoke(cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)])
+        result = runner.invoke(
+            cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)]
+        )
 
     assert result.exit_code == 0
     mock_detect.assert_called_once_with(tmp_path)
@@ -539,7 +582,9 @@ def test_push_command_no_changes(tmp_path):
     """INVARIANT: When no changes detected, push outputs a message and exits cleanly."""
     with patch.object(push_mod, "detect_git_changes", return_value=[]):
         runner = CliRunner()
-        result = runner.invoke(cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)])
+        result = runner.invoke(
+            cli, ["push", "--api-key", "test-key", "--repo-dir", str(tmp_path)]
+        )
 
     assert result.exit_code == 0
     assert "no changes" in result.output.lower() or "0" in result.output
@@ -553,15 +598,21 @@ async def test_push_maps_field_names_to_linear_api(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo").read_text()
-    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug v2", status="Todo").read_text()
+    old_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", status="Todo"
+    ).read_text()
+    new_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug v2", status="Todo"
+    ).read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -587,15 +638,21 @@ async def test_push_maps_description_field_correctly(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Original text.").read_text()
-    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Updated text.").read_text()
+    old_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", body="Original text."
+    ).read_text()
+    new_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", body="Updated text."
+    ).read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -603,7 +660,7 @@ async def test_push_maps_description_field_correctly(tmp_path):
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     with patch.object(push_mod, "LinearClient", return_value=mock_client):
-        result = await push_mod.push_changes(changes, "test-key", tmp_path)
+        await push_mod.push_changes(changes, "test-key", tmp_path)
 
     call_args = mock_client.update_issue.call_args
     fields = call_args[0][1]
@@ -619,15 +676,21 @@ async def test_push_resolves_status_to_state_id(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Todo").read_text()
-    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", status="Done").read_text()
+    old_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", status="Todo"
+    ).read_text()
+    new_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", status="Done"
+    ).read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -662,7 +725,10 @@ async def test_push_resolves_assignee_to_user_id(tmp_path):
 
     # Write issue with different assignee (need to manually create since helper doesn't support assignee)
     from issueclaw.paths import entity_path
-    rel_path = entity_path("issue", team_key="AI", identifier="AI-1", issue_title="Fix bug")
+
+    rel_path = entity_path(
+        "issue", team_key="AI", identifier="AI-1", issue_title="Fix bug"
+    )
     full_path = tmp_path / rel_path
     full_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -685,12 +751,14 @@ Description.
     new_md = old_md.replace("assignee: Aviad Rozenhek", "assignee: Oz Shaked")
     full_path.write_text(new_md)
 
-    changes = [push_mod.FileChange(
-        path=rel_path,
-        change_type="modified",
-        old_content=old_md,
-        new_content=new_md,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path=rel_path,
+            change_type="modified",
+            old_content=old_md,
+            new_content=new_md,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -722,15 +790,21 @@ async def test_push_strips_entity_heading_from_description(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "uuid-ai-1")
     state.save()
 
-    old_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Original.").read_text()
-    new_content = _write_issue_md(tmp_path, "AI-1", "Fix bug", body="Updated body.").read_text()
+    old_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", body="Original."
+    ).read_text()
+    new_content = _write_issue_md(
+        tmp_path, "AI-1", "Fix bug", body="Updated body."
+    ).read_text()
 
-    changes = [push_mod.FileChange(
-        path="linear/teams/AI/issues/AI-1-fix-bug.md",
-        change_type="modified",
-        old_content=old_content,
-        new_content=new_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/teams/AI/issues/AI-1-fix-bug.md",
+            change_type="modified",
+            old_content=old_content,
+            new_content=new_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.update_issue.return_value = {"id": "uuid-ai-1"}
@@ -752,7 +826,9 @@ async def test_push_new_update_file(tmp_path):
     """INVARIANT: New update files under projects/*/updates/ push to Linear API."""
     state = SyncState(tmp_path)
     state.load()
-    state.add_mapping("linear/projects/weekly-reports/_project.md", "uuid-weekly-reports")
+    state.add_mapping(
+        "linear/projects/weekly-reports/_project.md", "uuid-weekly-reports"
+    )
     state.save()
 
     update_content = """---
@@ -769,12 +845,14 @@ Weekly report: 24 shipped, 27 in flight.
     full_path.parent.mkdir(parents=True, exist_ok=True)
     full_path.write_text(update_content)
 
-    changes = [push_mod.FileChange(
-        path=update_path,
-        change_type="added",
-        old_content=None,
-        new_content=update_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path=update_path,
+            change_type="added",
+            old_content=None,
+            new_content=update_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.create_project_update.return_value = {"id": "new-update-uuid"}
@@ -807,12 +885,14 @@ health: onTrack
 
 Some content.
 """
-    changes = [push_mod.FileChange(
-        path="linear/projects/unknown-project/updates/2026-03-13-aviad.md",
-        change_type="added",
-        old_content=None,
-        new_content=update_content,
-    )]
+    changes = [
+        push_mod.FileChange(
+            path="linear/projects/unknown-project/updates/2026-03-13-aviad.md",
+            change_type="added",
+            old_content=None,
+            new_content=update_content,
+        )
+    ]
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)

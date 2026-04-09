@@ -39,7 +39,11 @@ def diff_command(ctx: click.Context, repo_dir: Path) -> None:
                 "path": change.path,
                 "change_type": change.change_type,
             }
-            if change.change_type == "modified" and change.old_content and change.new_content:
+            if (
+                change.change_type == "modified"
+                and change.old_content
+                and change.new_content
+            ):
                 md_diff = diff_markdown(change.old_content, change.new_content)
                 entry["frontmatter_changes"] = {
                     k: {"old": v.old, "new": v.new}
@@ -56,15 +60,27 @@ def diff_command(ctx: click.Context, repo_dir: Path) -> None:
         for change in changes:
             click.echo(f"  {change.change_type.upper():10s} {change.path}")
 
-            if change.change_type == "modified" and change.old_content and change.new_content:
+            if (
+                change.change_type == "modified"
+                and change.old_content
+                and change.new_content
+            ):
                 md_diff = diff_markdown(change.old_content, change.new_content)
                 for field_name, field_diff in md_diff.frontmatter_changes.items():
-                    click.echo(f"             {field_name}: {field_diff.old} → {field_diff.new}")
+                    click.echo(
+                        f"             {field_name}: {field_diff.old} → {field_diff.new}"
+                    )
                 if md_diff.body_changed:
                     click.echo("             body: changed")
                 if md_diff.comments_added:
-                    click.echo(f"             comments: +{len(md_diff.comments_added)} added")
+                    click.echo(
+                        f"             comments: +{len(md_diff.comments_added)} added"
+                    )
                 if md_diff.comments_removed:
-                    click.echo(f"             comments: -{len(md_diff.comments_removed)} removed")
+                    click.echo(
+                        f"             comments: -{len(md_diff.comments_removed)} removed"
+                    )
                 if md_diff.comments_edited:
-                    click.echo(f"             comments: ~{len(md_diff.comments_edited)} edited")
+                    click.echo(
+                        f"             comments: ~{len(md_diff.comments_edited)} edited"
+                    )

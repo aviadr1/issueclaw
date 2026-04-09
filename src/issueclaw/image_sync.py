@@ -6,9 +6,7 @@ import re
 from pathlib import PurePosixPath
 
 # Matches markdown image syntax with uploads.linear.app URLs
-IMAGE_URL_PATTERN = re.compile(
-    r"!\[([^\]]*)\]\((https://uploads\.linear\.app/[^)]+)\)"
-)
+IMAGE_URL_PATTERN = re.compile(r"!\[([^\]]*)\]\((https://uploads\.linear\.app/[^)]+)\)")
 
 
 def rewrite_image_urls(

@@ -1,4 +1,10 @@
-from issueclaw.models import LinearIssue, LinearComment, LinearInitiative, LinearProject, LinearDocument
+from issueclaw.models import (
+    LinearIssue,
+    LinearComment,
+    LinearInitiative,
+    LinearProject,
+    LinearDocument,
+)
 
 
 def test_issue_from_api_response():
@@ -144,7 +150,12 @@ def test_project_from_api_with_rich_data():
         "health": "onTrack",
         "progress": 0.75,
         "scope": 36,
-        "status": {"id": "status-uuid", "name": "Ready for Dev", "color": "#4cb782", "type": "started"},
+        "status": {
+            "id": "status-uuid",
+            "name": "Ready for Dev",
+            "color": "#4cb782",
+            "type": "started",
+        },
         "lead": {"id": "user-uuid", "name": "Mateusz"},
         "startDate": "2026-02-12",
         "targetDate": None,
@@ -152,13 +163,32 @@ def test_project_from_api_with_rich_data():
         "createdAt": "2026-01-01T00:00:00Z",
         "updatedAt": "2026-01-01T00:00:00Z",
         "teams": {"nodes": [{"id": "t1", "name": "Web", "key": "WEB"}]},
-        "members": {"nodes": [{"id": "u1", "name": "Aviad"}, {"id": "u2", "name": "Mateusz"}]},
-        "projectMilestones": {"nodes": [
-            {"id": "m1", "name": "MVP", "description": "First release", "targetDate": "2026-03-01", "status": "done", "progress": 1.0},
-        ]},
-        "projectUpdates": {"nodes": [
-            {"id": "pu1", "body": "Deployed to prod.", "health": "onTrack", "createdAt": "2026-02-17T11:00:00Z", "user": {"id": "u1", "name": "Oz"}},
-        ]},
+        "members": {
+            "nodes": [{"id": "u1", "name": "Aviad"}, {"id": "u2", "name": "Mateusz"}]
+        },
+        "projectMilestones": {
+            "nodes": [
+                {
+                    "id": "m1",
+                    "name": "MVP",
+                    "description": "First release",
+                    "targetDate": "2026-03-01",
+                    "status": "done",
+                    "progress": 1.0,
+                },
+            ]
+        },
+        "projectUpdates": {
+            "nodes": [
+                {
+                    "id": "pu1",
+                    "body": "Deployed to prod.",
+                    "health": "onTrack",
+                    "createdAt": "2026-02-17T11:00:00Z",
+                    "user": {"id": "u1", "name": "Oz"},
+                },
+            ]
+        },
         "initiatives": {"nodes": [{"id": "i1", "name": "Community metrics"}]},
         "documents": {"nodes": [{"id": "d1", "title": "Architecture Design"}]},
         "labels": {"nodes": [{"id": "l1", "name": "Metrics"}]},
@@ -192,10 +222,18 @@ def test_initiative_from_api_with_projects_and_content():
         "updatedAt": "2026-01-01T00:00:00Z",
         "url": "https://linear.app/test/initiative/community-metrics",
         "owner": {"id": "u1", "name": "Aviad"},
-        "projects": {"nodes": [{"id": "p1", "name": "Metrics Platform"}, {"id": "p2", "name": "Dashboard"}]},
+        "projects": {
+            "nodes": [
+                {"id": "p1", "name": "Metrics Platform"},
+                {"id": "p2", "name": "Dashboard"},
+            ]
+        },
     }
     init = LinearInitiative.from_api(data)
     assert init.content == "# Full Initiative Plan\n\nDetailed content."
     assert init.health == "atRisk"
     assert init.url == "https://linear.app/test/initiative/community-metrics"
-    assert init.projects == [{"id": "p1", "name": "Metrics Platform"}, {"id": "p2", "name": "Dashboard"}]
+    assert init.projects == [
+        {"id": "p1", "name": "Metrics Platform"},
+        {"id": "p2", "name": "Dashboard"},
+    ]

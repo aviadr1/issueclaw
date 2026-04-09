@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Basedpyright
+        run: uv run basedpyright
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests
+        run: |
+          uv run pytest -q -n auto \
+            --junitxml=artifacts/junit.xml \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:artifacts/coverage.xml \
+            --cov-report=html:artifacts/htmlcov
+
+      - name: Upload test and coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: artifacts/
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: artifacts/coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          coverage_file = Path("artifacts/coverage.xml")
+          if not coverage_file.exists():
+              print("No coverage.xml produced")
+              raise SystemExit(0)
+
+          root = ET.parse(coverage_file).getroot()
+          line_rate = float(root.attrib.get("line-rate", 0.0)) * 100
+          branch_rate = float(root.attrib.get("branch-rate", 0.0)) * 100
+
+          summary = Path("$GITHUB_STEP_SUMMARY")
+          with summary.open("a", encoding="utf-8") as f:
+              f.write("## Test Coverage\n")
+              f.write(f"- Line coverage: {line_rate:.2f}%\n")
+              f.write(f"- Branch coverage: {branch_rate:.2f}%\n")
+              f.write("- Artifacts: `junit.xml`, `coverage.xml`, `htmlcov/`\n")
+          PY

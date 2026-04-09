@@ -5,7 +5,7 @@ from issueclaw.render import render_issue, render_project
 
 def test_parse_issue_with_comments():
     """INVARIANT: Parser extracts frontmatter, body, and comments from .md files."""
-    md = '''---
+    md = """---
 id: "uuid-123"
 identifier: "AI-123"
 title: "Test issue"
@@ -28,7 +28,7 @@ Started working on this.
 <!-- comment-id: c2-uuid -->
 
 Looks good!
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["id"] == "uuid-123"
     assert result.frontmatter["status"] == "In Progress"
@@ -45,13 +45,13 @@ Looks good!
 
 def test_parse_issue_without_comments():
     """INVARIANT: Parser works when no comments section exists."""
-    md = '''---
+    md = """---
 id: "uuid-456"
 title: "No comments"
 ---
 
 Just a body.
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["id"] == "uuid-456"
     assert "Just a body." in result.body
@@ -60,11 +60,11 @@ Just a body.
 
 def test_parse_empty_body():
     """INVARIANT: Parser handles files with only frontmatter."""
-    md = '''---
+    md = """---
 id: "uuid-789"
 title: "Empty body"
 ---
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["id"] == "uuid-789"
     assert result.body.strip() == ""
@@ -73,7 +73,7 @@ title: "Empty body"
 
 def test_parse_comment_with_multiline_body():
     """INVARIANT: Parser captures full multi-line comment bodies."""
-    md = '''---
+    md = """---
 id: "uuid"
 title: "Test"
 ---
@@ -91,7 +91,7 @@ Second paragraph with **bold**.
 
 - List item 1
 - List item 2
-'''
+"""
     result = parse_markdown(md)
     assert len(result.comments) == 1
     assert "First paragraph." in result.comments[0].body
@@ -135,7 +135,7 @@ def test_roundtrip_issue():
 
 def test_parse_project_with_status_updates():
     """INVARIANT: Parser extracts status updates from project files."""
-    md = '''---
+    md = """---
 id: "uuid-proj"
 name: "Test Project"
 status: "started"
@@ -162,7 +162,7 @@ Weekly report content here.
 # Initiatives
 
 - Community metrics
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["name"] == "Test Project"
     assert "Description." in result.body
@@ -180,13 +180,13 @@ Weekly report content here.
 
 def test_parse_project_without_updates():
     """INVARIANT: Parser works when no status updates section exists."""
-    md = '''---
+    md = """---
 id: "uuid-proj"
 name: "Empty project"
 ---
 
 # Empty project
-'''
+"""
     result = parse_markdown(md)
     assert result.updates == []
     assert result.comments == []
@@ -194,7 +194,7 @@ name: "Empty project"
 
 def test_parse_update_with_multiline_body():
     """INVARIANT: Parser captures full multi-line update bodies."""
-    md = '''---
+    md = """---
 id: "uuid"
 name: "Test"
 ---
@@ -213,7 +213,7 @@ First paragraph.
 | Data     | More     |
 
 - Bullet point
-'''
+"""
     result = parse_markdown(md)
     assert len(result.updates) == 1
     assert "First paragraph." in result.updates[0].body

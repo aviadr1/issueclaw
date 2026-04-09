@@ -1,7 +1,6 @@
 """Tests for webhook application: apply incoming Linear webhook payloads to the repo."""
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -12,7 +11,9 @@ from issueclaw.main import cli
 from issueclaw.sync_state import SyncState
 
 
-def _make_webhook_payload(action: str, entity_type: str, entity_id: str, **extra_data) -> dict:
+def _make_webhook_payload(
+    action: str, entity_type: str, entity_id: str, **extra_data
+) -> dict:
     """Create a minimal webhook payload for testing."""
     data = {"id": entity_id, **extra_data}
     return {
@@ -24,7 +25,9 @@ def _make_webhook_payload(action: str, entity_type: str, entity_id: str, **extra
     }
 
 
-def _make_issue_api_response(identifier: str = "AI-1", title: str = "Fix bug", team_key: str = "AI") -> dict:
+def _make_issue_api_response(
+    identifier: str = "AI-1", title: str = "Fix bug", team_key: str = "AI"
+) -> dict:
     """Create a mock API response for a single issue fetch."""
     return {
         "id": "issue-uuid-1",
@@ -111,7 +114,9 @@ def _make_document_api_response(title: str = "Architecture Doc") -> dict:
 @pytest.mark.asyncio
 async def test_apply_webhook_issue_create(tmp_path):
     """INVARIANT: Issue create webhook fetches the full issue and writes a markdown file."""
-    payload = _make_webhook_payload("create", "Issue", "issue-uuid-1", teamId="team-uuid")
+    payload = _make_webhook_payload(
+        "create", "Issue", "issue-uuid-1", teamId="team-uuid"
+    )
     api_response = _make_issue_api_response()
 
     mock_client = AsyncMock()
@@ -146,7 +151,9 @@ async def test_apply_webhook_issue_update(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-fix-bug.md", "issue-uuid-1")
     state.save()
 
-    payload = _make_webhook_payload("update", "Issue", "issue-uuid-1", teamId="team-uuid")
+    payload = _make_webhook_payload(
+        "update", "Issue", "issue-uuid-1", teamId="team-uuid"
+    )
     api_response = _make_issue_api_response(title="Fix bug v2")
 
     mock_client = AsyncMock()
@@ -203,7 +210,9 @@ async def test_apply_webhook_project_create(tmp_path):
         result = await webhook_mod.apply_webhook(payload, "test-api-key", tmp_path)
 
     assert result["entity_type"] == "Project"
-    expected_path = tmp_path / "linear" / "projects" / "metrics-platform" / "_project.md"
+    expected_path = (
+        tmp_path / "linear" / "projects" / "metrics-platform" / "_project.md"
+    )
     assert expected_path.exists()
     content = expected_path.read_text()
     assert "Metrics Platform" in content
@@ -251,12 +260,21 @@ async def test_apply_webhook_document_create(tmp_path):
 @pytest.mark.asyncio
 async def test_apply_webhook_comment_triggers_parent_issue_refetch(tmp_path):
     """INVARIANT: Comment webhook re-fetches the parent issue and updates its file."""
-    payload = _make_webhook_payload("create", "Comment", "comment-uuid-1", issueId="issue-uuid-1")
+    payload = _make_webhook_payload(
+        "create", "Comment", "comment-uuid-1", issueId="issue-uuid-1"
+    )
     api_response = _make_issue_api_response()
-    api_response["comments"] = {"nodes": [
-        {"id": "comment-uuid-1", "body": "New comment!", "createdAt": "2026-03-09T10:00:00Z",
-         "updatedAt": "2026-03-09T10:00:00Z", "user": {"id": "user-1", "name": "Aviad"}},
-    ]}
+    api_response["comments"] = {
+        "nodes": [
+            {
+                "id": "comment-uuid-1",
+                "body": "New comment!",
+                "createdAt": "2026-03-09T10:00:00Z",
+                "updatedAt": "2026-03-09T10:00:00Z",
+                "user": {"id": "user-1", "name": "Aviad"},
+            },
+        ]
+    }
 
     mock_client = AsyncMock()
     mock_client.fetch_issue.return_value = api_response
@@ -297,7 +315,9 @@ async def test_apply_webhook_remove_cleans_up_old_path_on_rename(tmp_path):
     state.add_mapping("linear/teams/AI/issues/AI-1-old-title.md", "issue-uuid-1")
     state.save()
 
-    payload = _make_webhook_payload("update", "Issue", "issue-uuid-1", teamId="team-uuid")
+    payload = _make_webhook_payload(
+        "update", "Issue", "issue-uuid-1", teamId="team-uuid"
+    )
     api_response = _make_issue_api_response(title="New title")
 
     mock_client = AsyncMock()
@@ -317,7 +337,9 @@ async def test_apply_webhook_remove_cleans_up_old_path_on_rename(tmp_path):
 
 def test_apply_webhook_cli_command(tmp_path):
     """INVARIANT: CLI apply-webhook command parses payload and writes files."""
-    payload = _make_webhook_payload("create", "Issue", "issue-uuid-1", teamId="team-uuid")
+    payload = _make_webhook_payload(
+        "create", "Issue", "issue-uuid-1", teamId="team-uuid"
+    )
     api_response = _make_issue_api_response()
 
     mock_client = AsyncMock()
@@ -327,12 +349,18 @@ def test_apply_webhook_cli_command(tmp_path):
 
     runner = CliRunner()
     with patch.object(webhook_mod, "LinearClient", return_value=mock_client):
-        result = runner.invoke(cli, [
-            "apply-webhook",
-            "--api-key", "test-key",
-            "--repo-dir", str(tmp_path),
-            "--payload", json.dumps(payload),
-        ])
+        result = runner.invoke(
+            cli,
+            [
+                "apply-webhook",
+                "--api-key",
+                "test-key",
+                "--repo-dir",
+                str(tmp_path),
+                "--payload",
+                json.dumps(payload),
+            ],
+        )
 
     assert result.exit_code == 0, f"CLI failed: {result.output}"
     assert "Created" in result.output or "Issue" in result.output

@@ -31,6 +31,8 @@ class ParsedMarkdown:
     body: str
     comments: list[ParsedSection] = field(default_factory=list)
     updates: list[ParsedSection] = field(default_factory=list)
+    pending_comments: list[ParsedSection] = field(default_factory=list)
+    pending_updates: list[ParsedSection] = field(default_factory=list)
 
 
 # Matches: ## Author - Timestamp  or  ## Author - Timestamp [health]
@@ -38,9 +40,16 @@ _SECTION_HEADER_RE = re.compile(r"^## (.+?) - (\S+?)(?:\s+\[(.+?)\])?$")
 _SECTION_ID_RE = re.compile(r"<!-- (?:comment-id|update-id): (.+?) -->")
 
 
-def _parse_sections(text: str) -> list[ParsedSection]:
-    """Parse ## Author - timestamp [health] sections with ID markers."""
-    sections: list[ParsedSection] = []
+def _parse_sections(text: str) -> tuple[list[ParsedSection], list[ParsedSection]]:
+    """Parse ## Author - timestamp [health] sections with ID markers.
+
+    Returns (id_sections, pending_sections):
+    - id_sections: sections WITH a <!-- comment-id/update-id: UUID --> marker
+      (already exist in Linear)
+    - pending_sections: sections WITHOUT an ID marker (human-authored, pending push)
+    """
+    id_sections: list[ParsedSection] = []
+    pending_sections: list[ParsedSection] = []
     lines = text.split("\n")
 
     current_author = ""
@@ -50,20 +59,25 @@ def _parse_sections(text: str) -> list[ParsedSection]:
     current_body_lines: list[str] = []
     in_section = False
 
+    def _save_current_section() -> None:
+        section = ParsedSection(
+            id=current_id,
+            author=current_author,
+            timestamp=current_timestamp,
+            body="\n".join(current_body_lines).strip(),
+            health=current_health,
+        )
+        if current_id:
+            id_sections.append(section)
+        else:
+            pending_sections.append(section)
+
     for line in lines:
         header_match = _SECTION_HEADER_RE.match(line)
         if header_match:
             # Save previous section if exists
-            if in_section and current_id:
-                sections.append(
-                    ParsedSection(
-                        id=current_id,
-                        author=current_author,
-                        timestamp=current_timestamp,
-                        body="\n".join(current_body_lines).strip(),
-                        health=current_health,
-                    )
-                )
+            if in_section:
+                _save_current_section()
             # Start new section
             current_author = header_match.group(1)
             current_timestamp = header_match.group(2)
@@ -81,18 +95,10 @@ def _parse_sections(text: str) -> list[ParsedSection]:
             current_body_lines.append(line)
 
     # Save last section
-    if in_section and current_id:
-        sections.append(
-            ParsedSection(
-                id=current_id,
-                author=current_author,
-                timestamp=current_timestamp,
-                body="\n".join(current_body_lines).strip(),
-                health=current_health,
-            )
-        )
+    if in_section:
+        _save_current_section()
 
-    return sections
+    return id_sections, pending_sections
 
 
 def _extract_named_section(text: str, section_name: str) -> tuple[str, str]:
@@ -107,13 +113,13 @@ def _extract_named_section(text: str, section_name: str) -> tuple[str, str]:
         return text, ""
 
     start = match.start()
-    after = text[match.end():]
+    after = text[match.end() :]
 
     # Find the next H1 heading
     next_h1 = re.search(r"\n# ", after)
     if next_h1:
-        section_content = after[:next_h1.start()]
-        remaining = text[:start] + after[next_h1.start():]
+        section_content = after[: next_h1.start()]
+        remaining = text[:start] + after[next_h1.start() :]
     else:
         section_content = after
         remaining = text[:start]
@@ -160,7 +166,18 @@ def parse_markdown(content: str) -> ParsedMarkdown:
     rest, comments_text = _extract_named_section(rest, "Comments")
     rest, updates_text = _extract_named_section(rest, "Status Updates")
 
-    comments = _parse_sections(comments_text) if comments_text else []
-    updates = _parse_sections(updates_text) if updates_text else []
+    comments, pending_comments = (
+        _parse_sections(comments_text) if comments_text else ([], [])
+    )
+    updates, pending_updates = (
+        _parse_sections(updates_text) if updates_text else ([], [])
+    )
 
-    return ParsedMarkdown(frontmatter=frontmatter, body=rest, comments=comments, updates=updates)
+    return ParsedMarkdown(
+        frontmatter=frontmatter,
+        body=rest,
+        comments=comments,
+        updates=updates,
+        pending_comments=pending_comments,
+        pending_updates=pending_updates,
+    )
