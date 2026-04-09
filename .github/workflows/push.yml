@@ -28,6 +28,8 @@ jobs:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
       - name: Install issueclaw
         run: uv tool install git+https://github.com/aviadr1/issueclaw.git
@@ -44,7 +46,7 @@ jobs:
         run: |
           git config user.name "issueclaw-bot"
           git config user.email "issueclaw-bot@users.noreply.github.com"
-          git pull --no-rebase
+          git pull --no-rebase --ff-only origin main
           git add .sync/ linear/
           if git diff --cached --quiet; then
             echo "No sync state changes"
