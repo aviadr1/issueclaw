@@ -1,0 +1,75 @@
+# Reusable workflow — called by host repos via:
+#   uses: aviadr1/issueclaw/.github/workflows/queue-sweep.yml@main
+#
+# Recovery workflow for queued entities under linear/new/**.
+# Runs on a schedule and executes issueclaw push only when queue files exist.
+
+on:
+  workflow_call:
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sweep-linear-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect queued entities
+        id: queue
+        shell: bash
+        run: |
+          shopt -s nullglob globstar
+          files=(linear/new/**/*.md)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "has_queue=false" >> "$GITHUB_OUTPUT"
+            echo "No queued linear/new files found"
+          else
+            echo "has_queue=true" >> "$GITHUB_OUTPUT"
+            echo "Queued files:"
+            printf '%s\n' "${files[@]}"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.queue.outputs.has_queue == 'true'
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v4
+        if: steps.queue.outputs.has_queue == 'true'
+        with:
+          enable-cache: true
+
+      - name: Install issueclaw
+        if: steps.queue.outputs.has_queue == 'true'
+        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
+
+      - name: Guard linear file creation paths
+        if: steps.queue.outputs.has_queue == 'true'
+        run: issueclaw guard
+
+      - name: Push queued changes to Linear
+        if: steps.queue.outputs.has_queue == 'true'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: issueclaw push
+
+      - name: Commit updated sync state
+        if: steps.queue.outputs.has_queue == 'true'
+        run: |
+          git config user.name "issueclaw-bot"
+          git config user.email "issueclaw-bot@users.noreply.github.com"
+          git pull --no-rebase --ff-only origin main
+          git add .sync/ linear/
+          if git diff --cached --quiet; then
+            echo "No sync state changes"
+          else
+            git commit -m "sync: sweep queued Linear entities"
+            git push
+          fi

@@ -17,11 +17,11 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Shared with sync and push so all queue behind each other.
+# Webhook debounce must not cancel push/sync runs.
 # cancel-in-progress: true — debounce webhook bursts; keep latest event.
 # 10-minute sync remains the eventual-consistency backstop.
 concurrency:
-  group: linear-git-sync
+  group: linear-git-webhook
   cancel-in-progress: true
 
 jobs:

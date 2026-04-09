@@ -196,7 +196,7 @@ Issueclaw breaks this silo by storing Linear data as plain markdown files in git
 
 #### FR-6: Concurrency safety
 - **FR-6.1**: All GitHub Actions workflows must use a concurrency group to prevent parallel runs from conflicting.
-- **FR-6.2**: Sync and push runs must queue (not cancel). Webhook runs may cancel in-progress work to debounce bursts, with scheduled sync guaranteeing eventual consistency.
+- **FR-6.2**: Sync and push-domain runs must queue (not cancel). Webhook runs may cancel in-progress webhook work to debounce bursts. Concurrency groups must be isolated so webhook debounce never cancels push/sync runs.
 
 ### Non-Functional Requirements
 
