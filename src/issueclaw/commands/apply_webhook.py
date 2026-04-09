@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -19,8 +17,13 @@ from issueclaw.models import (
     LinearIssue,
     LinearProject,
 )
-from issueclaw.paths import entity_path, slugify
-from issueclaw.render import render_document, render_initiative, render_issue, render_project
+from issueclaw.paths import entity_path
+from issueclaw.render import (
+    render_document,
+    render_initiative,
+    render_issue,
+    render_project,
+)
 from issueclaw.sync_state import SyncState
 
 
@@ -51,7 +54,9 @@ def _issue_commit_message(issue: LinearIssue, action: str, entity_type: str) -> 
         # Find the most recent comment author
         author = "unknown"
         if issue.comments:
-            sorted_comments = sorted(issue.comments, key=lambda c: c.created, reverse=True)
+            sorted_comments = sorted(
+                issue.comments, key=lambda c: c.created, reverse=True
+            )
             author = sorted_comments[0].author_name or "unknown"
         return f"sync: {issue.identifier} comment by {author} ({title})"
 
@@ -81,7 +86,11 @@ async def apply_webhook(
     entity_id = payload["data"]["id"]
 
     if entity_type not in _SUPPORTED_TYPES:
-        return {"action": "skip", "entity_type": entity_type, "reason": "unsupported type"}
+        return {
+            "action": "skip",
+            "entity_type": entity_type,
+            "reason": "unsupported type",
+        }
 
     state = SyncState(repo_dir)
     state.load()
@@ -94,14 +103,22 @@ async def apply_webhook(
     if entity_type == "Comment":
         issue_id = payload["data"].get("issueId")
         if not issue_id:
-            return {"action": "skip", "entity_type": entity_type, "reason": "no issueId"}
+            return {
+                "action": "skip",
+                "entity_type": entity_type,
+                "reason": "no issueId",
+            }
         return await _handle_comment(issue_id, api_key, state, repo_dir)
 
     # Create/update: fetch full entity via API and render
-    return await _handle_create_or_update(action, entity_type, entity_id, api_key, state, repo_dir)
+    return await _handle_create_or_update(
+        action, entity_type, entity_id, api_key, state, repo_dir
+    )
 
 
-def _handle_remove(entity_id: str, entity_type: str, state: SyncState, repo_dir: Path) -> dict:
+def _handle_remove(
+    entity_id: str, entity_type: str, state: SyncState, repo_dir: Path
+) -> dict:
     """Delete the file associated with an entity."""
     old_path = state.get_path(entity_id)
     if old_path:
@@ -113,27 +130,43 @@ def _handle_remove(entity_id: str, entity_type: str, state: SyncState, repo_dir:
     identifier = _identifier_from_path(old_path) if old_path else None
     label = identifier or entity_id[:8]
     commit_message = f"sync: {label} removed"
-    return {"action": "remove", "entity_type": entity_type, "entity_id": entity_id, "commit_message": commit_message}
+    return {
+        "action": "remove",
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "commit_message": commit_message,
+    }
 
 
 async def _handle_comment(
-    issue_id: str, api_key: str, state: SyncState, repo_dir: Path,
+    issue_id: str,
+    api_key: str,
+    state: SyncState,
+    repo_dir: Path,
 ) -> dict:
     """Re-fetch the parent issue and re-render its file (with updated comments)."""
     async with LinearClient(api_key=api_key) as client:
         raw_issue = await client.fetch_issue(issue_id)
-    return _write_issue(raw_issue, state, repo_dir, action="update", entity_type="Comment")
+    return _write_issue(
+        raw_issue, state, repo_dir, action="update", entity_type="Comment"
+    )
 
 
 async def _handle_create_or_update(
-    action: str, entity_type: str, entity_id: str,
-    api_key: str, state: SyncState, repo_dir: Path,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    api_key: str,
+    state: SyncState,
+    repo_dir: Path,
 ) -> dict:
     """Fetch the full entity and render it to a markdown file."""
     async with LinearClient(api_key=api_key) as client:
         if entity_type == "Issue":
             raw = await client.fetch_issue(entity_id)
-            return _write_issue(raw, state, repo_dir, action=action, entity_type=entity_type)
+            return _write_issue(
+                raw, state, repo_dir, action=action, entity_type=entity_type
+            )
 
         elif entity_type == "Project":
             raw = await client.fetch_project(entity_id)
@@ -141,14 +174,18 @@ async def _handle_create_or_update(
             path = entity_path("project", slug=project.slug)
             content = render_project(project)
             status_tag = f" [{project.status}]" if project.status else ""
-            commit_message = f'sync: project "{_truncate(project.name, 40)}" {action}d{status_tag}'
+            commit_message = (
+                f'sync: project "{_truncate(project.name, 40)}" {action}d{status_tag}'
+            )
 
         elif entity_type == "Initiative":
             raw = await client.fetch_initiative(entity_id)
             initiative = LinearInitiative.from_api(raw)
             path = entity_path("initiative", name=initiative.name)
             content = render_initiative(initiative)
-            commit_message = f'sync: initiative "{_truncate(initiative.name, 40)}" {action}d'
+            commit_message = (
+                f'sync: initiative "{_truncate(initiative.name, 40)}" {action}d'
+            )
 
         elif entity_type == "Document":
             raw = await client.fetch_document(entity_id)
@@ -158,7 +195,11 @@ async def _handle_create_or_update(
             commit_message = f'sync: document "{_truncate(doc.title, 40)}" {action}d'
 
         else:
-            return {"action": "skip", "entity_type": entity_type, "reason": "unhandled type"}
+            return {
+                "action": "skip",
+                "entity_type": entity_type,
+                "reason": "unhandled type",
+            }
 
     # Clean up old file if path changed
     _cleanup_old_path(entity_id, path, state, repo_dir)
@@ -170,10 +211,18 @@ async def _handle_create_or_update(
     state.add_mapping(path, entity_id)
     state.save()
 
-    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path, "commit_message": commit_message}
+    return {
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "path": path,
+        "commit_message": commit_message,
+    }
 
 
-def _write_issue(raw: dict, state: SyncState, repo_dir: Path, action: str, entity_type: str) -> dict:
+def _write_issue(
+    raw: dict, state: SyncState, repo_dir: Path, action: str, entity_type: str
+) -> dict:
     """Parse, render, and write an issue file. Handles team key extraction."""
     team_data = raw.get("team") or {}
     team_key = team_data.get("key", "UNKNOWN")
@@ -181,13 +230,16 @@ def _write_issue(raw: dict, state: SyncState, repo_dir: Path, action: str, entit
 
     # Parse issue (reusing pull.py's logic)
     from issueclaw.commands.pull import _parse_issue
+
     issue = _parse_issue(raw, team_key)
 
     # Parse inline comments
     raw_comments = (raw.get("comments") or {}).get("nodes", [])
     issue.comments = [LinearComment.from_api(c) for c in raw_comments]
 
-    path = entity_path("issue", team_key=team_key, identifier=issue.identifier, issue_title=issue.title)
+    path = entity_path(
+        "issue", team_key=team_key, identifier=issue.identifier, issue_title=issue.title
+    )
     content = render_issue(issue)
 
     # Clean up old file if path changed (e.g., title rename)
@@ -201,10 +253,18 @@ def _write_issue(raw: dict, state: SyncState, repo_dir: Path, action: str, entit
     state.save()
 
     commit_message = _issue_commit_message(issue, action, entity_type)
-    return {"action": action, "entity_type": entity_type, "entity_id": entity_id, "path": path, "commit_message": commit_message}
+    return {
+        "action": action,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "path": path,
+        "commit_message": commit_message,
+    }
 
 
-def _cleanup_old_path(entity_id: str, new_path: str, state: SyncState, repo_dir: Path) -> None:
+def _cleanup_old_path(
+    entity_id: str, new_path: str, state: SyncState, repo_dir: Path
+) -> None:
     """If the entity was previously at a different path, remove the old file."""
     old_path = state.get_path(entity_id)
     if old_path and old_path != new_path:
@@ -234,12 +294,18 @@ def _cleanup_old_path(entity_id: str, new_path: str, state: SyncState, repo_dir:
     help="Webhook payload JSON. Defaults to WEBHOOK_PAYLOAD env var.",
 )
 @click.pass_context
-def apply_webhook_command(ctx: click.Context, api_key: str | None, repo_dir: Path, payload: str | None) -> None:
+def apply_webhook_command(
+    ctx: click.Context, api_key: str | None, repo_dir: Path, payload: str | None
+) -> None:
     """Apply a Linear webhook payload to update repository files."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     if not payload:
-        raise click.UsageError("Webhook payload required. Use --payload or set WEBHOOK_PAYLOAD env var.")
+        raise click.UsageError(
+            "Webhook payload required. Use --payload or set WEBHOOK_PAYLOAD env var."
+        )
 
     parsed = json.loads(payload)
     json_mode = ctx.obj.get("json", False) if ctx.obj else False

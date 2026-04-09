@@ -25,9 +25,11 @@ class MarkdownDiff:
     comments_added: list[ParsedSection] = field(default_factory=list)
     comments_removed: list[ParsedSection] = field(default_factory=list)
     comments_edited: list[ParsedSection] = field(default_factory=list)
+    comments_pending: list[ParsedSection] = field(default_factory=list)
     updates_added: list[ParsedSection] = field(default_factory=list)
     updates_removed: list[ParsedSection] = field(default_factory=list)
     updates_edited: list[ParsedSection] = field(default_factory=list)
+    updates_pending: list[ParsedSection] = field(default_factory=list)
 
     @property
     def has_changes(self) -> bool:
@@ -37,9 +39,11 @@ class MarkdownDiff:
             or self.comments_added
             or self.comments_removed
             or self.comments_edited
+            or self.comments_pending
             or self.updates_added
             or self.updates_removed
             or self.updates_edited
+            or self.updates_pending
         )
 
 
@@ -53,7 +57,8 @@ def _diff_sections(
 
     added = [s for sid, s in new_by_id.items() if sid not in old_by_id]
     edited = [
-        s for sid, s in new_by_id.items()
+        s
+        for sid, s in new_by_id.items()
         if sid in old_by_id and s.body.strip() != old_by_id[sid].body.strip()
     ]
     removed = [s for sid, s in old_by_id.items() if sid not in new_by_id]
@@ -85,12 +90,16 @@ def diff_markdown(old_content: str, new_content: str) -> MarkdownDiff:
         result.body_changed = True
         result.new_body = new.body
 
-    # Diff comments and updates using shared logic
-    result.comments_added, result.comments_removed, result.comments_edited = _diff_sections(
-        old.comments, new.comments
+    # Diff comments and updates using shared logic (ID'd sections only)
+    result.comments_added, result.comments_removed, result.comments_edited = (
+        _diff_sections(old.comments, new.comments)
     )
-    result.updates_added, result.updates_removed, result.updates_edited = _diff_sections(
-        old.updates, new.updates
+    result.updates_added, result.updates_removed, result.updates_edited = (
+        _diff_sections(old.updates, new.updates)
     )
+
+    # Pending sections: human-authored content without IDs, always from new content
+    result.comments_pending = new.pending_comments
+    result.updates_pending = new.pending_updates
 
     return result

@@ -15,7 +15,7 @@ import click
 from issueclaw.diff import diff_markdown
 from issueclaw.linear_client import LinearClient
 from issueclaw.parse import parse_markdown
-from issueclaw.paths import entity_path, parse_entity_path, slugify
+from issueclaw.paths import entity_path, parse_entity_path
 from issueclaw.sync_state import SyncState
 
 
@@ -41,6 +41,30 @@ def _strip_entity_heading(body: str) -> str:
     Sending it back creates duplicate headings on round-trip.
     """
     return _ENTITY_HEADING_RE.sub("", body, count=1)
+
+
+def _write_back_comment_id(
+    file_path: Path, author: str, timestamp: str, comment_id: str
+) -> None:
+    """Insert a <!-- comment-id: UUID --> marker after a section header.
+
+    Finds the first ``## {author} - {timestamp}`` line that does NOT already
+    have a comment-id marker on the next line, and inserts one.
+    """
+    content = file_path.read_text()
+    lines = content.split("\n")
+    header = f"## {author} - {timestamp}"
+    marker = f"<!-- comment-id: {comment_id} -->"
+
+    for i, line in enumerate(lines):
+        if line.strip() == header:
+            # Check the next line isn't already a comment-id marker
+            if i + 1 < len(lines) and "<!-- comment-id:" in lines[i + 1]:
+                continue
+            lines.insert(i + 1, marker)
+            break
+
+    file_path.write_text("\n".join(lines))
 
 
 @dataclass
@@ -106,14 +130,16 @@ async def push_changes(
                 _state_cache[team_id] = {s["name"]: s["id"] for s in states}
             return _state_cache[team_id].get(state_name)
 
-        async def _resolve_label_ids(team_key: str, label_names: list[str]) -> list[str]:
+        async def _resolve_label_ids(
+            team_key: str, label_names: list[str]
+        ) -> list[str]:
             """Resolve label names to their IDs for a given team."""
             team_id = await _resolve_team_id(team_key)
             if not team_id:
                 return []
             if team_id not in _label_cache:
                 labels = await client.fetch_labels_for_team(team_id)
-                _label_cache[team_id] = {l["name"]: l["id"] for l in labels}
+                _label_cache[team_id] = {label["name"]: label["id"] for label in labels}
             cache = _label_cache[team_id]
             return [cache[n] for n in label_names if n in cache]
 
@@ -143,7 +169,11 @@ async def push_changes(
                     stats["skipped"] += 1
                 continue
 
-            if change.change_type == "modified" and change.old_content and change.new_content:
+            if (
+                change.change_type == "modified"
+                and change.old_content
+                and change.new_content
+            ):
                 diff = diff_markdown(change.old_content, change.new_content)
                 if not diff.has_changes:
                     stats["skipped"] += 1
@@ -151,53 +181,72 @@ async def push_changes(
 
                 if entity_type == "issue" and entity_id:
                     team_key = entity_info.get("team_key", "")
-                    update_fields: dict[str, Any] = {}
+                    issue_update_fields: dict[str, Any] = {}
                     for field_name, field_diff in diff.frontmatter_changes.items():
                         if field_name not in _ISSUE_FIELD_MAP or field_diff.new is None:
                             continue
                         api_field = _ISSUE_FIELD_MAP[field_name]
 
                         if api_field == "stateId":
+                            if not isinstance(field_diff.new, str):
+                                continue
                             resolved = await _resolve_state_id(team_key, field_diff.new)
                             if resolved:
-                                update_fields["stateId"] = resolved
+                                issue_update_fields["stateId"] = resolved
                         elif api_field == "assigneeId":
+                            if not isinstance(field_diff.new, str):
+                                continue
                             resolved = await _resolve_user_id(field_diff.new)
                             if resolved:
-                                update_fields["assigneeId"] = resolved
+                                issue_update_fields["assigneeId"] = resolved
                         else:
-                            update_fields[api_field] = field_diff.new
+                            issue_update_fields[api_field] = field_diff.new
 
                     # Include body changes (strip entity heading that we generate)
                     if diff.body_changed:
                         desc = _strip_entity_heading(diff.new_body)
-                        update_fields["description"] = desc.strip()
+                        issue_update_fields["description"] = desc.strip()
 
-                    if update_fields:
-                        await client.update_issue(entity_id, update_fields)
+                    if issue_update_fields:
+                        await client.update_issue(entity_id, issue_update_fields)
 
-                    # Handle new comments
-                    for comment in diff.comments_added:
-                        await client.create_comment(entity_id, comment.body)
+                    # comments_added contains sections WITH comment-ids — they
+                    # already exist in Linear (pulled via sync).  Never re-create them.
+
+                    # Handle human-authored pending comments (no comment-id yet)
+                    for comment in diff.comments_pending:
+                        if not comment.body.strip():
+                            continue
+                        result_comment = await client.create_comment(
+                            entity_id, comment.body
+                        )
+                        new_id = result_comment.get("id", "")
+                        if new_id:
+                            _write_back_comment_id(
+                                repo_dir / change.path,
+                                comment.author,
+                                comment.timestamp,
+                                new_id,
+                            )
 
                     stats["updated"] += 1
 
                 elif entity_type == "document" and entity_id:
-                    update_fields: dict[str, Any] = {}
+                    document_update_fields: dict[str, Any] = {}
 
                     # Push title changes
                     if "title" in diff.frontmatter_changes:
                         title_diff = diff.frontmatter_changes["title"]
                         if title_diff.new is not None:
-                            update_fields["title"] = title_diff.new
+                            document_update_fields["title"] = title_diff.new
 
                     # Push body/content changes (strip the document heading we generate)
                     if diff.body_changed:
                         desc = _DOCUMENT_HEADING_RE.sub("", diff.new_body, count=1)
-                        update_fields["content"] = desc.strip()
+                        document_update_fields["content"] = desc.strip()
 
-                    if update_fields:
-                        await client.update_document(entity_id, update_fields)
+                    if document_update_fields:
+                        await client.update_document(entity_id, document_update_fields)
                         stats["updated"] += 1
                     else:
                         stats["skipped"] += 1
@@ -205,7 +254,11 @@ async def push_changes(
                 else:
                     stats["skipped"] += 1
 
-            if change.change_type == "added" and entity_type == "update" and change.new_content:
+            if (
+                change.change_type == "added"
+                and entity_type == "update"
+                and change.new_content
+            ):
                 # New update file added — push to Linear as a project update
                 project_slug = entity_info["project_slug"]
                 project_path = entity_path("project", slug=project_slug)
@@ -222,11 +275,14 @@ async def push_changes(
                 else:
                     stats["skipped"] += 1
 
-            if change.change_type == "added" and entity_type == "new_issue" and change.new_content:
+            if (
+                change.change_type == "added"
+                and entity_type == "new_issue"
+                and change.new_content
+            ):
                 # Queue file: linear/new/{TEAM}/{slug}.md — create a new issue in Linear,
                 # write the canonical file, and delete the queue file.
                 team_key = entity_info["team_key"]
-                slug = entity_info["slug"]
                 team_id = await _resolve_team_id(team_key)
                 if not team_id:
                     stats["skipped"] += 1
@@ -255,7 +311,11 @@ async def push_changes(
                         create_fields["assigneeId"] = uid
 
                 if fm.get("labels"):
-                    label_names = fm["labels"] if isinstance(fm["labels"], list) else [fm["labels"]]
+                    label_names = (
+                        fm["labels"]
+                        if isinstance(fm["labels"], list)
+                        else [fm["labels"]]
+                    )
                     label_ids = await _resolve_label_ids(team_key, label_names)
                     if label_ids:
                         create_fields["labelIds"] = label_ids
@@ -290,11 +350,17 @@ async def push_changes(
                     "url": issue.get("url"),
                 }
                 # Filter None values
-                frontmatter_fields = {k: v for k, v in frontmatter_fields.items() if v is not None}
+                frontmatter_fields = {
+                    k: v for k, v in frontmatter_fields.items() if v is not None
+                }
 
                 import yaml as _yaml
+
                 fm_yaml = _yaml.dump(
-                    frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False
+                    frontmatter_fields,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
                 )
                 canonical_content = f"---\n{fm_yaml}---\n\n# {identifier}: {title}\n"
                 if body:
@@ -359,11 +425,13 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
         for md_file in new_dir.rglob("*.md"):
             rel_path = str(md_file.relative_to(repo_dir))
             seen_queue_paths.add(rel_path)
-            changes.append(FileChange(
-                path=rel_path,
-                change_type="added",
-                new_content=md_file.read_text(),
-            ))
+            changes.append(
+                FileChange(
+                    path=rel_path,
+                    change_type="added",
+                    new_content=md_file.read_text(),
+                )
+            )
 
     old_ref, new_ref = _get_diff_refs(repo_dir)
     diff_cmd = ["git", "diff", old_ref]
@@ -403,19 +471,23 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
             # so creation logic fires rather than update logic.
             dest_info = parse_entity_path(new_path)
             if dest_info and dest_info["type"] == "new_issue":
-                changes.append(FileChange(
-                    path=new_path,
-                    change_type="added",
-                    new_content=new_content,
-                ))
+                changes.append(
+                    FileChange(
+                        path=new_path,
+                        change_type="added",
+                        new_content=new_content,
+                    )
+                )
             else:
                 old_content = _git_show(repo_dir, f"{old_ref}:{old_path}")
-                changes.append(FileChange(
-                    path=new_path,
-                    change_type="modified",
-                    old_content=old_content,
-                    new_content=new_content,
-                ))
+                changes.append(
+                    FileChange(
+                        path=new_path,
+                        change_type="modified",
+                        old_content=old_content,
+                        new_content=new_content,
+                    )
+                )
         elif status == "M":
             file_path = parts[1]
             if not file_path.startswith("linear/") or file_path in seen_queue_paths:
@@ -425,23 +497,27 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
                 new_content = _git_show(repo_dir, f"{new_ref}:{file_path}")
             else:
                 new_content = (repo_dir / file_path).read_text()
-            changes.append(FileChange(
-                path=file_path,
-                change_type="modified",
-                old_content=old_content,
-                new_content=new_content,
-            ))
+            changes.append(
+                FileChange(
+                    path=file_path,
+                    change_type="modified",
+                    old_content=old_content,
+                    new_content=new_content,
+                )
+            )
         elif status == "D":
             file_path = parts[1]
             if not file_path.startswith("linear/"):
                 continue
             old_content = _git_show(repo_dir, f"{old_ref}:{file_path}")
-            changes.append(FileChange(
-                path=file_path,
-                change_type="deleted",
-                old_content=old_content,
-                new_content=None,
-            ))
+            changes.append(
+                FileChange(
+                    path=file_path,
+                    change_type="deleted",
+                    old_content=old_content,
+                    new_content=None,
+                )
+            )
         elif status == "A":
             file_path = parts[1]
             if not file_path.startswith("linear/") or file_path in seen_queue_paths:
@@ -450,12 +526,14 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
                 new_content = _git_show(repo_dir, f"{new_ref}:{file_path}")
             else:
                 new_content = (repo_dir / file_path).read_text()
-            changes.append(FileChange(
-                path=file_path,
-                change_type="added",
-                old_content=None,
-                new_content=new_content,
-            ))
+            changes.append(
+                FileChange(
+                    path=file_path,
+                    change_type="added",
+                    old_content=None,
+                    new_content=new_content,
+                )
+            )
 
     return changes
 
@@ -488,7 +566,9 @@ def _git_show(repo_dir: Path, ref_path: str) -> str:
 def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> None:
     """Push local markdown changes to Linear."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
 
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
 
@@ -496,7 +576,9 @@ def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> Non
 
     if not changes:
         if json_mode:
-            click.echo(json.dumps({"updated": 0, "archived": 0, "created": 0, "skipped": 0}))
+            click.echo(
+                json.dumps({"updated": 0, "archived": 0, "created": 0, "skipped": 0})
+            )
         else:
             click.echo("No changes detected in linear/ files.")
         return
@@ -506,4 +588,6 @@ def push_command(ctx: click.Context, api_key: str | None, repo_dir: Path) -> Non
     if json_mode:
         click.echo(json.dumps(stats))
     else:
-        click.echo(f"Push complete: {stats['updated']} updated, {stats['created']} created, {stats['archived']} archived, {stats['skipped']} skipped.")
+        click.echo(
+            f"Push complete: {stats['updated']} updated, {stats['created']} created, {stats['archived']} archived, {stats['skipped']} skipped."
+        )

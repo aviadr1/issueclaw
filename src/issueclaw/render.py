@@ -6,8 +6,14 @@ from typing import Any
 
 import yaml
 
-from issueclaw.models import LinearComment, LinearDocument, LinearInitiative, LinearIssue, LinearProject
-from issueclaw.paths import slugify, update_file_slug
+from issueclaw.models import (
+    LinearComment,
+    LinearDocument,
+    LinearInitiative,
+    LinearIssue,
+    LinearProject,
+)
+from issueclaw.paths import update_file_slug
 
 
 def _render_frontmatter(fields: dict[str, Any]) -> str:
@@ -17,7 +23,9 @@ def _render_frontmatter(fields: dict[str, Any]) -> str:
     """
     cleaned = {k: v for k, v in fields.items() if v is not None}
     # Use default_flow_style=False for readable multi-line YAML
-    fm_yaml = yaml.dump(cleaned, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    fm_yaml = yaml.dump(
+        cleaned, default_flow_style=False, allow_unicode=True, sort_keys=False
+    )
     return f"---\n{fm_yaml}---\n"
 
 
@@ -136,7 +144,9 @@ def render_project(project: LinearProject) -> str:
         "start_date": project.start_date,
         "target_date": project.target_date,
         "labels": project.labels or None,
-        "teams": [t.get("key", t.get("name", "")) for t in project.teams] if project.teams else None,
+        "teams": [t.get("key", t.get("name", "")) for t in project.teams]
+        if project.teams
+        else None,
         "members": project.members or None,
         "url": project.url or None,
         "created": project.created or None,
@@ -155,7 +165,11 @@ def render_project(project: LinearProject) -> str:
         md += "\n# Milestones\n\n"
         for ms in project.milestones:
             status = f" ({ms.get('status', '')})" if ms.get("status") else ""
-            progress = f" - {ms.get('progress', 0) * 100:.0f}%" if ms.get("progress") is not None else ""
+            progress = (
+                f" - {ms.get('progress', 0) * 100:.0f}%"
+                if ms.get("progress") is not None
+                else ""
+            )
             md += f"- **{ms.get('name', '')}**{status}{progress}\n"
             if ms.get("targetDate"):
                 md += f"  Target: {ms['targetDate']}\n"

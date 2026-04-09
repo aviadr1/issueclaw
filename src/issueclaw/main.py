@@ -12,7 +12,9 @@ from issueclaw.commands.status import status_command
 
 @click.group()
 @click.version_option(package_name="issueclaw")
-@click.option("--json", "json_mode", is_flag=True, help="Output strict JSON for agents.")
+@click.option(
+    "--json", "json_mode", is_flag=True, help="Output strict JSON for agents."
+)
 @click.option("--verbose", "-v", count=True)
 @click.option("--quiet", "-q", count=True)
 @click.pass_context

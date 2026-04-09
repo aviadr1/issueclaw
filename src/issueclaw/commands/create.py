@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import yaml
@@ -45,8 +45,15 @@ def create_group() -> None:
 @_repo_dir_option()
 @click.option("--team", required=True, help="Team key (e.g. AI, ENG, WEB).")
 @click.option("--title", required=True, help="Issue title.")
-@click.option("--status", default=None, help="Workflow status (e.g. 'Backlog', 'In Progress').")
-@click.option("--priority", default=None, type=int, help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.")
+@click.option(
+    "--status", default=None, help="Workflow status (e.g. 'Backlog', 'In Progress')."
+)
+@click.option(
+    "--priority",
+    default=None,
+    type=int,
+    help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.",
+)
 @click.option("--assignee", default=None, help="Assignee name.")
 @click.option("--label", "labels", multiple=True, help="Label name (repeatable).")
 @click.option(
@@ -66,15 +73,27 @@ def create_issue(
     priority: int | None,
     assignee: str | None,
     labels: tuple[str, ...],
-    description: click.File | None,
+    description: Any | None,
 ) -> None:
     """Create a new Linear issue. Writes canonical file to the repo immediately."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    description_text = description.read().strip() if description else None
+    description_text = cast(str, description.read()).strip() if description else None
     result = asyncio.run(
-        _create_issue(api_key, repo_dir, team.upper(), title, status, priority, assignee, list(labels), description_text)
+        _create_issue(
+            api_key,
+            repo_dir,
+            team.upper(),
+            title,
+            status,
+            priority,
+            assignee,
+            list(labels),
+            description_text,
+        )
     )
     if json_mode:
         click.echo(json.dumps(result))
@@ -88,7 +107,9 @@ def create_issue(
 @create_group.command("comment")
 @_api_key_option()
 @_repo_dir_option()
-@click.option("--issue", "identifier", required=True, help="Issue identifier (e.g. AI-123).")
+@click.option(
+    "--issue", "identifier", required=True, help="Issue identifier (e.g. AI-123)."
+)
 @click.option(
     "--body",
     type=click.File("r"),
@@ -101,16 +122,20 @@ def create_comment(
     api_key: str | None,
     repo_dir: Path,
     identifier: str,
-    body: click.File,
+    body: Any,
 ) -> None:
     """Add a comment to an existing issue. Updates the local file immediately."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    body_text = body.read().strip()
+    body_text = cast(str, body.read()).strip()
     if not body_text:
         raise click.UsageError("Comment body cannot be empty.")
-    result = asyncio.run(_create_comment(api_key, repo_dir, identifier.upper(), body_text))
+    result = asyncio.run(
+        _create_comment(api_key, repo_dir, identifier.upper(), body_text)
+    )
     if json_mode:
         click.echo(json.dumps(result))
     else:
@@ -122,7 +147,13 @@ def create_comment(
 @_api_key_option()
 @_repo_dir_option()
 @click.option("--name", required=True, help="Project name.")
-@click.option("--team", "teams", multiple=True, required=True, help="Team key (repeatable: --team AI --team ENG).")
+@click.option(
+    "--team",
+    "teams",
+    multiple=True,
+    required=True,
+    help="Team key (repeatable: --team AI --team ENG).",
+)
 @click.option(
     "--description",
     type=click.File("r"),
@@ -130,7 +161,12 @@ def create_comment(
     help="Description body: path to a file, or '-' to read from stdin.",
 )
 @click.option("--lead", default=None, help="Lead user name.")
-@click.option("--priority", default=None, type=int, help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.")
+@click.option(
+    "--priority",
+    default=None,
+    type=int,
+    help="Priority: 0=None 1=Urgent 2=High 3=Medium 4=Low.",
+)
 @click.option("--start-date", default=None, help="Start date (YYYY-MM-DD).")
 @click.option("--target-date", default=None, help="Target date (YYYY-MM-DD).")
 @click.pass_context
@@ -140,7 +176,7 @@ def create_project(
     repo_dir: Path,
     name: str,
     teams: tuple[str, ...],
-    description: click.File | None,
+    description: Any | None,
     lead: str | None,
     priority: int | None,
     start_date: str | None,
@@ -148,11 +184,23 @@ def create_project(
 ) -> None:
     """Create a new Linear project. Writes _project.md to the repo immediately."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    description_text = description.read().strip() if description else None
+    description_text = cast(str, description.read()).strip() if description else None
     result = asyncio.run(
-        _create_project(api_key, repo_dir, name, [t.upper() for t in teams], description_text, lead, priority, start_date, target_date)
+        _create_project(
+            api_key,
+            repo_dir,
+            name,
+            [t.upper() for t in teams],
+            description_text,
+            lead,
+            priority,
+            start_date,
+            target_date,
+        )
     )
     if json_mode:
         click.echo(json.dumps(result))
@@ -175,24 +223,32 @@ def create_project(
 )
 @click.option("--owner", default=None, help="Owner user name.")
 @click.option("--target-date", default=None, help="Target date (YYYY-MM-DD).")
-@click.option("--status", default=None, help="Status (e.g. 'planned', 'inProgress', 'completed').")
+@click.option(
+    "--status", default=None, help="Status (e.g. 'planned', 'inProgress', 'completed')."
+)
 @click.pass_context
 def create_initiative(
     ctx: click.Context,
     api_key: str | None,
     repo_dir: Path,
     name: str,
-    description: click.File | None,
+    description: Any | None,
     owner: str | None,
     target_date: str | None,
     status: str | None,
 ) -> None:
     """Create a new Linear initiative. Writes the markdown file to the repo immediately."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    description_text = description.read().strip() if description else None
-    result = asyncio.run(_create_initiative(api_key, repo_dir, name, description_text, owner, target_date, status))
+    description_text = cast(str, description.read()).strip() if description else None
+    result = asyncio.run(
+        _create_initiative(
+            api_key, repo_dir, name, description_text, owner, target_date, status
+        )
+    )
     if json_mode:
         click.echo(json.dumps(result))
     else:
@@ -212,22 +268,31 @@ def create_initiative(
     default="-",
     help="Document body: path to a file, or '-' to read from stdin (default).",
 )
-@click.option("--project", "project_slug", default=None, help="Associate with a project (slug, e.g. 'metrics-platform').")
+@click.option(
+    "--project",
+    "project_slug",
+    default=None,
+    help="Associate with a project (slug, e.g. 'metrics-platform').",
+)
 @click.pass_context
 def create_document(
     ctx: click.Context,
     api_key: str | None,
     repo_dir: Path,
     title: str,
-    body: click.File,
+    body: Any,
     project_slug: str | None,
 ) -> None:
     """Create a new Linear document. Writes the markdown file to the repo immediately."""
     if not api_key:
-        raise click.UsageError("API key required. Use --api-key or set LINEAR_API_KEY env var.")
+        raise click.UsageError(
+            "API key required. Use --api-key or set LINEAR_API_KEY env var."
+        )
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
-    body_text = body.read().strip() if body else None
-    result = asyncio.run(_create_document(api_key, repo_dir, title, body_text or None, project_slug))
+    body_text = cast(str, body.read()).strip() if body else None
+    result = asyncio.run(
+        _create_document(api_key, repo_dir, title, body_text or None, project_slug)
+    )
     if json_mode:
         click.echo(json.dumps(result))
     else:
@@ -238,6 +303,7 @@ def create_document(
 
 
 # Async implementation helpers
+
 
 async def _create_issue(
     api_key: str,
@@ -255,7 +321,9 @@ async def _create_issue(
         team_map = {t["key"]: t["id"] for t in teams}
         team_id = team_map.get(team_key)
         if not team_id:
-            raise click.UsageError(f"Unknown team '{team_key}'. Available: {', '.join(sorted(team_map))}")
+            raise click.UsageError(
+                f"Unknown team '{team_key}'. Available: {', '.join(sorted(team_map))}"
+            )
 
         create_fields: dict[str, Any] = {"title": title}
 
@@ -282,7 +350,7 @@ async def _create_issue(
 
         if labels:
             label_data = await client.fetch_labels_for_team(team_id)
-            label_map = {l["name"]: l["id"] for l in label_data}
+            label_map = {label["name"]: label["id"] for label in label_data}
             unknown = [n for n in labels if n not in label_map]
             if unknown:
                 raise click.UsageError(f"Unknown labels: {', '.join(unknown)}")
@@ -296,7 +364,9 @@ async def _create_issue(
             raise click.ClickException("Linear API did not return an issue ID.")
 
         identifier = issue["identifier"]
-        canonical_path = entity_path("issue", team_key=team_key, identifier=identifier, issue_title=title)
+        canonical_path = entity_path(
+            "issue", team_key=team_key, identifier=identifier, issue_title=title
+        )
         canonical_file = repo_dir / canonical_path
         canonical_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -320,7 +390,12 @@ async def _create_issue(
         if issue.get("url"):
             frontmatter_fields["url"] = issue["url"]
 
-        fm_yaml = yaml.dump(frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        fm_yaml = yaml.dump(
+            frontmatter_fields,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
         content = f"---\n{fm_yaml}---\n\n# {identifier}: {title}\n"
         if description:
             content += f"\n{description}\n"
@@ -331,7 +406,13 @@ async def _create_issue(
         state.add_mapping(canonical_path, issue["id"])
         state.save()
 
-        return {"id": issue["id"], "identifier": identifier, "title": title, "url": issue.get("url", ""), "file": canonical_path}
+        return {
+            "id": issue["id"],
+            "identifier": identifier,
+            "title": title,
+            "url": issue.get("url", ""),
+            "file": canonical_path,
+        }
 
 
 async def _create_comment(
@@ -368,7 +449,11 @@ async def _create_comment(
     if issue_data and issue_path:
         _rewrite_issue_file(repo_dir / issue_path, issue_data, identifier)
 
-    return {"identifier": identifier, "comment_id": comment.get("id", ""), "file": issue_path or ""}
+    return {
+        "identifier": identifier,
+        "comment_id": comment.get("id", ""),
+        "file": issue_path or "",
+    }
 
 
 def _rewrite_issue_file(file_path: Path, issue_data: dict, identifier: str) -> None:
@@ -380,9 +465,10 @@ def _rewrite_issue_file(file_path: Path, issue_data: dict, identifier: str) -> N
             LinearComment(
                 id=c["id"],
                 body=c.get("body", ""),
-                created_at=c.get("createdAt", ""),
-                updated_at=c.get("updatedAt"),
-                author=c.get("user", {}).get("name") or c.get("user", {}).get("email", ""),
+                created=c.get("createdAt", ""),
+                updated=c.get("updatedAt") or "",
+                author_name=c.get("user", {}).get("name")
+                or c.get("user", {}).get("email", ""),
             )
             for c in comments_raw
         ]
@@ -394,10 +480,13 @@ def _rewrite_issue_file(file_path: Path, issue_data: dict, identifier: str) -> N
             status=issue_data.get("state", {}).get("name"),
             priority=issue_data.get("priority"),
             assignee=(issue_data.get("assignee") or {}).get("name"),
-            labels=[l["name"] for l in (issue_data.get("labels") or {}).get("nodes", [])],
-            url=issue_data.get("url"),
-            created_at=issue_data.get("createdAt"),
-            updated_at=issue_data.get("updatedAt"),
+            labels=[
+                label["name"]
+                for label in (issue_data.get("labels") or {}).get("nodes", [])
+            ],
+            url=issue_data.get("url") or "",
+            created=issue_data.get("createdAt", ""),
+            updated=issue_data.get("updatedAt", ""),
             comments=comments,
         )
         file_path.write_text(render_issue(issue))
@@ -424,7 +513,9 @@ async def _create_project(
         for key in team_keys:
             tid = team_map.get(key)
             if not tid:
-                raise click.UsageError(f"Unknown team '{key}'. Available: {', '.join(sorted(team_map))}")
+                raise click.UsageError(
+                    f"Unknown team '{key}'. Available: {', '.join(sorted(team_map))}"
+                )
             team_ids.append(tid)
 
         fields: dict[str, Any] = {}
@@ -477,7 +568,12 @@ async def _create_project(
         if project.get("url"):
             frontmatter_fields["url"] = project["url"]
 
-        fm_yaml = yaml.dump(frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        fm_yaml = yaml.dump(
+            frontmatter_fields,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
         content = f"---\n{fm_yaml}---\n\n# {name}\n"
         if description:
             content += f"\n{description}\n"
@@ -488,7 +584,12 @@ async def _create_project(
         state.add_mapping(canonical_path, project["id"])
         state.save()
 
-        return {"id": project["id"], "name": name, "url": project.get("url", ""), "file": canonical_path}
+        return {
+            "id": project["id"],
+            "name": name,
+            "url": project.get("url", ""),
+            "file": canonical_path,
+        }
 
 
 async def _create_initiative(
@@ -543,7 +644,12 @@ async def _create_initiative(
         if initiative.get("url"):
             frontmatter_fields["url"] = initiative["url"]
 
-        fm_yaml = yaml.dump(frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        fm_yaml = yaml.dump(
+            frontmatter_fields,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
         content = f"---\n{fm_yaml}---\n\n# {name}\n"
         if description:
             content += f"\n{description}\n"
@@ -554,7 +660,12 @@ async def _create_initiative(
         state.add_mapping(canonical_path, initiative["id"])
         state.save()
 
-        return {"id": initiative["id"], "name": name, "url": initiative.get("url", ""), "file": canonical_path}
+        return {
+            "id": initiative["id"],
+            "name": name,
+            "url": initiative.get("url", ""),
+            "file": canonical_path,
+        }
 
 
 async def _create_document(
@@ -603,7 +714,12 @@ async def _create_document(
         if doc.get("url"):
             frontmatter_fields["url"] = doc["url"]
 
-        fm_yaml = yaml.dump(frontmatter_fields, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        fm_yaml = yaml.dump(
+            frontmatter_fields,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        )
         content = f"---\n{fm_yaml}---\n\n# {title}\n"
         if body:
             content += f"\n{body}\n"
@@ -614,4 +730,9 @@ async def _create_document(
         state.add_mapping(canonical_path, doc["id"])
         state.save()
 
-        return {"id": doc["id"], "title": title, "url": doc.get("url", ""), "file": canonical_path}
+        return {
+            "id": doc["id"],
+            "title": title,
+            "url": doc.get("url", ""),
+            "file": canonical_path,
+        }

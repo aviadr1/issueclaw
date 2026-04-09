@@ -1,7 +1,19 @@
 import yaml
 
-from issueclaw.models import LinearComment, LinearDocument, LinearInitiative, LinearIssue, LinearProject
-from issueclaw.render import render_document, render_initiative, render_issue, render_project, render_project_update
+from issueclaw.models import (
+    LinearComment,
+    LinearDocument,
+    LinearInitiative,
+    LinearIssue,
+    LinearProject,
+)
+from issueclaw.render import (
+    render_document,
+    render_initiative,
+    render_issue,
+    render_project,
+    render_project_update,
+)
 
 
 def _parse_frontmatter(md: str) -> tuple[dict, str]:
@@ -215,8 +227,20 @@ def test_render_project_with_milestones():
         slug="test-project",
         status="started",
         milestones=[
-            {"name": "MVP", "description": "First release", "targetDate": "2026-03-01", "status": "done", "progress": 1.0},
-            {"name": "Beta", "description": "Public beta", "targetDate": "2026-06-01", "status": "inProgress", "progress": 0.5},
+            {
+                "name": "MVP",
+                "description": "First release",
+                "targetDate": "2026-03-01",
+                "status": "done",
+                "progress": 1.0,
+            },
+            {
+                "name": "Beta",
+                "description": "Public beta",
+                "targetDate": "2026-06-01",
+                "status": "inProgress",
+                "progress": 0.5,
+            },
         ],
         created="2026-01-01T00:00:00Z",
         updated="2026-01-01T00:00:00Z",

@@ -1,5 +1,6 @@
-# GitHub Actions workflow for the TARGET repo (e.g., gigaverse-app/linear-git).
-# Copy this file to .github/workflows/issueclaw-webhook.yaml in your target repo.
+# Installed by: issueclaw init (or issueclaw workflows upgrade)
+# Upgrade after tool update: issueclaw workflows upgrade
+# Logic lives in: aviadr1/issueclaw/.github/workflows/webhook.yml
 #
 # Required repository secrets:
 #   LINEAR_API_KEY - Linear API key for fetching entity data
@@ -15,43 +16,18 @@ on:
 permissions:
   contents: write
 
+# Must be in caller: concurrency groups are repo-scoped.
+# Shared with sync and push so all queue behind each other.
+# cancel-in-progress: false — process every webhook in order.
+concurrency:
+  group: linear-git-sync
+  cancel-in-progress: false
+
 jobs:
   apply-webhook:
-    runs-on: ubuntu-latest
-    concurrency:
-      group: issueclaw-webhook
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-
-      - name: Install issueclaw
-        run: uv tool install git+https://github.com/aviadr1/issueclaw.git
-
-      - name: Apply webhook payload
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-          WEBHOOK_PAYLOAD: ${{ toJson(github.event.client_payload) }}
-        run: issueclaw apply-webhook
-
-      - name: Commit and push changes
-        env:
-          WEBHOOK_TYPE: ${{ github.event.client_payload.type }}
-          WEBHOOK_ACTION: ${{ github.event.client_payload.action }}
-        run: |
-          git config user.name "issueclaw-bot"
-          git config user.email "issueclaw-bot@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "sync: apply Linear webhook ($WEBHOOK_TYPE $WEBHOOK_ACTION)"
-            git push
-          fi
+    uses: aviadr1/issueclaw/.github/workflows/webhook.yml@main
+    with:
+      # github.event is not available in the callee — pass payload as input
+      webhook_payload: ${{ toJson(github.event.client_payload) }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
