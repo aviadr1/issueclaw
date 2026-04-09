@@ -65,7 +65,9 @@ def test_concurrency_groups_are_isolated_by_workflow_role() -> None:
 
 def test_reusable_queue_sweep_pushes_only_when_queue_files_exist() -> None:
     """INVARIANT: queue sweeper is a guarded recovery path, not unconditional push."""
-    workflow_file = Path(__file__).resolve().parents[1] / ".github/workflows/queue-sweep.yml"
+    workflow_file = (
+        Path(__file__).resolve().parents[1] / ".github/workflows/queue-sweep.yml"
+    )
     text = workflow_file.read_text()
 
     assert "files=(linear/new/**/*.md)" in text
