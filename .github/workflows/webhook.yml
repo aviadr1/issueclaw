@@ -22,6 +22,9 @@ jobs:
   apply-webhook:
     runs-on: ubuntu-latest
     steps:
+      - name: Debounce burst window
+        run: sleep 20
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -29,12 +32,14 @@ jobs:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
       - name: Install issueclaw
         run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
       - name: Pull latest changes
-        run: git pull --no-rebase
+        run: git pull --no-rebase --ff-only origin main
 
       - name: Apply webhook payload
         id: apply
@@ -61,5 +66,6 @@ jobs:
           else
             COMMIT_MSG="${COMMIT_MSG_RICH:-sync: apply Linear webhook}"
             git commit -m "$COMMIT_MSG"
+            git pull --no-rebase --ff-only origin main
             git push
           fi

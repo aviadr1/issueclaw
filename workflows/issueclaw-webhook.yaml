@@ -18,13 +18,17 @@ permissions:
 
 # Must be in caller: concurrency groups are repo-scoped.
 # Shared with sync and push so all queue behind each other.
-# cancel-in-progress: false — process every webhook in order.
+# cancel-in-progress: true — debounce webhook bursts; keep latest event.
+# 10-minute sync remains the eventual-consistency backstop.
 concurrency:
   group: linear-git-sync
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply-webhook:
+    # Batch low-signal churn via periodic pull: documents + comment edits.
+    # Keep realtime webhook handling for high-value state changes.
+    if: ${{ !(github.event.client_payload.type == 'Document') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.action == 'update') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.data.issueId == null) }}
     uses: aviadr1/issueclaw/.github/workflows/webhook.yml@main
     with:
       # github.event is not available in the callee — pass payload as input

@@ -37,12 +37,14 @@ jobs:
           python-version: "3.12"
 
       - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
       - name: Install issueclaw
         run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
       - name: Pull latest changes
-        run: git pull --no-rebase
+        run: git pull --no-rebase --ff-only origin main
 
       - name: Pull from Linear
         env:
