@@ -32,6 +32,9 @@ jobs:
       - name: Install issueclaw
         run: uv tool install git+https://github.com/aviadr1/issueclaw.git
 
+      - name: Guard linear file creation paths
+        run: issueclaw guard
+
       - name: Push changes to Linear
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

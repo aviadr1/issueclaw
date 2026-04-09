@@ -32,6 +32,7 @@ After setup, administration is minimal:
 
 - workflow stubs + webhook hooks handle synchronization
 - CI executes pull/push hooks automatically
+- CI guard blocks misplaced new `linear/**` files before push sync
 - `issueclaw workflows doctor` detects drift when upgrading
 
 ## Setup Is Two Separate Steps
@@ -107,6 +108,7 @@ issueclaw push --repo-dir /path/to/linear-git
 - `issueclaw pull`: sync Linear -> local markdown mirror.
 - `issueclaw push`: sync markdown diffs -> Linear.
 - `issueclaw diff`: preview what would be pushed.
+- `issueclaw guard`: fail fast on misplaced new `linear/**` files.
 - `issueclaw apply-webhook`: apply one webhook payload locally.
 - `issueclaw workflows doctor|upgrade`: detect/repair workflow hook drift.
 - `issueclaw create issue|comment|project|initiative|document`: create entities directly.

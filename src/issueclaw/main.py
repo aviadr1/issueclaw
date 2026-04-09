@@ -3,6 +3,7 @@ import click
 from issueclaw.commands.apply_webhook import apply_webhook_command
 from issueclaw.commands.create import create_group
 from issueclaw.commands.diff_cmd import diff_command
+from issueclaw.commands.guard import guard_command
 from issueclaw.commands.init import init_command
 from issueclaw.commands.pull import pull_command
 from issueclaw.commands.push import push_command
@@ -33,6 +34,7 @@ cli.add_command(push_command)
 cli.add_command(create_group)
 cli.add_command(status_command)
 cli.add_command(diff_command)
+cli.add_command(guard_command)
 cli.add_command(init_command)
 cli.add_command(self_group)
 cli.add_command(workflows_group)
