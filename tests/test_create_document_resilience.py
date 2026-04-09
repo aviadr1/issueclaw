@@ -46,6 +46,7 @@ async def test_linear_client_create_document_handles_graphql_errors_payload():
 def test_create_document_cli_fails_cleanly_when_linear_returns_no_document(tmp_path):
     """INVARIANT: CLI create document exits with a clear error (no AttributeError)."""
     mock_client = AsyncMock()
+    mock_client.fetch_teams.return_value = [{"id": "team-ai", "key": "AI"}]
     mock_client.create_document.return_value = {}
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -65,6 +66,8 @@ def test_create_document_cli_fails_cleanly_when_linear_returns_no_document(tmp_p
                 str(tmp_path),
                 "--title",
                 "Smoke doc",
+                "--team",
+                "AI",
             ],
             input="body from stdin\n",
         )
@@ -78,6 +81,7 @@ def test_create_document_cli_fails_cleanly_when_linear_returns_no_document(tmp_p
 async def test_create_document_writes_file_and_id_map(tmp_path):
     """INVARIANT: successful create document writes canonical file and id-map mapping."""
     mock_client = AsyncMock()
+    mock_client.fetch_teams.return_value = [{"id": "team-ai", "key": "AI"}]
     mock_client.create_document.return_value = {
         "id": "doc-uuid-1",
         "title": "A Great Doc",
@@ -97,6 +101,7 @@ async def test_create_document_writes_file_and_id_map(tmp_path):
             "A Great Doc",
             "Document body",
             None,
+            "AI",
         )
 
     assert result["id"] == "doc-uuid-1"
@@ -112,3 +117,49 @@ async def test_create_document_writes_file_and_id_map(tmp_path):
     state = SyncState(tmp_path)
     state.load()
     assert state.get_uuid("linear/documents/a-great-doc.md") == "doc-uuid-1"
+
+
+@pytest.mark.asyncio
+async def test_create_document_requires_scope_team_or_project(tmp_path):
+    """INVARIANT: create document requires exactly one scope: team or project."""
+    with pytest.raises(create_mod.click.UsageError):
+        await create_mod._create_document(
+            "test-key",
+            tmp_path,
+            "Scoped Doc",
+            "Body",
+            None,
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_document_resolves_team_scope(tmp_path):
+    """INVARIANT: --team resolves to teamId for documentCreate mutation."""
+    mock_client = AsyncMock()
+    mock_client.fetch_teams.return_value = [{"id": "team-dsg", "key": "DSG"}]
+    mock_client.create_document.return_value = {
+        "id": "doc-uuid-2",
+        "title": "Design Doc",
+        "slugId": "design-doc",
+        "url": "https://linear.app/test/document/design-doc",
+        "createdAt": "2026-04-09T00:00:00Z",
+        "updatedAt": "2026-04-09T00:00:00Z",
+        "creator": {"name": "Aviad"},
+    }
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(create_mod, "LinearClient", return_value=mock_client):
+        await create_mod._create_document(
+            "test-key",
+            tmp_path,
+            "Design Doc",
+            "Body",
+            None,
+            "DSG",
+        )
+
+    mock_client.create_document.assert_called_once()
+    called_fields = mock_client.create_document.call_args[0][1]
+    assert called_fields["teamId"] == "team-dsg"

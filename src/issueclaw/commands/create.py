@@ -274,6 +274,12 @@ def create_initiative(
     default=None,
     help="Associate with a project (slug, e.g. 'metrics-platform').",
 )
+@click.option(
+    "--team",
+    "team_key",
+    default=None,
+    help="Associate with a team key (e.g. AI, ENG, DSG).",
+)
 @click.pass_context
 def create_document(
     ctx: click.Context,
@@ -282,6 +288,7 @@ def create_document(
     title: str,
     body: Any,
     project_slug: str | None,
+    team_key: str | None,
 ) -> None:
     """Create a new Linear document. Writes the markdown file to the repo immediately."""
     if not api_key:
@@ -291,7 +298,14 @@ def create_document(
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
     body_text = cast(str, body.read()).strip() if body else None
     result = asyncio.run(
-        _create_document(api_key, repo_dir, title, body_text or None, project_slug)
+        _create_document(
+            api_key,
+            repo_dir,
+            title,
+            body_text or None,
+            project_slug,
+            team_key.upper() if team_key else None,
+        )
     )
     if json_mode:
         click.echo(json.dumps(result))
@@ -674,8 +688,14 @@ async def _create_document(
     title: str,
     body: str | None,
     project_slug: str | None,
+    team_key: str | None,
 ) -> dict:
     async with LinearClient(api_key=api_key) as client:
+        if project_slug and team_key:
+            raise click.UsageError(
+                "Use either --project or --team for document scope, not both."
+            )
+
         fields: dict[str, Any] = {}
         if body:
             fields["content"] = body
@@ -690,6 +710,19 @@ async def _create_document(
                     f"Project '{project_slug}' not found in .sync/id-map.json. Run 'issueclaw pull' first."
                 )
             fields["projectId"] = project_id
+        elif team_key:
+            teams = await client.fetch_teams()
+            team_map = {t["key"]: t["id"] for t in teams}
+            team_id = team_map.get(team_key)
+            if not team_id:
+                raise click.UsageError(
+                    f"Unknown team '{team_key}'. Available: {', '.join(sorted(team_map))}"
+                )
+            fields["teamId"] = team_id
+        else:
+            raise click.UsageError(
+                "Document scope required. Use --team TEAM_KEY or --project PROJECT_SLUG."
+            )
 
         doc = await client.create_document(title, fields)
         if not doc.get("id"):
@@ -707,6 +740,8 @@ async def _create_document(
             frontmatter_fields["creator"] = doc["creator"]["name"]
         if project_slug:
             frontmatter_fields["project"] = project_slug
+        if team_key:
+            frontmatter_fields["team"] = team_key
         if doc.get("createdAt"):
             frontmatter_fields["created"] = doc["createdAt"]
         if doc.get("updatedAt"):
