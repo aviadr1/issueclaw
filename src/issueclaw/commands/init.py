@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import importlib.resources
 import os
 import secrets
 from pathlib import Path
 
 import click
+from issueclaw.workflow_templates import copy_workflow_templates
 
 
 _WEBHOOK_RESOURCE_TYPES = ["Issue", "Comment", "Project", "Document"]
@@ -107,14 +107,7 @@ def _create_linear_webhook(
 
 def _copy_workflow_files(repo_dir: Path) -> None:
     """Copy workflow templates to .github/workflows/."""
-    wf_dir = repo_dir / ".github" / "workflows"
-    wf_dir.mkdir(parents=True, exist_ok=True)
-
-    workflows_pkg = importlib.resources.files("issueclaw") / "workflows"
-    for name in ("issueclaw-webhook.yaml", "issueclaw-push.yaml", "issueclaw-sync.yaml"):
-        src = workflows_pkg / name
-        dst = wf_dir / name
-        dst.write_text(src.read_text())
+    copy_workflow_templates(repo_dir)
 
 
 @click.command("init")

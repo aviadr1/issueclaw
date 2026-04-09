@@ -2,6 +2,7 @@
 
 import os
 from contextlib import contextmanager
+import importlib.resources
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -34,7 +35,7 @@ def mock_init_externals(**overrides):
 
 
 def test_init_copies_workflow_files(tmp_path):
-    """INVARIANT: Init creates .github/workflows/ with both workflow files."""
+    """INVARIANT: Init creates all managed workflow files."""
     runner = CliRunner()
     with patch.dict(os.environ, {"LINEAR_API_KEY": "lin_api_test123"}):
         with mock_init_externals():
@@ -44,6 +45,29 @@ def test_init_copies_workflow_files(tmp_path):
     wf_dir = tmp_path / ".github" / "workflows"
     assert (wf_dir / "issueclaw-webhook.yaml").exists()
     assert (wf_dir / "issueclaw-push.yaml").exists()
+    assert (wf_dir / "issueclaw-sync.yaml").exists()
+
+
+def test_init_installs_current_bundled_workflow_templates(tmp_path):
+    """INVARIANT: Init writes the exact bundled workflow template content."""
+    runner = CliRunner()
+    with patch.dict(os.environ, {"LINEAR_API_KEY": "lin_api_test123"}):
+        with mock_init_externals():
+            result = runner.invoke(cli, ["init", "--repo-dir", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+
+    templates_pkg = importlib.resources.files("issueclaw") / "workflows"
+    wf_dir = tmp_path / ".github" / "workflows"
+
+    for name in (
+        "issueclaw-webhook.yaml",
+        "issueclaw-push.yaml",
+        "issueclaw-sync.yaml",
+    ):
+        expected = (templates_pkg / name).read_text()
+        actual = (wf_dir / name).read_text()
+        assert actual == expected
 
 
 def test_init_saves_api_key_to_env_file(tmp_path):
