@@ -19,10 +19,10 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Shared with push and webhook so all queue behind each other.
+# Sync is isolated from push/webhook to prevent cross-workflow cancellation.
 # cancel-in-progress: false — never drop a scheduled sync run.
 concurrency:
-  group: linear-git-sync
+  group: linear-git-sync-pull
   cancel-in-progress: false
 
 jobs:

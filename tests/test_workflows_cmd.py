@@ -13,7 +13,7 @@ def _workflow_dir(repo_dir):
 
 
 def test_workflows_upgrade_writes_all_managed_files(tmp_path):
-    """INVARIANT: `workflows upgrade` installs push/webhook/sync stubs."""
+    """INVARIANT: `workflows upgrade` installs all managed workflow stubs."""
     runner = CliRunner()
     result = runner.invoke(cli, ["workflows", "upgrade", "--repo-dir", str(tmp_path)])
 
@@ -22,6 +22,7 @@ def test_workflows_upgrade_writes_all_managed_files(tmp_path):
     assert (wf_dir / "issueclaw-push.yaml").exists()
     assert (wf_dir / "issueclaw-webhook.yaml").exists()
     assert (wf_dir / "issueclaw-sync.yaml").exists()
+    assert (wf_dir / "issueclaw-queue-sweep.yaml").exists()
 
 
 def test_workflows_upgrade_overwrites_drifted_managed_file(tmp_path):
@@ -52,6 +53,7 @@ def test_workflows_doctor_reports_healthy_after_upgrade(tmp_path):
     assert "issueclaw-push.yaml: ok" in result.output
     assert "issueclaw-webhook.yaml: ok" in result.output
     assert "issueclaw-sync.yaml: ok" in result.output
+    assert "issueclaw-queue-sweep.yaml: ok" in result.output
     assert "present and up to date" in result.output
 
 
@@ -83,4 +85,5 @@ def test_workflows_doctor_json_output(tmp_path):
     payload = json.loads(result.output)
     assert payload["healthy"] is False
     assert "issueclaw-push.yaml" in payload["expected"]
+    assert "issueclaw-queue-sweep.yaml" in payload["expected"]
     assert any(file["name"] == "issueclaw-push.yaml" for file in payload["files"])

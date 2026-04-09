@@ -20,9 +20,9 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Shared with sync and webhook so all queue behind each other.
+# Push should not be canceled by webhook debounce.
 concurrency:
-  group: linear-git-sync
+  group: linear-git-push
   cancel-in-progress: false
 
 jobs:

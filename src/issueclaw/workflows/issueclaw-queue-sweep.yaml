@@ -1,0 +1,30 @@
+# Installed by: issueclaw init (or issueclaw workflows upgrade)
+# Upgrade after tool update: issueclaw workflows upgrade
+# Logic lives in: aviadr1/issueclaw/.github/workflows/queue-sweep.yml
+#
+# Required repository secrets:
+#   LINEAR_API_KEY - Linear API key for pushing queued linear/new/** files
+#
+# Recovery guardrail: retries queued entity creation from linear/new/**.
+
+name: Sweep Linear Queue
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # every 10 minutes
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Must be in caller: concurrency groups are repo-scoped.
+# Share with push so both serialize queue/entity creation updates.
+concurrency:
+  group: linear-git-push
+  cancel-in-progress: false
+
+jobs:
+  sweep-linear-queue:
+    uses: aviadr1/issueclaw/.github/workflows/queue-sweep.yml@main
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

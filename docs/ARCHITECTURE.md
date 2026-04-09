@@ -23,7 +23,12 @@
 ## Long-Haul Invariants
 
 - Webhook workflow is debounced (`cancel-in-progress: true`) to collapse bursts.
+- Concurrency groups are isolated by workflow role:
+  - push + queue sweep: `linear-git-push`
+  - webhook: `linear-git-webhook`
+  - sync pull: `linear-git-sync-pull`
 - Sync workflow is never canceled (`cancel-in-progress: false`) and runs every 10 minutes as the consistency backstop.
+- Queue sweeper runs every 10 minutes and retries queued `linear/new/**` entities if a prior push run was skipped/canceled.
 - Webhook filtering is conservative:
   - `Document` events are batched into sync.
   - `Comment` events without `issueId` are skipped (no issue file target).
