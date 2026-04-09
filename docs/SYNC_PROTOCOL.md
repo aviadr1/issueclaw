@@ -17,6 +17,14 @@
 3. Update files + mapping/state in repo.
 4. Commit only when content actually changed.
 
+## Delivery Guarantees And Event Routing
+
+- Realtime path (webhook): `Issue`, `Project`, `Initiative`, and `Comment` events with `data.issueId`.
+- Batched path (incremental pull every 10 minutes): `Document` events.
+- Ignored in webhook by design: `Comment` events without `data.issueId` (not representable in issue markdown; would be no-op in `apply-webhook`).
+- Correctness backstop: scheduled `issueclaw pull` always runs with `cancel-in-progress: false` and uses `updated_after=last_sync`.
+- Data-loss guardrail: `last_sync` is recorded at pull run start, not run end, so mid-run updates are included by the next incremental pull.
+
 ## Loop Prevention
 
 - bot-author gating for push-trigger workflows

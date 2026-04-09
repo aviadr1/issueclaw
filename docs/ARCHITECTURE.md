@@ -20,4 +20,14 @@
 - Host repos use thin stubs under `.github/workflows/issueclaw-*.yaml`.
 - `issueclaw workflows doctor|upgrade` keeps host stubs healthy.
 
+## Long-Haul Invariants
+
+- Webhook workflow is debounced (`cancel-in-progress: true`) to collapse bursts.
+- Sync workflow is never canceled (`cancel-in-progress: false`) and runs every 10 minutes as the consistency backstop.
+- Webhook filtering is conservative:
+  - `Document` events are batched into sync.
+  - `Comment` events without `issueId` are skipped (no issue file target).
+  - Issue comment edits are kept realtime (not filtered) to avoid relying on undocumented `issue.updatedAt` propagation behavior.
+- Incremental pull uses `.sync/state.json:last_sync` and records the next `last_sync` at run start.
+
 See also: [WORKFLOW_LIFECYCLE.md](WORKFLOW_LIFECYCLE.md)

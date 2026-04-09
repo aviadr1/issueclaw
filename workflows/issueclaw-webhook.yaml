@@ -26,9 +26,10 @@ concurrency:
 
 jobs:
   apply-webhook:
-    # Batch low-signal churn via periodic pull: documents + comment edits.
-    # Keep realtime webhook handling for high-value state changes.
-    if: ${{ !(github.event.client_payload.type == 'Document') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.action == 'update') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.data.issueId == null) }}
+    # Batch low-signal churn via periodic pull (documents).
+    # Keep issue comment edits in realtime to avoid relying on issue.updatedAt
+    # propagation semantics in Linear.
+    if: ${{ !(github.event.client_payload.type == 'Document') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.data.issueId == null) }}
     uses: aviadr1/issueclaw/.github/workflows/webhook.yml@main
     with:
       # github.event is not available in the callee — pass payload as input
