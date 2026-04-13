@@ -40,7 +40,7 @@ Issues = "https://github.com/aviadr1/issueclaw/issues"
 
 [dependency-groups]
 dev = [
-    "basedpyright>=1.31.3",
+    "basedpyright>=1.39.0",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
