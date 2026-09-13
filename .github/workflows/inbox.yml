@@ -6,6 +6,9 @@ on:
       issueclaw_ref:
         required: true
         type: string
+      reconcile:
+        type: boolean
+        default: false
     secrets:
       LINEAR_API_KEY:
         required: true
@@ -54,6 +57,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 1
+          sparse-checkout: .sync
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -64,7 +68,19 @@ jobs:
         run: |
           [[ "$ISSUECLAW_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
           uv tool install "git+https://github.com/aviadr1/issueclaw.git@$ISSUECLAW_REF"
+      - name: Discover missed changes using bounded metadata queries
+        if: inputs.reconcile
+        id: discovery
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          INBOX_URL: ${{ secrets.INBOX_URL }}
+          INBOX_TOKEN: ${{ secrets.INBOX_TOKEN }}
+        run: issueclaw-inbox-reconcile
+      - name: Materialize mirrored content only when work exists
+        if: ${{ !inputs.reconcile || steps.discovery.outputs.pending == 'true' }}
+        run: git sparse-checkout set .sync linear
       - name: Replay and publish before acknowledgement
+        if: ${{ !inputs.reconcile || steps.discovery.outputs.pending == 'true' }}
         env:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           INBOX_URL: ${{ secrets.INBOX_URL }}

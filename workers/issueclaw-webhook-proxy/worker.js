@@ -8,7 +8,7 @@ import {
   reserveDispatch,
   retain,
 } from "./store.js";
-import { reconcile } from "./census.js";
+import { importMetadata, completeReconciliation } from "./incremental.js";
 
 export default {
   async fetch(request, env) {
@@ -25,6 +25,10 @@ export default {
         if (path === "/inbox/ack")
           return await acknowledge(env, JSON.parse(await boundedBody(request)));
         if (path === "/inbox/status") return Response.json(await status(env));
+        if (path === "/inbox/reconcile")
+          return await importMetadata(env, JSON.parse(await boundedBody(request)));
+        if (path === "/inbox/reconcile-complete")
+          return await completeReconciliation(env, JSON.parse(await boundedBody(request)));
         return new Response("Not found", { status: 404 });
       }
       if (request.method !== "POST")
@@ -55,14 +59,7 @@ export default {
     }
   },
   async scheduled(_controller, env) {
-    try {
-      await reconcile(env);
-    } catch {
-      await env.INBOX.prepare(
-        "UPDATE consumer SET census_error='reconciliation_failed' WHERE id=1",
-      ).run();
-    }
-    // Census outages must not prevent already captured work from progressing.
+    // Discovery runs daily on CI. An idle hour makes no external API calls.
     await retain(env);
     if (!(await reserveDispatch(env))) return;
     const response = await fetch(

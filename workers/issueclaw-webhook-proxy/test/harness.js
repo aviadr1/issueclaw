@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 
 export const secret = "local-test-signing-secret";
@@ -45,9 +45,9 @@ export async function harness(t, { linear, dispatchStatus = 503 } = {}) {
   });
   t.after(() => mf.dispose());
   const db = await mf.getD1Database("INBOX");
-  await db.exec(
-    (await readFile("migrations/0001_inbox.sql", "utf8")).replaceAll("\n", " "),
-  );
+  for (const file of (await readdir("migrations")).filter(f => f.endsWith(".sql")).sort()) {
+    await db.exec((await readFile(`migrations/${file}`, "utf8")).replaceAll("\n", " "));
+  }
   const post = (path, value, headers = {}) =>
     mf.dispatchFetch(`https://worker.test${path}`, {
       method: "POST",

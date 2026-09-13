@@ -52,6 +52,7 @@ dev = [
 [project.scripts]
 issueclaw = "issueclaw.main:cli"
 issueclaw-inbox-replay = "issueclaw.inbox_replay:main"
+issueclaw-inbox-reconcile = "issueclaw.inbox_reconcile:main"
 precommit = "pre_commit.main:main"
 
 [build-system]

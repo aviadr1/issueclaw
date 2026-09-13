@@ -55,3 +55,22 @@ def test_readiness_gate_runs_before_expensive_steps(tmp_path, override, accepted
     assert "test-linear-secret" not in result.stdout + result.stderr
     assert "test-inbox-secret" not in result.stdout + result.stderr
     assert list(tmp_path.iterdir()) == []
+
+
+def test_daily_fast_path_does_not_materialize_mirror_without_pending_work():
+    workflow = yaml.safe_load(
+        (Path(__file__).parents[1] / ".github/workflows/inbox.yml").read_text()
+    )
+    steps = workflow["jobs"]["replay"]["steps"]
+    checkout = next(
+        s for s in steps if s.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["sparse-checkout"] == ".sync"
+    assert "filter" not in checkout["with"]  # filter overrides sparse mode in checkout
+    discovery = next(s for s in steps if s.get("id") == "discovery")
+    assert discovery["if"] == "inputs.reconcile"
+    for step in steps[steps.index(discovery) + 1 :]:
+        assert (
+            step["if"]
+            == "${{ !inputs.reconcile || steps.discovery.outputs.pending == 'true' }}"
+        )
