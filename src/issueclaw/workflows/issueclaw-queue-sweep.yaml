@@ -18,10 +18,11 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Share with push so both serialize queue/entity creation updates.
+# Every writer shares this lock. The pending queue is bounded, not durable.
 concurrency:
-  group: linear-git-push
+  group: linear-git-sync
   cancel-in-progress: false
+  queue: max
 
 jobs:
   sweep-linear-queue:

@@ -20,10 +20,11 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Push should not be canceled by webhook debounce.
+# Every writer shares this lock. The pending queue is bounded, not durable.
 concurrency:
-  group: linear-git-push
+  group: linear-git-sync
   cancel-in-progress: false
+  queue: max
 
 jobs:
   push-to-linear:
