@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 import subprocess
+import time
 
 import pytest
 import yaml
@@ -35,6 +36,7 @@ def test_readiness_gate_runs_before_expensive_steps(tmp_path, override, accepted
         "INBOX_TOKEN": "test-inbox-secret",
         "INBOX_URL": "https://inbox.example",
         "ISSUECLAW_REF": "a" * 40,
+        "GITHUB_ENV": str(tmp_path / "job-env"),
         **override,
     }
     assert set(first["env"]) == {
@@ -43,6 +45,7 @@ def test_readiness_gate_runs_before_expensive_steps(tmp_path, override, accepted
         "INBOX_URL",
         "ISSUECLAW_REF",
     }
+    started = time.time()
     result = subprocess.run(
         ["bash", "-e", "-c", first["run"]],
         cwd=tmp_path,
@@ -54,7 +57,13 @@ def test_readiness_gate_runs_before_expensive_steps(tmp_path, override, accepted
     assert (result.returncode == 0) == accepted
     assert "test-linear-secret" not in result.stdout + result.stderr
     assert "test-inbox-secret" not in result.stdout + result.stderr
-    assert list(tmp_path.iterdir()) == []
+    if accepted:
+        key, value = (tmp_path / "job-env").read_text().strip().split("=")
+        assert key == "ISSUECLAW_JOB_DEADLINE"
+        assert started + 270 <= float(value) <= time.time() + 270
+        assert list(tmp_path.iterdir()) == [tmp_path / "job-env"]
+    else:
+        assert list(tmp_path.iterdir()) == []
 
 
 def test_daily_fast_path_does_not_materialize_mirror_without_pending_work():

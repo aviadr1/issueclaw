@@ -15,6 +15,7 @@ from issueclaw.entity_changes import apply_changes, checked_path, prepare_entity
 from issueclaw.inbox_contract import Batch, Outcome
 
 CHECKPOINT = ".sync/inbox-checkpoint.json"
+PUBLICATION_RESERVE_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
@@ -68,7 +69,9 @@ def git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def drain(inbox, repo: Path, api_key: str) -> list[Outcome] | None:
+def drain(
+    inbox, repo: Path, api_key: str, *, deadline: float | None = None
+) -> list[Outcome] | None:
     """Publish healthy keys together; retain failed keys independently.
 
     Only a clean checkout equal to remote main can supply receipts. Preparation
@@ -81,6 +84,8 @@ def drain(inbox, repo: Path, api_key: str) -> list[Outcome] | None:
     git(repo, "merge", "--ff-only", "origin/main")
     if git(repo, "rev-parse", "HEAD") != git(repo, "rev-parse", "origin/main"):
         raise ValueError("Checkout differs from remote main; use a fresh checkout")
+    if deadline is not None and time.monotonic() >= deadline:
+        return None
     batch = inbox.claim()
     if batch is None:
         return None
@@ -101,6 +106,10 @@ def drain(inbox, repo: Path, api_key: str) -> list[Outcome] | None:
         nonlocal changed
         outcomes = []
         preparation_deadline = time.monotonic() + 120
+        if deadline is not None:
+            # The caller's shared deadline also fences work *inside* a batch;
+            # checking only between batches can overrun the hosted job timeout.
+            preparation_deadline = min(preparation_deadline, deadline)
         for item in batch.items:
             if receipts.get(item.key, 0) >= item.generation:
                 outcomes.append(Outcome(key=item.key, success=True))
@@ -145,11 +154,18 @@ def main() -> None:
     args = parser.parse_args()
     inbox = InboxClient(os.environ["INBOX_URL"], os.environ["INBOX_TOKEN"])
     deadline = time.monotonic() + 180
+    if job_deadline := os.environ.get("ISSUECLAW_JOB_DEADLINE"):
+        # Discovery/setup already spent part of the same CI job. Preserve time
+        # for publishing prepared receipts and ACK; never grant a fresh budget.
+        remaining = float(job_deadline) - time.time() - PUBLICATION_RESERVE_SECONDS
+        deadline = min(deadline, time.monotonic() + remaining)
     failed = False
     for _ in range(10):
         if time.monotonic() >= deadline:
             break
-        outcomes = drain(inbox, args.repo_dir, os.environ["LINEAR_API_KEY"])
+        outcomes = drain(
+            inbox, args.repo_dir, os.environ["LINEAR_API_KEY"], deadline=deadline
+        )
         if outcomes is None:
             break
         failed |= any(not outcome.success for outcome in outcomes)

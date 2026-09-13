@@ -3,7 +3,8 @@
 import json
 import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
+import sys
 
 import pytest
 
@@ -251,3 +252,81 @@ def test_lost_ack_recovered_from_fresh_shallow_checkout(repo, tmp_path):
         inbox_replay.drain(inbox, fresh, "key")
     assert inbox.acked
     assert git(remote, "rev-parse", "main") == published
+
+
+@pytest.mark.parametrize("remaining", [0, 45, 300])
+def test_job_budget_does_not_start_work_without_publication_time(
+    repo, monkeypatch, remaining
+):
+    path, remote = repo
+    inbox = Inbox()
+    batch = inbox.claim()
+    inbox.claim = Mock(side_effect=[batch, None])
+    before = git(remote, "rev-parse", "main")
+    monkeypatch.setenv("INBOX_URL", "https://inbox.example")
+    monkeypatch.setenv("INBOX_TOKEN", "unused")
+    monkeypatch.setenv("LINEAR_API_KEY", "unused")
+    monkeypatch.setenv("ISSUECLAW_JOB_DEADLINE", str(1000 + remaining))
+    monkeypatch.setattr(sys, "argv", ["replay", "--repo-dir", str(path)])
+    with (
+        patch.object(inbox_replay.time, "time", return_value=1000),
+        patch.object(inbox_replay, "InboxClient", return_value=inbox),
+        linear(),
+    ):
+        inbox_replay.main()
+    assert (git(remote, "rev-parse", "main") != before) == (remaining > 60)
+    assert inbox.acked == (remaining > 60)
+
+
+def test_shared_deadline_stops_preparation_inside_a_batch(repo, monkeypatch):
+    path, remote = repo
+    inbox = Inbox()
+    first = inbox.claim().items[0]
+    second = first.model_copy(
+        update={
+            "key": "test-org/Issue/second",
+            "payload": first.payload.model_copy(update={"data": {"id": "second"}}),
+        }
+    )
+    inbox.claim = Mock(
+        side_effect=[
+            Batch(stream="test-stream", token="lease", items=[first, second]),
+            None,
+        ]
+    )
+    clock = [0.0]
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+
+    async def fetch(entity_id):
+        clock[0] += 11
+        result = _make_issue_api_response()
+        if entity_id == "second":
+            result.update(id="second", identifier="AI-2", number=2)
+        return result
+
+    client.fetch_issue.side_effect = fetch
+    for key, value in {
+        "INBOX_URL": "https://inbox.example",
+        "INBOX_TOKEN": "unused",
+        "LINEAR_API_KEY": "unused",
+        "ISSUECLAW_JOB_DEADLINE": "1070",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(sys, "argv", ["replay", "--repo-dir", str(path)])
+    with (
+        patch.object(inbox_replay.time, "time", return_value=1000),
+        patch.object(inbox_replay.time, "monotonic", side_effect=lambda: clock[0]),
+        patch.object(inbox_replay, "InboxClient", return_value=inbox),
+        patch.object(webhook, "LinearClient", return_value=client),
+    ):
+        try:
+            inbox_replay.main()
+        except SystemExit:
+            pass  # Unprepared work is retained; publication must still complete.
+    checkpoint = json.loads(git(remote, "show", "main:.sync/inbox-checkpoint.json"))
+    assert checkpoint["receipts"] == {first.key: 1}
+    assert [(r.key, r.success) for r in inbox.results] == [
+        (first.key, True),
+        (second.key, False),
+    ]
