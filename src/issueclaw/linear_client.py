@@ -263,6 +263,7 @@ class LinearClient:
                 }
                 projectUpdates(first: 10) {
                     nodes { id body health createdAt user { id name } }
+                    pageInfo { hasNextPage endCursor }
                 }
                 initiatives { nodes { id name } }
                 documents { nodes { id title } }
@@ -270,7 +271,34 @@ class LinearClient:
         }
         """
         result = await self._graphql(query, {"projectId": project_id})
-        return result.get("data", {}).get("project", {})
+        project = result.get("data", {}).get("project", {})
+        await self._complete_project_updates(project)
+        return project
+
+    async def _complete_project_updates(self, project: dict) -> None:
+        connection = project.get("projectUpdates", {})
+        info = connection.get("pageInfo", {})
+        if not isinstance(info.get("hasNextPage"), bool):
+            raise ValueError("Missing project update pagination metadata")
+        if info["hasNextPage"]:
+            if not info.get("endCursor"):
+                raise ValueError("Missing project update cursor")
+            query = """query ProjectUpdates($projectId: String!, $after: String) {
+                project(id: $projectId) {
+                    projectUpdates(first: 100, after: $after) {
+                        nodes { id body health createdAt user { id name } }
+                        pageInfo { hasNextPage endCursor }
+                    }
+                }
+            }"""
+            connection["nodes"].extend(
+                await self._paginate(
+                    query,
+                    ["project", "projectUpdates"],
+                    {"projectId": project["id"]},
+                    after=info["endCursor"],
+                )
+            )
 
     async def fetch_initiative(self, initiative_id: str) -> dict:
         """Fetch a single initiative by ID."""
@@ -360,6 +388,7 @@ class LinearClient:
                     }}
                     projectUpdates(first: 10) {{
                         nodes {{ id body health createdAt user {{ id name }} }}
+                        pageInfo {{ hasNextPage endCursor }}
                     }}
                     initiatives {{ nodes {{ id name }} }}
                     documents {{ nodes {{ id title }} }}
@@ -371,7 +400,10 @@ class LinearClient:
         variables: dict = {}
         if updated_after:
             variables["updatedAfter"] = updated_after
-        return await self._paginate(query, ["projects"], variables or None)
+        projects = await self._paginate(query, ["projects"], variables or None)
+        for project in projects:
+            await self._complete_project_updates(project)
+        return projects
 
     async def fetch_initiatives(self, updated_after: str | None = None) -> list[dict]:
         """Fetch all initiatives in the workspace.

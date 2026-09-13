@@ -72,7 +72,7 @@ def _render_update_refs(updates: list[dict]) -> str:
         author = user.get("name", "") if isinstance(user, dict) else str(user)
         date = u.get("createdAt", "")
         health = u.get("health", "")
-        slug = update_file_slug(date, author)
+        slug = update_file_slug(date, author, u.get("id", ""))
         health_tag = f" [{health}]" if health else ""
         lines.append(f"- [{date}](updates/{slug}.md) by {author}{health_tag}")
     lines.append("")

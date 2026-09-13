@@ -35,6 +35,20 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
     entity_id = payload["data"]["id"]
     paths = [".sync/id-map.json", ".sync/state.json"]
     paths.extend(state.get_paths(entity_id))
+    if payload["type"] == "Project":
+        # Copy only this project's mapped update files, so child renames and
+        # conflict checks retain the same protection as top-level identities.
+        prefixes = [
+            str(Path(p).parent / "updates") + "/" for p in state.get_paths(entity_id)
+        ]
+        child_ids = {
+            state.get_uuid(p)
+            for p in state.paths()
+            if any(p.startswith(prefix) for prefix in prefixes)
+        }
+        for child_id in child_ids:
+            if child_id:
+                paths.extend(state.get_paths(child_id))
     with TemporaryDirectory(prefix="issueclaw-entity-") as directory:
         scratch = Path(directory)
         before = {}
@@ -48,6 +62,20 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
         result = await apply_webhook(payload, api_key, scratch)
         if result["action"] == "skip":
             raise ValueError("Unsupported event retained")
+        owned_ids = {entity_id}
+        if payload["type"] == "Project":
+            owned_ids.update(result.get("related_entity_ids", []))
+            # A previously unknown child may have historical files outside the
+            # prepared project scope. Never let a missing scratch copy bypass
+            # the divergent-alias guard or silently orphan that source content.
+            for child_id in owned_ids:
+                if any(
+                    p not in before and checked_path(repo, p).is_file()
+                    for p in state.get_paths(child_id)
+                ):
+                    raise ValueError(
+                        "Unprepared child aliases require explicit resolution"
+                    )
         after = {
             str(p.relative_to(scratch)): p.read_bytes()
             for p in scratch.rglob("*")
@@ -57,7 +85,9 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
         for relative in sorted(before.keys() | after.keys()):
             checked_path(repo, relative)
             owner = state.get_uuid(relative)
-            if relative.startswith("linear/") and owner and owner != entity_id:
+            if relative.startswith("linear/") and owner and owner not in owned_ids:
+                if before.get(relative) == after.get(relative):
+                    continue
                 raise ValueError("Rendered path belongs to another entity")
             if (
                 relative.startswith("linear/")

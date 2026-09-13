@@ -265,5 +265,5 @@ def test_project_renders_update_refs_not_inline():
         updated="2026-01-01T00:00:00Z",
     )
     md = render_project(project)
-    assert "updates/2026-03-13-aviad-rozenhek.md" in md
+    assert "updates/2026-03-13-aviad-rozenhek-u1.md" in md
     assert "Should not appear inline." not in md

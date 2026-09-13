@@ -27,13 +27,12 @@ from issueclaw.models import (
     LinearIssue,
     LinearProject,
 )
-from issueclaw.paths import entity_path, update_file_slug as _update_file_slug
+from issueclaw.paths import entity_path
+from issueclaw.project_snapshot import write_project
 from issueclaw.render import (
     render_document,
     render_initiative,
     render_issue,
-    render_project,
-    render_project_update,
 )
 from issueclaw.sync_state import SyncState
 
@@ -181,22 +180,7 @@ async def _run_pull(
         log(f"  {len(raw_projects)} projects")
         for raw_proj in raw_projects:
             project = LinearProject.from_api(raw_proj)
-            path = entity_path("project", slug=project.slug)
-            content = render_project(project)
-
-            state.write_entity(path, project.id, content)
-
-            # Write individual update files
-            for update in project.project_updates:
-                user = update.get("user", {})
-                author = user.get("name", "") if isinstance(user, dict) else str(user)
-                slug = _update_file_slug(update.get("createdAt", ""), author)
-                update_path = entity_path(
-                    "update", project_slug=project.slug, slug=slug
-                )
-                update_content = render_project_update(update)
-
-                state.write_entity(update_path, update.get("id", ""), update_content)
+            write_project(state, project)
 
             stats["projects"] += 1
 
