@@ -81,15 +81,13 @@ In your repo's Settings > Secrets and variables > Actions:
 
 ### 3. Set up webhooks (optional, for real-time sync)
 
-Linear webhooks require a publicly accessible endpoint. Deploy the included CloudFlare Worker:
-
-```bash
-cd workers/issueclaw-webhook-proxy/
-wrangler secret put LINEAR_WEBHOOK_SECRET   # from issueclaw init output
-wrangler secret put GITHUB_TOKEN            # GitHub PAT with repo scope
-wrangler secret put GITHUB_REPO             # e.g. "myorg/my-linear-repo"
-wrangler deploy
-```
+Linear webhooks require a publicly accessible endpoint. The included Worker now
+implements an opt-in durable hourly inbox, not the legacy per-event dispatch
+protocol. Follow [the durable inbox setup and staging gates](DURABLE_INBOX.md)
+before deploying it. It requires D1 and a coordinated pinned consumer caller;
+the legacy webhook caller installed by `issueclaw init` is not compatible with
+the new `linear-inbox-ready` event. Do not deploy its placeholder configuration
+over an existing endpoint.
 
 Without webhooks, the scheduled sync (every 15 min by default) keeps the repo current.
 
