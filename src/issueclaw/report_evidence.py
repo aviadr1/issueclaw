@@ -27,10 +27,62 @@ def classify(pr, start, end):
         return "merged"
     updated = instant(pr["updatedAt"])
     if not start <= updated < end:
+        # Event timestamps, not mutable latest metadata, establish activity.
+        if any(pr.get(key) for key in ("comments", "reviews", "review_comments")) or (
+            pr.get("createdAt") and start <= instant(pr["createdAt"]) < end
+        ):
+            return "activity"
         return None
     if pr["state"] == "OPEN":
         return "draft" if pr["isDraft"] else "open"
     return "follow_up" if merged else "closed_unmerged"
+
+
+def event_evidence(repo, number, start, end):
+    """Retain all discussion channels; never backdate post-cutoff comment text."""
+    result = {}
+    for key, endpoint, timestamps in (
+        ("comments", f"issues/{number}/comments", ("created_at", "updated_at")),
+        ("reviews", f"pulls/{number}/reviews", ("submitted_at",)),
+        ("review_comments", f"pulls/{number}/comments", ("created_at", "updated_at")),
+    ):
+        pages = gh_json(
+            "api", "--paginate", "--slurp", f"repos/{repo}/{endpoint}?per_page=100"
+        )
+        result[key] = []
+        for page in pages:
+            for event in page:
+                if not any(
+                    event.get(t) and start <= instant(event[t]) < end
+                    for t in timestamps
+                ):
+                    continue
+                evidence = {
+                    k: event.get(k)
+                    for k in (
+                        "id",
+                        "body",
+                        "created_at",
+                        "updated_at",
+                        "submitted_at",
+                        "html_url",
+                        "user",
+                        "state",
+                        "path",
+                        "line",
+                        "in_reply_to_id",
+                    )
+                }
+                edited_after = (
+                    event.get("updated_at") and instant(event["updated_at"]) >= end
+                )
+                evidence["body_available_at_cutoff"] = (
+                    not bool(edited_after) if key != "reviews" else None
+                )
+                if edited_after:
+                    evidence["body"] = None
+                result[key].append(evidence)
+    return result
 
 
 def collect(config, start, end, out_dir):
@@ -46,6 +98,12 @@ def collect(config, start, end, out_dir):
         "repositories": [],
         "errors": [],
         "complete": False,
+        "metadata_as_of": datetime.now(timezone.utc).isoformat(),
+        "limitations": [
+            "PR metadata and review bodies are current snapshots, not historical state.",
+            "Deleted events and overwritten historical text cannot be reconstructed.",
+            "Activity covers creation, latest update, merge and retained discussion; it is not a complete push/state-change event log.",
+        ],
     }
     fields = "number,title,body,author,url,headRefName,baseRefName,state,isDraft,createdAt,updatedAt,mergedAt"
     for repo in config["repos"]:
@@ -62,7 +120,10 @@ def collect(config, start, end, out_dir):
                     "--limit",
                     "1000",
                     "--search",
-                    f"{field}:{start.date()}..{end.date()}",
+                    # Latest updatedAt can move arbitrarily beyond the cutoff.
+                    f"updated:>={start.date()}"
+                    if field == "updated"
+                    else f"merged:{start.date()}..{end.date()}",
                     "--json",
                     fields,
                 )
@@ -73,44 +134,11 @@ def collect(config, start, end, out_dir):
                 by_number.update((row["number"], row) for row in rows)
 
             def enrich(pr):
+                pr = dict(pr)
+                pr.update(event_evidence(repo, pr["number"], start, end))
                 bucket = classify(pr, start, end)
                 if bucket is None:
                     return None
-                pages = gh_json(
-                    "api",
-                    "--paginate",
-                    "--slurp",
-                    f"repos/{repo}/issues/{pr['number']}/comments?per_page=100",
-                )
-                comments = [
-                    comment
-                    for page in pages
-                    for comment in page
-                    if start <= instant(comment["created_at"]) < end
-                ]
-                pr["comments"] = [
-                    {
-                        key: comment.get(key)
-                        for key in ("body", "created_at", "html_url", "user")
-                    }
-                    for comment in comments
-                ]
-                review_pages = gh_json(
-                    "api",
-                    "--paginate",
-                    "--slurp",
-                    f"repos/{repo}/pulls/{pr['number']}/reviews?per_page=100",
-                )
-                pr["reviews"] = [
-                    {
-                        key: review.get(key)
-                        for key in ("body", "submitted_at", "html_url", "user", "state")
-                    }
-                    for page in review_pages
-                    for review in page
-                    if review.get("submitted_at")
-                    and start <= instant(review["submitted_at"]) < end
-                ]
                 login = (pr.get("author") or {}).get("login", "unknown")
                 pr["person"] = config.get("people", {}).get(login, login)
                 pr["repo"] = repo
@@ -147,6 +175,7 @@ def collect(config, start, end, out_dir):
                             "draft",
                             "follow_up",
                             "closed_unmerged",
+                            "activity",
                         )
                     },
                 }
