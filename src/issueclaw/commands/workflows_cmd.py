@@ -21,15 +21,23 @@ def workflows_group() -> None:
 
 @workflows_group.command("upgrade")
 @click.option(
+    "--force",
+    is_flag=True,
+    help="Replace customized workflows with bundled defaults, including schedules and pins.",
+)
+@click.option(
     "--repo-dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=".",
     help="Path to the target repository.",
 )
 @click.pass_context
-def workflows_upgrade(ctx: click.Context, repo_dir: Path) -> None:
+def workflows_upgrade(ctx: click.Context, repo_dir: Path, force: bool) -> None:
     """Re-copy bundled workflow templates to .github/workflows/."""
-    written = copy_workflow_templates(repo_dir)
+    try:
+        written = copy_workflow_templates(repo_dir, force=force)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
 
     json_mode = ctx.obj.get("json", False) if ctx.obj else False
     if json_mode:
@@ -105,7 +113,9 @@ def workflows_doctor(ctx: click.Context, repo_dir: Path, strict: bool) -> None:
             click.echo("All managed workflow templates are present and up to date.")
         else:
             click.echo("Detected workflow template issues.")
-            click.echo("Run `issueclaw workflows upgrade` to repair managed files.")
+            click.echo(
+                "Review customized workflows before upgrading; upgrade refuses to overwrite them without --force."
+            )
 
     if strict and not healthy:
         raise click.ClickException(

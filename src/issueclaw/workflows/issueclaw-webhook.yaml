@@ -17,19 +17,17 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Webhook debounce must not cancel push/sync runs.
-# cancel-in-progress: true — debounce webhook bursts; keep latest event.
-# 10-minute sync remains the eventual-consistency backstop.
+# All repository writers share this lock. The 100-pending queue is not durable
+# event storage: overflow requires recovery and must not be called lossless.
 concurrency:
-  group: linear-git-webhook
-  cancel-in-progress: true
+  group: linear-git-sync
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   apply-webhook:
-    # Batch low-signal churn via periodic pull (documents).
-    # Keep issue comment edits in realtime to avoid relying on issue.updatedAt
-    # propagation semantics in Linear.
-    if: ${{ !(github.event.client_payload.type == 'Document') && !(github.event.client_payload.type == 'Comment' && github.event.client_payload.data.issueId == null) }}
+    # Only non-issue comments lack a supported parent refresh path.
+    if: ${{ !(github.event.client_payload.type == 'Comment' && github.event.client_payload.data.issueId == null) }}
     uses: aviadr1/issueclaw/.github/workflows/webhook.yml@main
     with:
       # github.event is not available in the callee — pass payload as input
