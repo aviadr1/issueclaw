@@ -2,6 +2,7 @@
 
 import importlib.resources
 import json
+import pytest
 
 from click.testing import CliRunner
 
@@ -25,8 +26,8 @@ def test_workflows_upgrade_writes_all_managed_files(tmp_path):
     assert (wf_dir / "issueclaw-queue-sweep.yaml").exists()
 
 
-def test_workflows_upgrade_overwrites_drifted_managed_file(tmp_path):
-    """INVARIANT: `workflows upgrade` repairs content drift for managed files."""
+def test_workflows_upgrade_overwrites_drifted_managed_file_only_with_force(tmp_path):
+    """INVARIANT: destructive template replacement requires explicit opt-in."""
     wf_dir = _workflow_dir(tmp_path)
     wf_dir.mkdir(parents=True, exist_ok=True)
     drifted = wf_dir / "issueclaw-push.yaml"
@@ -34,12 +35,43 @@ def test_workflows_upgrade_overwrites_drifted_managed_file(tmp_path):
 
     runner = CliRunner()
     result = runner.invoke(cli, ["workflows", "upgrade", "--repo-dir", str(tmp_path)])
+    assert result.exit_code != 0
+    result = runner.invoke(
+        cli, ["workflows", "upgrade", "--repo-dir", str(tmp_path), "--force"]
+    )
     assert result.exit_code == 0, result.output
-
     expected = (
         importlib.resources.files("issueclaw") / "workflows" / "issueclaw-push.yaml"
     ).read_text()
     assert drifted.read_text() == expected
+
+
+@pytest.mark.parametrize(
+    "name, policy",
+    [
+        ("issueclaw-sync.yaml", "on:\n  workflow_dispatch:\n"),
+        (
+            "issueclaw-webhook.yaml",
+            "concurrency:\n  group: linear-git-sync\n  cancel-in-progress: false\n  queue: max\n",
+        ),
+        (
+            "issueclaw-push.yaml",
+            "jobs:\n  push:\n    uses: owner/tool/workflow@pinned-sha\n",
+        ),
+    ],
+)
+def test_upgrade_preserves_operator_policy_atomically(tmp_path, name, policy):
+    directory = _workflow_dir(tmp_path)
+    directory.mkdir(parents=True)
+    target = directory / name
+    target.write_text("# Installed by: issueclaw init\n" + policy)
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    result = CliRunner().invoke(
+        cli, ["workflows", "upgrade", "--repo-dir", str(tmp_path)]
+    )
+    assert result.exit_code != 0
+    assert "--force" in result.output
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
 
 
 def test_workflows_doctor_reports_healthy_after_upgrade(tmp_path):

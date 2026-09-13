@@ -22,9 +22,6 @@ jobs:
   apply-webhook:
     runs-on: ubuntu-latest
     steps:
-      - name: Debounce burst window
-        run: sleep 20
-
       - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v6
