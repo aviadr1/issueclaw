@@ -9,6 +9,7 @@ import {
   retain,
 } from "./store.js";
 import { importMetadata, completeReconciliation } from "./incremental.js";
+import { failureResponse } from "./failures.js";
 
 export default {
   async fetch(request, env) {
@@ -54,8 +55,8 @@ export default {
       await capture(env, body, await digest(body), payload);
       // Linear requires exactly 200. No per-event dispatch or runner exists here.
       return new Response("Persisted", { status: 200 });
-    } catch {
-      return new Response("Inbox operation failed; retry", { status: 503 });
+    } catch (error) {
+      return failureResponse(error);
     }
   },
   async scheduled(_controller, env) {
