@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -77,6 +77,18 @@ def _progress_bar(description: str, total: int | None = None, enabled: bool = Tr
         yield lambda: progress.advance(task)
 
 
+@asynccontextmanager
+async def _pull_state(repo_dir: Path):
+    """Keep completed file ownership on errors without certifying completion."""
+    state = SyncState(repo_dir)
+    state.load()
+    try:
+        yield state
+    finally:
+        # A later parse/API failure must not orphan earlier successful writes.
+        state.save()
+
+
 async def _run_pull(
     api_key: str,
     repo_dir: Path,
@@ -93,10 +105,10 @@ async def _run_pull(
     subsequent runs only fetch entities changed since the previous sync.
     Pass since='' explicitly to force a full sync regardless of last_sync.
     """
-    async with LinearClient(api_key=api_key) as client:
-        state = SyncState(repo_dir)
-        state.load()
-
+    async with (
+        LinearClient(api_key=api_key) as client,
+        _pull_state(repo_dir) as state,
+    ):
         # Record sync start time NOW, before any fetching. This is what we save as
         # last_sync so that any entity updated during this sync run (after their team
         # was already processed) will be caught by the next incremental sync.
@@ -115,8 +127,10 @@ async def _run_pull(
         log(f"Found {len(teams)} teams")
 
         # Filter teams if specified
+        all_teams_selected = True
         if teams_filter:
             filter_set = {t.upper() for t in teams_filter}
+            all_teams_selected = all(t["key"].upper() in filter_set for t in teams)
             teams = [t for t in teams if t["key"].upper() in filter_set]
             log(f"Filtered to {len(teams)} teams: {', '.join(t['key'] for t in teams)}")
 
@@ -158,7 +172,6 @@ async def _run_pull(
                     advance()
 
             # Save after each team
-            state.set_last_sync(sync_start)
             state.save()
             log(f"  Saved ({stats['issues']} issues total)")
 
@@ -187,7 +200,6 @@ async def _run_pull(
 
             stats["projects"] += 1
 
-        state.set_last_sync(sync_start)
         state.save()
 
         # Sync initiatives
@@ -202,7 +214,6 @@ async def _run_pull(
             state.write_entity(path, initiative.id, content)
             stats["initiatives"] += 1
 
-        state.set_last_sync(sync_start)
         state.save()
 
         # Sync documents
@@ -217,8 +228,11 @@ async def _run_pull(
             state.write_entity(path, doc.id, content)
             stats["documents"] += 1
 
-        # Final save
-        state.set_last_sync(sync_start)
+        # The global cursor certifies ALL teams and phases, not partial progress.
+        # Persist mappings along the way, but retain the retry window on failure
+        # or a run excluding teams so unprocessed updates cannot be skipped.
+        if all_teams_selected:
+            state.set_last_sync(sync_start)
         state.save()
 
     return stats
