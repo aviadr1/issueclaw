@@ -20,10 +20,40 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Validate replay configuration before checkout
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          INBOX_URL: ${{ secrets.INBOX_URL }}
+          INBOX_TOKEN: ${{ secrets.INBOX_TOKEN }}
+          ISSUECLAW_REF: ${{ inputs.issueclaw_ref }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from urllib.parse import urlsplit
+
+          # Reject configuration failures before checkout or installation costs.
+          for key in ("LINEAR_API_KEY", "INBOX_URL", "INBOX_TOKEN"):
+              if not os.environ.get(key, "").strip():
+                  raise SystemExit(f"::error::Missing required configuration: {key}")
+          try:
+              value = os.environ["INBOX_URL"]
+              url = urlsplit(value)
+              valid = (url.scheme == "https" and url.hostname
+                       and not url.username and not url.password
+                       and not url.query and not url.fragment
+                       and not any(c.isspace() for c in value))
+          except ValueError:
+              valid = False
+          if not valid:
+              raise SystemExit("::error::INBOX_URL must be an HTTPS base URL without credentials, query or fragment")
+          if not re.fullmatch(r"[0-9a-f]{40}", os.environ.get("ISSUECLAW_REF", "")):
+              raise SystemExit("::error::ISSUECLAW_REF must be a full commit SHA")
+          PY
       - uses: actions/checkout@v6
         with:
           ref: main
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
