@@ -70,7 +70,10 @@ class LinearClient:
                     request=response.request,
                     response=response,
                 )
-            return response.json()
+            result = response.json()
+            if result.get("errors") or not isinstance(result.get("data"), dict):
+                raise ValueError("Linear returned an incomplete GraphQL result")
+            return result
         if last_response is None:
             raise RuntimeError("No response received from Linear API")
         raise httpx.HTTPStatusError(
@@ -80,11 +83,17 @@ class LinearClient:
         )
 
     async def _paginate(
-        self, query: str, path: list[str], variables: dict[str, Any] | None = None
+        self,
+        query: str,
+        path: list[str],
+        variables: dict[str, Any] | None = None,
+        *,
+        after: str | None = None,
     ) -> list[dict]:
         """Paginate through a GraphQL connection, returning all nodes."""
         all_nodes: list[dict] = []
-        cursor: str | None = None
+        cursor = after
+        seen = {after} if after else set()
         variables = dict(variables or {})
 
         for _ in range(100):  # safety limit
@@ -94,17 +103,25 @@ class LinearClient:
             # Navigate to the connection object
             data = result.get("data", {})
             for key in path:
-                data = data.get(key, {})
+                data = data.get(key) if isinstance(data, dict) else None
+
+            if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+                raise ValueError("Incomplete Linear connection")
 
             nodes = data.get("nodes", [])
             all_nodes.extend(nodes)
 
             page_info = data.get("pageInfo", {})
-            if not page_info.get("hasNextPage", False):
-                break
+            if not isinstance(page_info.get("hasNextPage"), bool):
+                raise ValueError("Missing Linear pagination metadata")
+            if not page_info["hasNextPage"]:
+                return all_nodes
             cursor = page_info.get("endCursor")
+            if not cursor or cursor in seen:
+                raise ValueError("Non-advancing Linear cursor")
+            seen.add(cursor)
 
-        return all_nodes
+        raise ValueError("Linear pagination capacity exceeded")
 
     async def fetch_teams(self) -> list[dict]:
         """Fetch all teams in the workspace."""
@@ -205,12 +222,26 @@ class LinearClient:
                         id body createdAt updatedAt
                         user { id name email }
                     }
+                    pageInfo { hasNextPage endCursor }
                 }
             }
         }
         """
         result = await self._graphql(query, {"issueId": issue_id})
-        return result.get("data", {}).get("issue", {})
+        issue = result.get("data", {}).get("issue")
+        if not isinstance(issue, dict):
+            raise ValueError("Issue not readable; absence is not a deletion receipt")
+        connection = issue.get("comments", {})
+        info = connection.get("pageInfo", {})
+        if not isinstance(info.get("hasNextPage"), bool):
+            raise ValueError("Missing issue comment pagination metadata")
+        if info["hasNextPage"]:
+            if not info.get("endCursor"):
+                raise ValueError("Missing issue comment cursor")
+            connection["nodes"].extend(
+                await self.fetch_comments(issue_id, after=info["endCursor"])
+            )
+        return issue
 
     async def fetch_project(self, project_id: str) -> dict:
         """Fetch a single project by ID with full data."""
@@ -273,23 +304,25 @@ class LinearClient:
         result = await self._graphql(query, {"documentId": document_id})
         return result.get("data", {}).get("document", {})
 
-    async def fetch_comments(self, issue_id: str) -> list[dict]:
+    async def fetch_comments(
+        self, issue_id: str, *, after: str | None = None
+    ) -> list[dict]:
         """Fetch all comments for an issue."""
         query = """
-        query IssueComments($issueId: String!) {
+        query IssueComments($issueId: String!, $after: String) {
             issue(id: $issueId) {
-                comments(first: 100) {
+                comments(first: 100, after: $after) {
                     nodes {
                         id body createdAt updatedAt
                         user { id name email }
                     }
+                    pageInfo { hasNextPage endCursor }
                 }
             }
         }
         """
-        result = await self._graphql(query, {"issueId": issue_id})
-        return (
-            result.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
+        return await self._paginate(
+            query, ["issue", "comments"], {"issueId": issue_id}, after=after
         )
 
     async def fetch_projects(self, updated_after: str | None = None) -> list[dict]:

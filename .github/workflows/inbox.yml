@@ -1,0 +1,45 @@
+# Reusable opt-in consumer. Caller must share linear-git-sync with all writers.
+name: Replay durable Linear inbox
+on:
+  workflow_call:
+    inputs:
+      issueclaw_ref:
+        required: true
+        type: string
+    secrets:
+      LINEAR_API_KEY:
+        required: true
+      INBOX_URL:
+        required: true
+      INBOX_TOKEN:
+        required: true
+permissions:
+  contents: write
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: Install pinned replay runtime
+        env:
+          ISSUECLAW_REF: ${{ inputs.issueclaw_ref }}
+        run: |
+          [[ "$ISSUECLAW_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          uv tool install "git+https://github.com/aviadr1/issueclaw.git@$ISSUECLAW_REF"
+      - name: Replay and publish before acknowledgement
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          INBOX_URL: ${{ secrets.INBOX_URL }}
+          INBOX_TOKEN: ${{ secrets.INBOX_TOKEN }}
+        run: |
+          git config user.name issueclaw-bot
+          git config user.email issueclaw-bot@users.noreply.github.com
+          issueclaw-inbox-replay

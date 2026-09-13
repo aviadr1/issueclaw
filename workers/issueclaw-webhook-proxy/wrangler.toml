@@ -1,8 +1,25 @@
 name = "issueclaw-webhook-proxy"
 main = "worker.js"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-07-01"
+
+# Do not deploy until a separately approved staging database is provisioned.
+# Replace both identifiers; NEVER reuse a stream ID after replacing its database.
+[vars]
+INBOX_STREAM = "REPLACE_WITH_DATABASE_INCARNATION_UUID"
+INBOX_ORGANIZATION_ID = "REPLACE_WITH_APPROVED_LINEAR_ORGANIZATION_ID"
+
+[[d1_databases]]
+binding = "INBOX"
+database_name = "issueclaw-webhook-inbox-staging"
+database_id = "REPLACE_WITH_APPROVED_DATABASE_ID"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["17 * * * *"]
 
 # Secrets (set via `wrangler secret put`):
 #   LINEAR_WEBHOOK_SECRET
+#   LINEAR_API_KEY (read access to the complete mirrored organization)
 #   GITHUB_TOKEN
 #   GITHUB_REPO
+#   INBOX_TOKEN (independent random secret, shared only with replay consumer)
