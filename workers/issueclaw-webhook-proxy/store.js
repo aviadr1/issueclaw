@@ -59,8 +59,12 @@ export function captureStatements(env, raw, digest, payload, now = Date.now(), m
        ON CONFLICT(digest) DO NOTHING`,
     ).bind(digest,item.key,raw,now,payload.type,payload.data.id,item.key,version)
     : env.INBOX.prepare(
-      "INSERT INTO events(digest, work_key, payload, received_at) VALUES(?,?,?,?) ON CONFLICT(digest) DO NOTHING",
-    ).bind(digest, item.key, raw, now),
+      // DO NOTHING still advances SQLite's AUTOINCREMENT sequence on conflict.
+      // Avoid attempting the insert for a known digest, inside the same batch.
+      `INSERT INTO events(digest, work_key, payload, received_at)
+       SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM events WHERE digest=?)
+       ON CONFLICT(digest) DO NOTHING`,
+    ).bind(digest, item.key, raw, now, digest),
     env.INBOX.prepare(
       `INSERT INTO work(key,generation,payload,source_time,first_pending_at)
       SELECT work_key,seq,?,?,? FROM events WHERE digest=?
@@ -75,7 +79,8 @@ export function captureStatements(env, raw, digest, payload, now = Date.now(), m
   if (observed) statements.push(env.INBOX.prepare(
     `INSERT INTO source_versions(kind,id,parent_key,source_time) VALUES(?,?,?,?)
      ON CONFLICT(kind,id) DO UPDATE SET parent_key=excluded.parent_key,source_time=excluded.source_time
-     WHERE excluded.source_time>=source_versions.source_time`,
+     WHERE excluded.source_time>source_versions.source_time
+       OR (excluded.source_time=source_versions.source_time AND excluded.parent_key!=source_versions.parent_key)`,
   ).bind(payload.type,payload.data.id,item.key,version));
   return statements;
 }

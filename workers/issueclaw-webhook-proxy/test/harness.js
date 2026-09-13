@@ -15,13 +15,13 @@ export function event(id = "1", overrides = {}) {
   };
 }
 
-export async function harness(t, { linear, dispatchStatus = 503 } = {}) {
+export async function harness(t, { linear, dispatchStatus = 503, compatibilityDate = "2026-07-01" } = {}) {
   const calls = [];
   const mf = new Miniflare({
     modules: true,
     modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
     scriptPath: "worker.js",
-    compatibilityDate: "2026-07-01",
+    compatibilityDate,
     d1Databases: { INBOX: "test-inbox" },
     bindings: {
       LINEAR_WEBHOOK_SECRET: secret,
