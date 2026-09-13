@@ -366,3 +366,57 @@ def test_apply_webhook_cli_command(tmp_path):
     assert "Created" in result.output or "Issue" in result.output
     expected_path = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1-fix-bug.md"
     assert expected_path.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["create", "update", "remove"])
+async def test_comment_lifecycle_refreshes_parent_and_is_repeatable(tmp_path, action):
+    """All embedded child mutations refresh the parent, including repeat delivery."""
+    comment = {
+        "id": "comment-uuid-1",
+        "body": "Original verification",
+        "createdAt": "2026-03-09T10:00:00Z",
+        "updatedAt": "2026-03-09T10:00:00Z",
+        "user": {"id": "user-1", "name": "Aviad"},
+    }
+    initial = _make_issue_api_response()
+    initial["comments"] = {"nodes": [] if action == "create" else [comment]}
+    current = _make_issue_api_response()
+    current["comments"] = {
+        "nodes": []
+        if action == "remove"
+        else [{**comment, "body": "Current verification"}]
+    }
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.fetch_issue.side_effect = [initial, current, current]
+    with patch.object(webhook_mod, "LinearClient", return_value=client):
+        await webhook_mod.apply_webhook(
+            _make_webhook_payload("create", "Issue", "issue-uuid-1"), "key", tmp_path
+        )
+        path = tmp_path / "linear/teams/AI/issues/AI-1-fix-bug.md"
+        assert ("Original verification" in path.read_text()) is (action != "create")
+        for _ in range(2):
+            await webhook_mod.apply_webhook(
+                _make_webhook_payload(
+                    action, "Comment", "comment-uuid-1", issueId="issue-uuid-1"
+                ),
+                "key",
+                tmp_path,
+            )
+            content = path.read_text()
+            assert "Original verification" not in content
+            assert ("Current verification" in content) is (action != "remove")
+            state = SyncState(tmp_path)
+            state.load()
+            assert state.get_path("issue-uuid-1") == str(path.relative_to(tmp_path))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["create", "update", "remove"])
+async def test_unparented_comments_are_explicitly_skipped(tmp_path, action):
+    result = await webhook_mod.apply_webhook(
+        _make_webhook_payload(action, "Comment", "comment-uuid-1"), "key", tmp_path
+    )
+    assert result["action"] == "skip"
+    assert result["reason"] == "no issueId"

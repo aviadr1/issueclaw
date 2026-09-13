@@ -5,8 +5,7 @@
 # Required repository secrets:
 #   LINEAR_API_KEY - Linear API key for fetching entity data
 #
-# Periodic full sync from Linear to ensure eventual consistency.
-# Webhooks handle real-time updates but this is the correctness guarantee.
+# Periodic refresh supplements webhooks; it does not recover missed deletions.
 
 name: Sync from Linear
 
@@ -19,11 +18,11 @@ permissions:
   contents: write
 
 # Must be in caller: concurrency groups are repo-scoped.
-# Sync is isolated from push/webhook to prevent cross-workflow cancellation.
-# cancel-in-progress: false — never drop a scheduled sync run.
+# Every writer shares this lock. The pending queue is bounded, not durable.
 concurrency:
-  group: linear-git-sync-pull
+  group: linear-git-sync
   cancel-in-progress: false
+  queue: max
 
 jobs:
   sync:

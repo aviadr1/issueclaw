@@ -95,11 +95,9 @@ async def apply_webhook(
     state = SyncState(repo_dir)
     state.load()
 
-    # Remove action: delete the file using the id-map
-    if action == "remove":
-        return _handle_remove(entity_id, entity_type, state, repo_dir)
-
-    # For comments, re-fetch the parent issue
+    # Comments are embedded in their parent, not standalone mapped files.
+    # Route every child mutation (including remove) through parent refresh
+    # before applying standalone entity deletion.
     if entity_type == "Comment":
         issue_id = payload["data"].get("issueId")
         if not issue_id:
@@ -109,6 +107,9 @@ async def apply_webhook(
                 "reason": "no issueId",
             }
         return await _handle_comment(issue_id, api_key, state, repo_dir)
+
+    if action == "remove":
+        return _handle_remove(entity_id, entity_type, state, repo_dir)
 
     # Create/update: fetch full entity via API and render
     return await _handle_create_or_update(
