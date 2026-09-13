@@ -27,8 +27,8 @@ def git(path, *args):
     ).stdout.strip()
 
 
-@pytest.fixture
-def repo(tmp_path):
+@pytest.fixture(params=["full", "shallow"])
+def repo(tmp_path, request):
     remote = tmp_path / "remote.git"
     remote.mkdir()
     git(remote, "init", "--bare", "--initial-branch=main")
@@ -40,6 +40,16 @@ def repo(tmp_path):
     git(path, "add", ".")
     git(path, "commit", "-m", "initial")
     git(path, "push", "origin", "main")
+    if request.param == "shallow":
+        # file:// is necessary: local path clones silently ignore --depth.
+        (path / "README.md").write_text("Mirror with history\n")
+        git(path, "commit", "-am", "second seed commit")
+        git(path, "push", "origin", "main")
+        path = tmp_path / "shallow"
+        git(tmp_path, "clone", "--depth=1", remote.as_uri(), str(path))
+        git(path, "config", "user.email", "test@example.com")
+        git(path, "config", "user.name", "Test")
+        assert git(path, "rev-parse", "--is-shallow-repository") == "true"
     return path, remote
 
 
@@ -191,3 +201,53 @@ def test_failed_entity_has_no_receipt_and_no_published_changes(repo):
     assert not inbox.results[0].success
     assert git(remote, "rev-parse", "main") == before
     assert not git(path, "status", "--porcelain")
+
+
+@pytest.mark.parametrize("race", [False, True])
+def test_remote_advancement_preserved_or_push_rejected(repo, tmp_path, race):
+    path, remote = repo
+    peer = tmp_path / "peer"
+    git(tmp_path, "clone", remote.as_uri(), str(peer))
+    git(peer, "config", "user.email", "peer@example.com")
+    git(peer, "config", "user.name", "Peer")
+
+    def advance_remote():
+        (peer / "peer.md").write_text("independent update")
+        git(peer, "add", ".")
+        git(peer, "commit", "-m", "independent update")
+        git(peer, "push", "origin", "main")
+
+    inbox = Inbox()
+    if race:
+        claim = inbox.claim
+
+        def racing_claim():
+            advance_remote()
+            return claim()
+
+        inbox.claim = racing_claim
+        with linear(), pytest.raises(subprocess.CalledProcessError):
+            inbox_replay.drain(inbox, path, "key")
+        assert not inbox.acked
+        assert "inbox-checkpoint" not in git(remote, "ls-tree", "-r", "main")
+    else:
+        advance_remote()
+        with linear():
+            inbox_replay.drain(inbox, path, "key")
+        assert inbox.acked
+    assert git(remote, "show", "main:peer.md") == "independent update"
+
+
+def test_lost_ack_recovered_from_fresh_shallow_checkout(repo, tmp_path):
+    path, remote = repo
+    inbox = Inbox(fail_ack=True)
+    with linear(), pytest.raises(OSError):
+        inbox_replay.drain(inbox, path, "key")
+    published = git(remote, "rev-parse", "main")
+    fresh = tmp_path / "fresh"
+    git(tmp_path, "clone", "--depth=1", remote.as_uri(), str(fresh))
+    inbox.fail_ack = False
+    with patch.object(webhook, "LinearClient", side_effect=AssertionError("replayed")):
+        inbox_replay.drain(inbox, fresh, "key")
+    assert inbox.acked
+    assert git(remote, "rev-parse", "main") == published
