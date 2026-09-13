@@ -25,6 +25,20 @@ class InboxClient:
         self.url = url.rstrip("/")
         self.headers = {"Authorization": f"Bearer {token}"}
 
+    def post(self, path: str, body: dict | None = None) -> dict:
+        response = httpx.post(
+            self.url + "/inbox/" + path,
+            headers=self.headers,
+            json=body or {},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return (
+            response.json()
+            if response.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
+
     def claim(self) -> Batch | None:
         response = httpx.post(
             self.url + "/inbox/claim", headers=self.headers, timeout=30

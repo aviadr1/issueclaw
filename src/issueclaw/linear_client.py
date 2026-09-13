@@ -89,6 +89,7 @@ class LinearClient:
         variables: dict[str, Any] | None = None,
         *,
         after: str | None = None,
+        max_pages: int = 100,
     ) -> list[dict]:
         """Paginate through a GraphQL connection, returning all nodes."""
         all_nodes: list[dict] = []
@@ -96,7 +97,7 @@ class LinearClient:
         seen = {after} if after else set()
         variables = dict(variables or {})
 
-        for _ in range(100):  # safety limit
+        for _ in range(max_pages):  # safety limit, never silently truncate
             variables["after"] = cursor
             result = await self._graphql(query, variables)
 

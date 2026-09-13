@@ -16,6 +16,12 @@ export function aggregate(payload, organization) {
     type = "Issue";
     action = "update";
   }
+  if (type === "ProjectUpdate") {
+    id = payload.data.projectId;
+    if (!id) throw new Error("Unsupported project update parent");
+    type = "Project";
+    action = "update";
+  }
   if (
     !["Issue", "Project", "Initiative", "Document"].includes(type) ||
     typeof id !== "string" ||
@@ -32,12 +38,20 @@ export function aggregate(payload, organization) {
   };
 }
 
-export function captureStatements(env, raw, digest, payload, now = Date.now()) {
+export function captureStatements(env, raw, digest, payload, now = Date.now(), metadata = false) {
   const item = aggregate(payload, env.INBOX_ORGANIZATION_ID);
+  const version = Date.parse(payload.data?.updatedAt);
+  const observed = Number.isFinite(version) && typeof payload.data.id === "string";
   // Evidence and dirty generation commit together. Retry deduplication uses the
   // retained digest; later edits preserve the oldest unacknowledged timestamp.
-  return [
-    env.INBOX.prepare(
+  const statements = [
+    metadata ? env.INBOX.prepare(
+      `INSERT INTO events(digest,work_key,payload,received_at)
+       SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM source_versions
+       WHERE kind=? AND id=? AND parent_key=? AND source_time>=?)
+       ON CONFLICT(digest) DO NOTHING`,
+    ).bind(digest,item.key,raw,now,payload.type,payload.data.id,item.key,version)
+    : env.INBOX.prepare(
       "INSERT INTO events(digest, work_key, payload, received_at) VALUES(?,?,?,?) ON CONFLICT(digest) DO NOTHING",
     ).bind(digest, item.key, raw, now),
     env.INBOX.prepare(
@@ -51,6 +65,12 @@ export function captureStatements(env, raw, digest, payload, now = Date.now()) {
       WHERE excluded.generation > work.generation`,
     ).bind(JSON.stringify(item.payload), item.sourceTime, now, digest),
   ];
+  if (observed) statements.push(env.INBOX.prepare(
+    `INSERT INTO source_versions(kind,id,parent_key,source_time) VALUES(?,?,?,?)
+     ON CONFLICT(kind,id) DO UPDATE SET parent_key=excluded.parent_key,source_time=excluded.source_time
+     WHERE excluded.source_time>=source_versions.source_time`,
+  ).bind(payload.type,payload.data.id,item.key,version));
+  return statements;
 }
 
 export async function capture(env, raw, digest, payload, now = Date.now()) {
@@ -125,12 +145,14 @@ export async function status(env, now = Date.now()) {
     "SELECT count(*) AS pending,min(first_pending_at) AS oldest_pending_at,COALESCE(sum(failures>0),0) AS failed FROM work WHERE generation>acked_generation",
   ).first();
   const census = await env.INBOX.prepare(
-    "SELECT census_at,census_error FROM consumer WHERE id=1",
+    "SELECT reconciliation_at FROM consumer WHERE id=1",
   ).first();
   return {
     ...row,
     ...census,
-    census_stale: !census.census_at || now - census.census_at > 2 * HOUR,
+    organization_id: env.INBOX_ORGANIZATION_ID,
+    stream: env.INBOX_STREAM,
+    reconciliation_stale: !census.reconciliation_at || now - census.reconciliation_at > 48 * HOUR,
     oldest_pending_age_ms:
       row.oldest_pending_at === null ? 0 : now - row.oldest_pending_at,
     freshness_breached:

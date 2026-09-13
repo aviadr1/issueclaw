@@ -19,7 +19,7 @@ crons = ["17 * * * *"]
 
 # Secrets (set via `wrangler secret put`):
 #   LINEAR_WEBHOOK_SECRET
-#   LINEAR_API_KEY (read access to the complete mirrored organization)
+# Linear read credentials belong to the CI consumer, not the hourly Worker.
 #   GITHUB_TOKEN
 #   GITHUB_REPO
 #   INBOX_TOKEN (independent random secret, shared only with replay consumer)
