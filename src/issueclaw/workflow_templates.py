@@ -50,15 +50,31 @@ def bundled_template_text(name: str) -> str:
     return (_templates_pkg() / name).read_text()
 
 
-def copy_workflow_templates(repo_dir: Path) -> list[str]:
-    """Copy all managed workflow templates into `.github/workflows/`."""
+def copy_workflow_templates(repo_dir: Path, *, force: bool = False) -> list[str]:
+    """Install templates without silently destroying operator-owned policy."""
     wf_dir = repo_dir / ".github" / "workflows"
+    templates = {
+        name: bundled_template_text(name) for name in workflow_template_files()
+    }
+    # Preflight every file before writing any: refusal must preserve the entire
+    # caller configuration, including schedules, pins, and writer locks.
+    conflicts = [
+        name
+        for name, expected in templates.items()
+        if (wf_dir / name).exists() and (wf_dir / name).read_text() != expected
+    ]
+    if conflicts and not force:
+        raise ValueError(
+            "Refusing to overwrite customized workflows: "
+            + ", ".join(conflicts)
+            + ". Review the differences; use workflows upgrade --force only to replace them with bundled defaults."
+        )
     wf_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[str] = []
-    for name in workflow_template_files():
+    for name, expected in templates.items():
         dst = wf_dir / name
-        dst.write_text(bundled_template_text(name))
+        dst.write_text(expected)
         written.append(name)
     return written
 
