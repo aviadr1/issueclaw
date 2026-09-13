@@ -123,10 +123,7 @@ def _handle_remove(
     """Delete the file associated with an entity."""
     old_path = state.get_path(entity_id)
     if old_path:
-        full_path = repo_dir / old_path
-        if full_path.exists():
-            full_path.unlink()
-        state.remove_mapping(old_path)
+        state.remove_entity(entity_id)
         state.save()
     identifier = _identifier_from_path(old_path) if old_path else None
     label = identifier or entity_id[:8]
@@ -202,14 +199,7 @@ async def _handle_create_or_update(
                 "reason": "unhandled type",
             }
 
-    # Clean up old file if path changed
-    _cleanup_old_path(entity_id, path, state, repo_dir)
-
-    full_path = repo_dir / path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_text(content)
-
-    state.add_mapping(path, entity_id)
+    state.write_entity(path, entity_id, content)
     state.save()
 
     return {
@@ -243,14 +233,7 @@ def _write_issue(
     )
     content = render_issue(issue)
 
-    # Clean up old file if path changed (e.g., title rename)
-    _cleanup_old_path(entity_id, path, state, repo_dir)
-
-    full_path = repo_dir / path
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    full_path.write_text(content)
-
-    state.add_mapping(path, entity_id)
+    state.write_entity(path, entity_id, content)
     state.save()
 
     commit_message = _issue_commit_message(issue, action, entity_type)
@@ -261,18 +244,6 @@ def _write_issue(
         "path": path,
         "commit_message": commit_message,
     }
-
-
-def _cleanup_old_path(
-    entity_id: str, new_path: str, state: SyncState, repo_dir: Path
-) -> None:
-    """If the entity was previously at a different path, remove the old file."""
-    old_path = state.get_path(entity_id)
-    if old_path and old_path != new_path:
-        old_full = repo_dir / old_path
-        if old_full.exists():
-            old_full.unlink()
-        state.remove_mapping(old_path)
 
 
 @click.command("apply-webhook")

@@ -153,11 +153,7 @@ async def _run_pull(
                     )
                     content = render_issue(issue)
 
-                    full_path = repo_dir / path
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.write_text(content)
-
-                    state.add_mapping(path, issue.id)
+                    state.write_entity(path, issue.id, content)
                     stats["issues"] += 1
                     advance()
 
@@ -175,11 +171,7 @@ async def _run_pull(
             path = entity_path("project", slug=project.slug)
             content = render_project(project)
 
-            full_path = repo_dir / path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-
-            state.add_mapping(path, project.id)
+            state.write_entity(path, project.id, content)
 
             # Write individual update files
             for update in project.project_updates:
@@ -191,11 +183,7 @@ async def _run_pull(
                 )
                 update_content = render_project_update(update)
 
-                update_full_path = repo_dir / update_path
-                update_full_path.parent.mkdir(parents=True, exist_ok=True)
-                update_full_path.write_text(update_content)
-
-                state.add_mapping(update_path, update.get("id", ""))
+                state.write_entity(update_path, update.get("id", ""), update_content)
 
             stats["projects"] += 1
 
@@ -211,11 +199,7 @@ async def _run_pull(
             path = entity_path("initiative", name=initiative.name)
             content = render_initiative(initiative)
 
-            full_path = repo_dir / path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-
-            state.add_mapping(path, initiative.id)
+            state.write_entity(path, initiative.id, content)
             stats["initiatives"] += 1
 
         state.set_last_sync(sync_start)
@@ -230,11 +214,7 @@ async def _run_pull(
             path = entity_path("document", title=doc.title)
             content = render_document(doc)
 
-            full_path = repo_dir / path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-
-            state.add_mapping(path, doc.id)
+            state.write_entity(path, doc.id, content)
             stats["documents"] += 1
 
         # Final save

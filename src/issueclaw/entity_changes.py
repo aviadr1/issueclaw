@@ -27,16 +27,14 @@ def checked_path(root: Path, relative: str) -> Path:
 async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileChange]:
     """Reuse authoritative parsers/renderers; failed keys cannot leak partial writes.
 
-    Copy only mapping metadata and this entity's existing file, not the entire
+    Copy only mapping metadata and this entity's historical files, not the entire
     mirror. TemporaryDirectory owns cleanup immediately, including cancellation.
     """
     state = SyncState(repo)
     state.load()
     entity_id = payload["data"]["id"]
     paths = [".sync/id-map.json", ".sync/state.json"]
-    old_path = state.get_path(entity_id)
-    if old_path:
-        paths.append(old_path)
+    paths.extend(state.get_paths(entity_id))
     with TemporaryDirectory(prefix="issueclaw-entity-") as directory:
         scratch = Path(directory)
         before = {}
@@ -61,6 +59,12 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
             owner = state.get_uuid(relative)
             if relative.startswith("linear/") and owner and owner != entity_id:
                 raise ValueError("Rendered path belongs to another entity")
+            if (
+                relative.startswith("linear/")
+                and owner is None
+                and (repo / relative).exists()
+            ):
+                raise ValueError("Refusing to overwrite an unmapped mirror file")
             content = after.get(relative)
             if before.get(relative) != content:
                 changes.append(FileChange(relative, content))
