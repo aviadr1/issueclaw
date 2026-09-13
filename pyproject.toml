@@ -25,12 +25,12 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "click>=8.3.1",
-    "httpx>=0.28",
+    "click>=8.3.2",
+    "httpx>=0.28.1",
     "pydantic>=2.12.5",
-    "python-dotenv>=1.2.1",
+    "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
-    "rich>=14.2.0",
+    "rich>=14.3.4",
 ]
 
 [project.urls]
@@ -42,11 +42,11 @@ Issues = "https://github.com/aviadr1/issueclaw/issues"
 dev = [
     "basedpyright>=1.39.0",
     "pre-commit>=4.5.1",
-    "pytest>=9.0.2",
-    "pytest-cov>=7.0.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
     "pytest-asyncio>=0.26.0",
     "pytest-xdist>=3.8.0",
-    "ruff>=0.14.11",
+    "ruff>=0.15.10",
 ]
 
 [project.scripts]
