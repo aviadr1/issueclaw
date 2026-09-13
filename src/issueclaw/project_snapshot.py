@@ -1,6 +1,6 @@
 """One writer for project reference pages and their independently owned updates."""
 
-from issueclaw.models import LinearProject
+from issueclaw.models import LinearProject, project_update_author
 from issueclaw.paths import entity_path, update_file_slug
 from issueclaw.render import render_project, render_project_update
 from issueclaw.sync_state import SyncState
@@ -16,8 +16,7 @@ def write_project(state: SyncState, project: LinearProject) -> None:
         entity_path("project", slug=project.slug), project.id, render_project(project)
     )
     for update in project.project_updates:
-        user = update.get("user") or {}
-        author = user.get("name", "") if isinstance(user, dict) else str(user)
+        author = project_update_author(update)
         slug = update_file_slug(update.get("createdAt", ""), author, update["id"])
         state.write_entity(
             entity_path("update", project_slug=project.slug, slug=slug),

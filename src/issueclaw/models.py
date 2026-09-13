@@ -8,6 +8,13 @@ from typing import Self
 from pydantic import BaseModel, Field
 
 
+def project_update_author(update: dict) -> str:
+    """Normalize nullable/deleted authors identically for files and references."""
+    user = update.get("user")
+    name = user.get("name") if isinstance(user, dict) else user
+    return name if isinstance(name, str) else ""
+
+
 class LinearComment(BaseModel):
     """A Linear issue comment."""
 

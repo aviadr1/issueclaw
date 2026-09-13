@@ -31,10 +31,13 @@ def project_response():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("isolated", [False, True])
+@pytest.mark.parametrize("author", [{"name": "same author"}, None, {}])
 async def test_project_refresh_writes_distinct_update_bodies_and_moves_them(
-    tmp_path, isolated, project_response
+    tmp_path, isolated, project_response, author
 ):
     raw = project_response
+    for update in raw["projectUpdates"]["nodes"]:
+        update["user"] = author
     client = AsyncMock()
     client.__aenter__.return_value = client
     client.fetch_project.return_value = raw
