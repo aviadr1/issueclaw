@@ -23,6 +23,23 @@ SOURCES = (
 OVERLAP = timedelta(minutes=5)
 
 
+def comment_owner(node: dict) -> tuple[str, str]:
+    # Comment is polymorphic. Resolve the owning mirrored entity while retaining
+    # the comment's own identity/version for durable deduplication.
+    candidates = [
+        node,
+        node.get("documentContent") or {},
+        node.get("projectUpdate") or {},
+        node.get("initiativeUpdate") or {},
+    ]
+    for candidate in candidates:
+        for kind in ("issue", "project", "initiative", "document"):
+            owner = candidate.get(kind) or {}
+            if isinstance(owner.get("id"), str) and owner["id"]:
+                return kind + "Id", owner["id"]
+    raise ValueError("Unresolved Comment owner; checkpoint not advanced")
+
+
 def timestamp(value: str) -> datetime:
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if result.tzinfo is None:
@@ -38,10 +55,15 @@ async def discover(
         raise ValueError("Linear and inbox organizations differ")
 
     async def source(root: str, kind: str, parent: str | None) -> list[dict]:
+        relationship = parent + " { id }" if parent else ""
+        if kind == "Comment":
+            relationship = """issue { id } project { id } initiative { id }
+              documentContent { issue { id } project { id } initiative { id } document { id } }
+              projectUpdate { project { id } } initiativeUpdate { initiative { id } }"""
         query = f"""query Changed($since: DateTimeOrDuration!, $until: DateTimeOrDuration!, $after: String) {{
           {root}(first: 100, after: $after, includeArchived: true, orderBy: updatedAt,
             filter: {{ updatedAt: {{ gte: $since, lte: $until }} }}) {{
-            nodes {{ id updatedAt {parent + " { id }" if parent else ""} }}
+            nodes {{ id updatedAt {relationship} }}
             pageInfo {{ hasNextPage endCursor }}
           }}
         }}"""
@@ -60,7 +82,10 @@ async def discover(
             if not timestamp(since) <= updated <= timestamp(until):
                 raise ValueError("Linear returned metadata outside requested window")
             data = {"id": node["id"], "updatedAt": updated.isoformat()}
-            if parent:
+            if kind == "Comment":
+                field, owner_id = comment_owner(node)
+                data[field] = owner_id
+            elif parent:
                 parent_id = (node.get(parent) or {}).get("id")
                 if not isinstance(parent_id, str) or not parent_id:
                     raise ValueError(

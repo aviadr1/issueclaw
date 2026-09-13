@@ -1,5 +1,5 @@
 import { digest } from "./auth.js";
-import { aggregate, captureStatements } from "./store.js";
+import { aggregate, captureStatements, commentParent } from "./store.js";
 
 // Bounded authenticated imports; share the webhook's atomic capture operation.
 export async function importMetadata(env, body) {
@@ -15,9 +15,10 @@ export async function importMetadata(env, body) {
           !Number.isFinite(Date.parse(record.data.updatedAt))) throw new Error("Invalid metadata");
       // Normalize timestamps and fields, so retries use the same digest.
       const updatedAt = new Date(record.data.updatedAt).toISOString();
+      const owner = record.type === "Comment" ? commentParent(record.data) : null;
       const value = { organizationId: body.organizationId, type: record.type, action: "update",
         data: { id: record.data.id, updatedAt,
-          ...(record.type === "Comment" ? { issueId: record.data.issueId } : {}),
+          ...(owner ? { [owner.field]: owner.id } : {}),
           ...(record.type === "ProjectUpdate" ? { projectId: record.data.projectId } : {}) },
         createdAt: updatedAt };
       aggregate(value, env.INBOX_ORGANIZATION_ID);
