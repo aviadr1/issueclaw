@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from issueclaw.commands.pull import _run_pull
+from issueclaw.commands import pull
+from issueclaw.sync_state import SyncState
 
 
 LAST_SYNC_TS = "2026-04-09T08:00:00Z"
@@ -166,3 +168,63 @@ async def test_incremental_pull_smoke_materializes_all_changed_entities(
     assert "Incremental update." in project_file.read_text()
     assert "Initiative content" in initiative_file.read_text()
     assert "Fresh content from incremental sync." in document_file.read_text()
+
+
+@pytest.fixture
+def pull_client():
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.fetch_teams.return_value = [
+        TEAM_ENG,
+        {**TEAM_ENG, "id": "team-two", "key": "OTHER"},
+    ]
+    client.fetch_issues.return_value = []
+    client.fetch_projects.return_value = [_project_payload()]
+    client.fetch_initiatives.return_value = [_initiative_payload()]
+    client.fetch_documents.return_value = [_document_payload()]
+    with patch.object(pull, "LinearClient", return_value=client):
+        yield client
+
+
+@pytest.mark.parametrize(
+    "phase", ["second_team", "projects", "initiatives", "documents"]
+)
+@pytest.mark.asyncio
+async def test_failed_pull_retains_cursor_and_retry_window(
+    tmp_path, pull_client, phase
+):
+    state = SyncState(tmp_path)
+    state.set_last_sync(LAST_SYNC_TS)
+    state.save()
+    failed = (
+        pull_client.fetch_issues
+        if phase == "second_team"
+        else getattr(pull_client, f"fetch_{phase}")
+    )
+    failed.side_effect = (
+        [[], RuntimeError("external outage")]
+        if phase == "second_team"
+        else RuntimeError("external outage")
+    )
+    with pytest.raises(RuntimeError):
+        await _run_pull("test", tmp_path, None, log=lambda _: None, show_progress=False)
+    state.load()
+    assert state.last_sync == LAST_SYNC_TS
+    failed.side_effect = None
+    pull_client.reset_mock()
+    await _run_pull("test", tmp_path, None, log=lambda _: None, show_progress=False)
+    # This is the external query boundary: a retry must request the unprocessed window.
+    assert pull_client.fetch_documents.call_args.kwargs["updated_after"] == LAST_SYNC_TS
+    state.load()
+    assert state.last_sync != LAST_SYNC_TS
+    assert (tmp_path / "linear/documents/incremental-sync-playbook.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_filtered_pull_cannot_advance_global_cursor(tmp_path, pull_client):
+    state = SyncState(tmp_path)
+    state.set_last_sync(LAST_SYNC_TS)
+    state.save()
+    await _run_pull("test", tmp_path, ["ENG"], log=lambda _: None, show_progress=False)
+    state.load()
+    assert state.last_sync == LAST_SYNC_TS

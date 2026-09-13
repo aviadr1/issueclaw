@@ -115,8 +115,10 @@ async def _run_pull(
         log(f"Found {len(teams)} teams")
 
         # Filter teams if specified
+        all_teams_selected = True
         if teams_filter:
             filter_set = {t.upper() for t in teams_filter}
+            all_teams_selected = all(t["key"].upper() in filter_set for t in teams)
             teams = [t for t in teams if t["key"].upper() in filter_set]
             log(f"Filtered to {len(teams)} teams: {', '.join(t['key'] for t in teams)}")
 
@@ -162,7 +164,6 @@ async def _run_pull(
                     advance()
 
             # Save after each team
-            state.set_last_sync(sync_start)
             state.save()
             log(f"  Saved ({stats['issues']} issues total)")
 
@@ -199,7 +200,6 @@ async def _run_pull(
 
             stats["projects"] += 1
 
-        state.set_last_sync(sync_start)
         state.save()
 
         # Sync initiatives
@@ -218,7 +218,6 @@ async def _run_pull(
             state.add_mapping(path, initiative.id)
             stats["initiatives"] += 1
 
-        state.set_last_sync(sync_start)
         state.save()
 
         # Sync documents
@@ -237,8 +236,11 @@ async def _run_pull(
             state.add_mapping(path, doc.id)
             stats["documents"] += 1
 
-        # Final save
-        state.set_last_sync(sync_start)
+        # The global cursor certifies ALL teams and phases, not partial progress.
+        # Persist mappings along the way, but retain the retry window on failure
+        # or a run excluding teams so unprocessed updates cannot be skipped.
+        if all_teams_selected:
+            state.set_last_sync(sync_start)
         state.save()
 
     return stats
