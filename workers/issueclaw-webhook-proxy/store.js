@@ -4,6 +4,13 @@ export const BATCH_SIZE = 100;
 // Use clock slots, not completion + 1h: cron jitter must not skip an hour.
 export const nextHour = (now) => (Math.floor(now / HOUR) + 1) * HOUR;
 
+export function commentParent(data) {
+  for (const [field,type] of [["issueId","Issue"],["projectId","Project"],["initiativeId","Initiative"],["documentId","Document"]]) {
+    if (typeof data?.[field] === "string" && data[field]) return {field,type,id:data[field]};
+  }
+  throw new Error("Unsupported comment parent");
+}
+
 export function aggregate(payload, organization) {
   if (payload.organizationId !== organization)
     throw new Error("Wrong organization");
@@ -11,9 +18,9 @@ export function aggregate(payload, organization) {
     id = payload.data?.id,
     action = payload.action;
   if (type === "Comment") {
-    id = payload.data.issueId;
-    if (!id) throw new Error("Unsupported comment parent");
-    type = "Issue";
+    const owner = commentParent(payload.data);
+    id = owner.id;
+    type = owner.type;
     action = "update";
   }
   if (type === "ProjectUpdate") {

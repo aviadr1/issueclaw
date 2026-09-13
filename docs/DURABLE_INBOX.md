@@ -43,9 +43,12 @@ the D1 watermark. Cursor advancement before replay is safe because D1 owns all
 processing obligations. Failed scans/uploads and stale completions cannot erase
 pending work. An idle daily run does not need a new Git commit.
 
-Comments refresh their issue; project updates refresh their project. Children are
+Comments refresh their owning issue, project, initiative or document, resolving
+direct, document-content and update relationships; project updates refresh their project. Children are
 queried separately because their edits need not change parent timestamps.
-Unsupported parent relationships fail discovery rather than silently skip work.
+Unresolved parent relationships still fail discovery rather than silently skip work.
+This refreshes the existing owner representation; it does not introduce standalone
+document-comment artifacts or change which fields the owner renderer includes.
 
 Replay reuses existing isolated entity preparation/rendering. It requires clean,
 remote-aligned Git and pushes files plus generation receipts before ACK.
