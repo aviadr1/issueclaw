@@ -86,7 +86,8 @@ async def test_fetch_comments(client):
                             "updatedAt": "2026-01-01T00:00:00Z",
                             "user": {"id": "u1", "name": "Aviad"},
                         },
-                    ]
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
                 }
             }
         }
