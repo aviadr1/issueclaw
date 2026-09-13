@@ -228,3 +228,20 @@ async def test_filtered_pull_cannot_advance_global_cursor(tmp_path, pull_client)
     await _run_pull("test", tmp_path, ["ENG"], log=lambda _: None, show_progress=False)
     state.load()
     assert state.last_sync == LAST_SYNC_TS
+
+
+@pytest.mark.asyncio
+async def test_partial_team_failure_retains_written_file_ownership(
+    tmp_path, pull_client
+):
+    state = SyncState(tmp_path)
+    state.set_last_sync(LAST_SYNC_TS)
+    state.save()
+    pull_client.fetch_issues.return_value = [_issue_payload(), {}]
+    with pytest.raises(KeyError):
+        await _run_pull("test", tmp_path, None, log=lambda _: None, show_progress=False)
+    state.load()
+    written = "linear/teams/ENG/issues/ENG-42-incremental-smoke.md"
+    assert (tmp_path / written).exists()
+    assert state.get_uuid(written) == "issue-1"
+    assert state.last_sync == LAST_SYNC_TS
