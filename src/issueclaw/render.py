@@ -12,6 +12,7 @@ from issueclaw.models import (
     LinearInitiative,
     LinearIssue,
     LinearProject,
+    project_update_author,
 )
 from issueclaw.paths import update_file_slug
 
@@ -68,11 +69,10 @@ def _render_update_refs(updates: list[dict]) -> str:
         return ""
     lines = ["\n# Status Updates\n"]
     for u in updates:
-        user = u.get("user", {})
-        author = user.get("name", "") if isinstance(user, dict) else str(user)
+        author = project_update_author(u)
         date = u.get("createdAt", "")
         health = u.get("health", "")
-        slug = update_file_slug(date, author)
+        slug = update_file_slug(date, author, u.get("id", ""))
         health_tag = f" [{health}]" if health else ""
         lines.append(f"- [{date}](updates/{slug}.md) by {author}{health_tag}")
     lines.append("")
@@ -81,8 +81,7 @@ def _render_update_refs(updates: list[dict]) -> str:
 
 def render_project_update(update: dict) -> str:
     """Render an individual project status update to its own markdown file."""
-    user = update.get("user", {})
-    author = user.get("name", "") if isinstance(user, dict) else str(user)
+    author = project_update_author(update)
     fields: dict[str, Any] = {
         "id": update.get("id", ""),
         "author": author,

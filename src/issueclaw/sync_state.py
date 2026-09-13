@@ -68,6 +68,10 @@ class SyncState:
         """Return all historical paths; legacy mirrors can contain aliases."""
         return [path for path, owner in self._path_to_uuid.items() if owner == uuid]
 
+    def paths(self) -> list[str]:
+        """Mapped paths, without exposing the mutable identity registry."""
+        return list(self._path_to_uuid)
+
     def _mirror_path(self, relative: str) -> Path:
         path = self._repo_root / relative
         if not relative.startswith("linear/") or not path.resolve().is_relative_to(

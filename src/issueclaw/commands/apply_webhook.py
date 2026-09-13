@@ -18,11 +18,11 @@ from issueclaw.models import (
     LinearProject,
 )
 from issueclaw.paths import entity_path
+from issueclaw.project_snapshot import write_project
 from issueclaw.render import (
     render_document,
     render_initiative,
     render_issue,
-    render_project,
 )
 from issueclaw.sync_state import SyncState
 
@@ -159,6 +159,8 @@ async def _handle_create_or_update(
     repo_dir: Path,
 ) -> dict:
     """Fetch the full entity and render it to a markdown file."""
+    related_ids = []
+    content = None
     async with LinearClient(api_key=api_key) as client:
         if entity_type == "Issue":
             raw = await client.fetch_issue(entity_id)
@@ -170,7 +172,8 @@ async def _handle_create_or_update(
             raw = await client.fetch_project(entity_id)
             project = LinearProject.from_api(raw)
             path = entity_path("project", slug=project.slug)
-            content = render_project(project)
+            write_project(state, project)
+            related_ids = [u["id"] for u in project.project_updates]
             status_tag = f" [{project.status}]" if project.status else ""
             commit_message = (
                 f'sync: project "{_truncate(project.name, 40)}" {action}d{status_tag}'
@@ -199,7 +202,8 @@ async def _handle_create_or_update(
                 "reason": "unhandled type",
             }
 
-    state.write_entity(path, entity_id, content)
+    if content is not None:
+        state.write_entity(path, entity_id, content)
     state.save()
 
     return {
@@ -208,6 +212,7 @@ async def _handle_create_or_update(
         "entity_id": entity_id,
         "path": path,
         "commit_message": commit_message,
+        "related_entity_ids": related_ids,
     }
 
 

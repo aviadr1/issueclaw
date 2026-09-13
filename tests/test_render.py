@@ -274,7 +274,7 @@ def test_render_project_with_updates():
     md = render_project(project)
     assert "\n# Status Updates\n" in md
     # Should be a reference link, not inline content
-    assert "updates/2026-02-17-oz-shaked.md" in md
+    assert "updates/2026-02-17-oz-shaked-update-uuid-1.md" in md
     assert "Oz Shaked" in md
     assert "[onTrack]" in md
     # Body should NOT be inline

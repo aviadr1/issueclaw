@@ -107,7 +107,15 @@ async def test_fetch_projects(client):
         "data": {
             "projects": {
                 "nodes": [
-                    {"id": "p1", "name": "Project A", "slugId": "project-a"},
+                    {
+                        "id": "p1",
+                        "name": "Project A",
+                        "slugId": "project-a",
+                        "projectUpdates": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False},
+                        },
+                    },
                 ],
                 "pageInfo": {"hasNextPage": False, "endCursor": None},
             }

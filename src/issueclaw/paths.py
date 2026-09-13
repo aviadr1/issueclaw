@@ -61,14 +61,15 @@ _INITIATIVE_RE = re.compile(r"^linear/initiatives/([^/]+)\.md$")
 _DOCUMENT_RE = re.compile(r"^linear/documents/([^/]+)\.md$")
 
 
-def update_file_slug(created_at: str, author: str) -> str:
+def update_file_slug(created_at: str, author: str, update_id: str = "") -> str:
     """Generate a slug for a project update file.
 
     Format: YYYY-MM-DD-author-name (e.g., 2026-03-13-aviad-rozenhek)
     """
     date_part = created_at[:10] if created_at else "unknown"
     author_slug = slugify(author) if author else "unknown"
-    return f"{date_part}-{author_slug}"
+    suffix = f"-{slugify(update_id)}" if update_id else ""
+    return f"{date_part}-{author_slug}{suffix}"
 
 
 def parse_entity_path(path: str) -> dict | None:
