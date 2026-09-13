@@ -116,7 +116,7 @@ def drain(
                 continue
             remaining = preparation_deadline - time.monotonic()
             if remaining <= 0:
-                outcomes.append(Outcome(key=item.key, success=False))
+                outcomes.append(Outcome(key=item.key, success=False, deferred=True))
                 continue
             try:
                 changes = await asyncio.wait_for(
@@ -126,8 +126,13 @@ def drain(
             except Exception as error:
                 # Scratch isolation prevents a failed key contaminating another.
                 # Never print source payloads or API error bodies.
-                logger.error("Entity preparation failed (%s)", type(error).__name__)
-                outcomes.append(Outcome(key=item.key, success=False))
+                deferred = (
+                    isinstance(error, TimeoutError)
+                    and time.monotonic() >= preparation_deadline
+                )
+                if not deferred:
+                    logger.error("Entity preparation failed (%s)", type(error).__name__)
+                outcomes.append(Outcome(key=item.key, success=False, deferred=deferred))
                 continue
             apply_changes(repo, changes)  # disk failure is publication-fatal
             receipts[item.key] = item.generation
@@ -159,7 +164,7 @@ def main() -> None:
         # for publishing prepared receipts and ACK; never grant a fresh budget.
         remaining = float(job_deadline) - time.time() - PUBLICATION_RESERVE_SECONDS
         deadline = min(deadline, time.monotonic() + remaining)
-    failed = False
+    totals = {"acknowledged": 0, "deferred": 0, "failed": 0}
     for _ in range(10):
         if time.monotonic() >= deadline:
             break
@@ -168,8 +173,17 @@ def main() -> None:
         )
         if outcomes is None:
             break
-        failed |= any(not outcome.success for outcome in outcomes)
-    if failed:
+        for outcome in outcomes:
+            category = (
+                "acknowledged"
+                if outcome.success
+                else "deferred"
+                if outcome.deferred
+                else "failed"
+            )
+            totals[category] += 1
+    print(json.dumps({"replay_outcomes": totals}, sort_keys=True))
+    if totals["failed"]:
         raise SystemExit("Some entities remain pending; inspect inbox status")
 
 
