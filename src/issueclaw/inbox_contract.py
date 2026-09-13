@@ -47,3 +47,10 @@ class Batch(BaseModel):
 class Outcome(BaseModel):
     key: str
     success: bool
+    deferred: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def exclusive_outcome(self):
+        if self.success and self.deferred:
+            raise ValueError("Published work cannot also be deferred")
+        return self

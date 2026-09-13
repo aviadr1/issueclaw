@@ -320,13 +320,49 @@ def test_shared_deadline_stops_preparation_inside_a_batch(repo, monkeypatch):
         patch.object(inbox_replay, "InboxClient", return_value=inbox),
         patch.object(webhook, "LinearClient", return_value=client),
     ):
-        try:
-            inbox_replay.main()
-        except SystemExit:
-            pass  # Unprepared work is retained; publication must still complete.
+        inbox_replay.main()  # Budget deferral is not an entity failure.
     checkpoint = json.loads(git(remote, "show", "main:.sync/inbox-checkpoint.json"))
     assert checkpoint["receipts"] == {first.key: 1}
     assert [(r.key, r.success) for r in inbox.results] == [
         (first.key, True),
         (second.key, False),
     ]
+    assert inbox.results[1].deferred
+
+
+@pytest.mark.parametrize(
+    "error,elapsed,deferred",
+    [(TimeoutError, 11, True), (TimeoutError, 1, False), (ValueError, 11, False)],
+)
+def test_source_error_is_deferred_only_when_budget_timeout(
+    repo, error, elapsed, deferred
+):
+    path, remote = repo
+    before = git(remote, "rev-parse", "main")
+    inbox = Inbox()
+    clock = [0.0]
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+
+    async def fetch(entity_id):
+        clock[0] += elapsed
+        raise error("external source failure")
+
+    client.fetch_issue.side_effect = fetch
+    with (
+        patch.object(inbox_replay.time, "monotonic", side_effect=lambda: clock[0]),
+        patch.object(webhook, "LinearClient", return_value=client),
+    ):
+        outcomes = inbox_replay.drain(inbox, path, "unused", deadline=10)
+    assert outcomes and not outcomes[0].success
+    assert outcomes[0].deferred == deferred
+    assert git(remote, "rev-parse", "main") == before
+
+
+@pytest.mark.parametrize("deferred", [True, "true", None])
+def test_invalid_deferred_outcome(deferred):
+    from pydantic import ValidationError
+    from issueclaw.inbox_contract import Outcome
+
+    with pytest.raises(ValidationError):
+        Outcome(key="test-org/Issue/1", success=True, deferred=deferred)

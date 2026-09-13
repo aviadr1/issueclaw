@@ -113,25 +113,31 @@ export async function acknowledge(env, body, now = Date.now()) {
     !results.length ||
     results.length > BATCH_SIZE ||
     results.some(
-      (r) => typeof r.key !== "string" || typeof r.success !== "boolean",
+      (r) => !r || typeof r.key !== "string" || typeof r.success !== "boolean" ||
+        (r.deferred !== undefined && typeof r.deferred !== "boolean") ||
+        (r.success && r.deferred),
     ) ||
     new Set(results.map((r) => r.key)).size !== results.length
   )
     return new Response("Invalid acknowledgement", { status: 400 });
+  // Deferral releases ownership without claiming publication or inventing a
+  // failure. Preserve prior failures and pending age; only success clears them.
   const replies = await env.INBOX.batch(
     results.map((r) =>
       env.INBOX.prepare(
         `UPDATE work SET
     acked_generation=CASE WHEN ? THEN lease_generation ELSE acked_generation END,
     first_pending_at=CASE WHEN ? AND generation=lease_generation THEN NULL ELSE first_pending_at END,
-    failures=CASE WHEN ? THEN 0 ELSE failures+1 END, retry_at=CASE WHEN ? THEN 0 ELSE ? END,
+    failures=CASE WHEN ? THEN 0 WHEN ? THEN failures ELSE failures+1 END,
+    retry_at=CASE WHEN ? THEN 0 ELSE ? END,
     token=NULL, lease_until=0
     WHERE key=? AND token=? AND lease_until>?`,
       ).bind(
         r.success,
         r.success,
         r.success,
-        r.success,
+        r.deferred === true,
+        r.success || r.deferred === true,
         nextHour(now),
         r.key,
         token,
