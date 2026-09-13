@@ -45,19 +45,32 @@ export function aggregate(payload, organization) {
   };
 }
 
-export function captureStatements(env, raw, digest, payload, now = Date.now(), metadata = false) {
+export function captureStatements(env, raw, digest, payload, now = Date.now(), metadata = false, sources = [payload]) {
   const item = aggregate(payload, env.INBOX_ORGANIZATION_ID);
-  const version = Date.parse(payload.data?.updatedAt);
-  const observed = Number.isFinite(version) && typeof payload.data.id === "string";
+  const versions = sources.flatMap((source) => {
+    if (aggregate(source, env.INBOX_ORGANIZATION_ID).key !== item.key)
+      throw new Error("Capture sources must share an owner");
+    const version = Date.parse(source.data?.updatedAt);
+    if (!Number.isFinite(version) || typeof source.data.id !== "string") {
+      if (metadata) throw new Error("Metadata requires a source version");
+      return [];
+    }
+    return [[source.type, source.data.id, version]];
+  });
   // Evidence and dirty generation commit together. Retry deduplication uses the
   // retained digest; later edits preserve the oldest unacknowledged timestamp.
   const statements = [
     metadata ? env.INBOX.prepare(
       `INSERT INTO events(digest,work_key,payload,received_at)
-       SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM source_versions
-       WHERE kind=? AND id=? AND parent_key=? AND source_time>=?)
+       SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM events WHERE digest=?)
+       AND EXISTS(SELECT 1 FROM json_each(?) incoming WHERE NOT EXISTS(
+         SELECT 1 FROM source_versions WHERE kind=json_extract(incoming.value,'$[0]')
+         AND id=json_extract(incoming.value,'$[1]') AND parent_key=?
+         AND source_time>=json_extract(incoming.value,'$[2]')))
        ON CONFLICT(digest) DO NOTHING`,
-    ).bind(digest,item.key,raw,now,payload.type,payload.data.id,item.key,version)
+    // One JSON parameter keeps a 25-source group below D1's binding limit.
+    // ANY unseen source must queue work, even when the newest source is known.
+    ).bind(digest,item.key,raw,now,digest,JSON.stringify(versions),item.key)
     : env.INBOX.prepare(
       // DO NOTHING still advances SQLite's AUTOINCREMENT sequence on conflict.
       // Avoid attempting the insert for a known digest, inside the same batch.
@@ -76,12 +89,12 @@ export function captureStatements(env, raw, digest, payload, now = Date.now(), m
       WHERE excluded.generation > work.generation`,
     ).bind(JSON.stringify(item.payload), item.sourceTime, now, digest),
   ];
-  if (observed) statements.push(env.INBOX.prepare(
+  for (const [kind, id, version] of versions) statements.push(env.INBOX.prepare(
     `INSERT INTO source_versions(kind,id,parent_key,source_time) VALUES(?,?,?,?)
      ON CONFLICT(kind,id) DO UPDATE SET parent_key=excluded.parent_key,source_time=excluded.source_time
      WHERE excluded.source_time>source_versions.source_time
        OR (excluded.source_time=source_versions.source_time AND excluded.parent_key!=source_versions.parent_key)`,
-  ).bind(payload.type,payload.data.id,item.key,version));
+  ).bind(kind,id,item.key,version));
   return statements;
 }
 

@@ -27,13 +27,27 @@ export async function importMetadata(env, body) {
   } catch {
     return new Response("Invalid metadata batch", { status: 400 });
   }
-  const statements = [];
-  for (const record of records) {
-    const raw = JSON.stringify(record);
-    statements.push(...captureStatements(env, raw, await digest("metadata:" + raw), record, Date.now(), true));
-  }
-  await env.INBOX.batch(statements);
+  await env.INBOX.batch(await metadataStatements(env, records));
   return Response.json({ accepted: records.length });
+}
+
+// Called only after whole-request validation. Source observations remain
+// distinct, but each mirrored owner needs just one dirty generation per batch.
+export async function metadataStatements(env, records, now = Date.now()) {
+  const groups = new Map();
+  for (const record of records) {
+    const key = aggregate(record, env.INBOX_ORGANIZATION_ID).key;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  const statements = [];
+  for (const sources of groups.values()) {
+    sources.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const newest = sources.reduce((a, b) => Date.parse(a.createdAt) >= Date.parse(b.createdAt) ? a : b);
+    const raw = JSON.stringify({ ...newest, metadataSources: sources });
+    statements.push(...captureStatements(env, raw, await digest("metadata:" + raw), newest, now, true, sources));
+  }
+  return statements;
 }
 
 export async function completeReconciliation(env, body) {
