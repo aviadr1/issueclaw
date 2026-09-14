@@ -182,7 +182,9 @@ async def _handle_create_or_update(
         elif entity_type == "Initiative":
             raw = await client.fetch_initiative(entity_id)
             initiative = LinearInitiative.from_api(raw)
-            path = entity_path("initiative", name=initiative.name)
+            path = state.resolve_name_collision(
+                entity_path("initiative", name=initiative.name), entity_id
+            )
             content = render_initiative(initiative)
             commit_message = (
                 f'sync: initiative "{_truncate(initiative.name, 40)}" {action}d'
@@ -191,7 +193,9 @@ async def _handle_create_or_update(
         elif entity_type == "Document":
             raw = await client.fetch_document(entity_id)
             doc = LinearDocument.from_api(raw)
-            path = entity_path("document", title=doc.title)
+            path = state.resolve_name_collision(
+                entity_path("document", title=doc.title), entity_id
+            )
             content = render_document(doc)
             commit_message = f'sync: document "{_truncate(doc.title, 40)}" {action}d'
 
