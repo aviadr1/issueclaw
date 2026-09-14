@@ -37,6 +37,14 @@ Webhooks record source versions when updatedAt is available. Metadata equal to o
 older than a captured version queues no new work, including already processed
 webhook edits. Missing webhook timestamps cause safe extra refreshes.
 
+Within each metadata import, observations are grouped by mirrored owner: several
+comments on one issue produce one event and one work-row update, while retaining
+every individual source version. Any unseen member queues the owner, even if the
+newest member was already observed. Event, work and all source versions commit
+atomically; regrouped retries of known versions perform no row writes. Grouping
+does not span requests, so savings depend on how many sources share an owner in
+each batch. It does not eliminate the per-source cost of an initial bootstrap.
+
 All six scans must succeed before imports. Imports are atomic batches of at most
 25 records. Only after every import succeeds does the scanner compare-and-swap
 the D1 watermark. Cursor advancement before replay is safe because D1 owns all
