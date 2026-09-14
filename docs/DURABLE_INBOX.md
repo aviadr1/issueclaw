@@ -32,6 +32,28 @@ time and the same credentials. Repeated failed bootstraps are safe but not cheap
 
 ## Durable ownership
 
+Before a catch-up run, a bounded read-only preview can distinguish changes,
+no-op refreshes and local identity conflicts without claiming or acknowledging
+work. Export a private JSON array with `key`, `generation`, and parsed `payload`
+from pending `work` rows using a SELECT query (not the claim endpoint), then run:
+
+```sh
+python -m issueclaw.inbox_preview --repo-dir /path/to/mirror --items-file /private/pending-sample.json --limit 10
+```
+
+The command reads `LINEAR_API_KEY` from the environment and uses the real isolated
+entity preparation code. It never applies returned changes. It accepts at most
+25 owners, allows 20 seconds per owner and 60 seconds total, and prints aggregate
+outcomes without content or exception messages. Sampling bounds the preview,
+not the complete backlog or exact number of Linear API pages. Keep exports
+outside Git. A preview no-op does not authorize dropping an event: source state
+can change before replay, which must still publish receipts before ACK.
+
+Historical alias conflicts are checked before source fetching and again at the
+write boundary through `SyncState.validate_aliases`. They require an explicit
+resolution policy; retrying them or upgrading a cloud plan cannot choose a safe
+winner. Authoritative removal retains its existing all-owned-alias behavior.
+
 `captureStatements` is the single transaction for webhook and metadata capture.
 Webhooks record source versions when updatedAt is available. Metadata equal to or
 older than a captured version queues no new work, including already processed

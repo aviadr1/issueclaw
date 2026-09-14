@@ -85,6 +85,8 @@ async def test_refresh_preserves_conflicting_files(
                 )
             else:
                 await webhook.apply_webhook(payload, "unused", tmp_path)
+    if isolated and conflict == "divergent":
+        client.fetch_issue.assert_not_awaited()
     assert {
         str(p.relative_to(tmp_path)): p.read_bytes()
         for p in tmp_path.rglob("*")
