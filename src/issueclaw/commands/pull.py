@@ -192,7 +192,9 @@ async def _run_pull(
         log(f"  {len(raw_inits)} initiatives")
         for raw_init in raw_inits:
             initiative = LinearInitiative.from_api(raw_init)
-            path = entity_path("initiative", name=initiative.name)
+            path = state.resolve_name_collision(
+                entity_path("initiative", name=initiative.name), initiative.id
+            )
             content = render_initiative(initiative)
 
             state.write_entity(path, initiative.id, content)
@@ -206,7 +208,9 @@ async def _run_pull(
         log(f"  {len(raw_docs)} documents")
         for raw_doc in raw_docs:
             doc = LinearDocument.from_api(raw_doc)
-            path = entity_path("document", title=doc.title)
+            path = state.resolve_name_collision(
+                entity_path("document", title=doc.title), doc.id
+            )
             content = render_document(doc)
 
             state.write_entity(path, doc.id, content)

@@ -91,6 +91,26 @@ class SyncState:
             path.unlink(missing_ok=True)
             self.remove_mapping(relative)
 
+    def resolve_name_collision(self, relative: str, uuid: str) -> str:
+        """Disambiguate non-unique names without changing established ownership.
+
+        The full identity suffix is stable even if the original owner disappears.
+        This only selects a path: write_entity still rejects occupied fallback
+        paths, unmapped files and divergent aliases before writing anything.
+        """
+        self._mirror_path(relative)
+        path = Path(relative)
+        if not uuid or any(
+            c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-"
+            for c in uuid
+        ):
+            raise ValueError("Invalid identity for filename")
+        fallback = str(path.with_name(f"{path.stem}-{uuid}{path.suffix}"))
+        owner = self.get_uuid(relative)
+        if self.get_uuid(fallback) == uuid or (owner is not None and owner != uuid):
+            return fallback
+        return relative
+
     def write_entity(self, relative: str, uuid: str, content: str) -> None:
         """Converge to one path; reject ownership/content ambiguity before writing.
 

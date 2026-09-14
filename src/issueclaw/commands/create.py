@@ -635,9 +635,11 @@ async def _create_initiative(
         if not initiative.get("id"):
             raise click.ClickException("Linear API did not return an initiative ID.")
 
-        canonical_path = entity_path("initiative", name=name)
-        canonical_file = repo_dir / canonical_path
-        canonical_file.parent.mkdir(parents=True, exist_ok=True)
+        state = SyncState(repo_dir)
+        state.load()
+        canonical_path = state.resolve_name_collision(
+            entity_path("initiative", name=name), initiative["id"]
+        )
 
         frontmatter_fields: dict[str, Any] = {
             "id": initiative["id"],
@@ -667,11 +669,7 @@ async def _create_initiative(
         content = f"---\n{fm_yaml}---\n\n# {name}\n"
         if description:
             content += f"\n{description}\n"
-        canonical_file.write_text(content)
-
-        state = SyncState(repo_dir)
-        state.load()
-        state.add_mapping(canonical_path, initiative["id"])
+        state.write_entity(canonical_path, initiative["id"], content)
         state.save()
 
         return {
@@ -728,9 +726,11 @@ async def _create_document(
         if not doc.get("id"):
             raise click.ClickException("Linear API did not return a document ID.")
 
-        canonical_path = entity_path("document", title=title)
-        canonical_file = repo_dir / canonical_path
-        canonical_file.parent.mkdir(parents=True, exist_ok=True)
+        state = SyncState(repo_dir)
+        state.load()
+        canonical_path = state.resolve_name_collision(
+            entity_path("document", title=title), doc["id"]
+        )
 
         frontmatter_fields: dict[str, Any] = {
             "id": doc["id"],
@@ -758,11 +758,7 @@ async def _create_document(
         content = f"---\n{fm_yaml}---\n\n# {title}\n"
         if body:
             content += f"\n{body}\n"
-        canonical_file.write_text(content)
-
-        state = SyncState(repo_dir)
-        state.load()
-        state.add_mapping(canonical_path, doc["id"])
+        state.write_entity(canonical_path, doc["id"], content)
         state.save()
 
         return {
