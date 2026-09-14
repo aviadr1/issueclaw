@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 
 
+class IdentityConflict(ValueError):
+    """Historical copies disagree; automatic refresh cannot choose a winner."""
+
+
 class SyncState:
     """Manages sync state: file path <-> Linear UUID mappings and timestamps."""
 
@@ -100,9 +104,7 @@ class SyncState:
         if owner is None and target.exists():
             raise ValueError("Refusing to overwrite an unmapped mirror file")
         paths = [(p, self._mirror_path(p)) for p in self.get_paths(uuid)]
-        snapshots = {p.read_bytes() for _, p in paths if p.is_file()}
-        if len(snapshots) > 1:
-            raise ValueError("Conflicting identity aliases require explicit resolution")
+        self.validate_aliases(uuid)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         for old_relative, old_path in paths:
@@ -110,6 +112,18 @@ class SyncState:
                 old_path.unlink(missing_ok=True)
                 self.remove_mapping(old_relative)
         self.add_mapping(relative, uuid)
+
+    def validate_aliases(self, uuid: str) -> None:
+        """Shared read-only guard for preflight and the final write boundary."""
+        snapshots = {
+            path.read_bytes()
+            for relative in self.get_paths(uuid)
+            if (path := self._mirror_path(relative)).is_file()
+        }
+        if len(snapshots) > 1:
+            raise IdentityConflict(
+                "Conflicting identity aliases require explicit resolution"
+            )
 
     def get_uuid(self, path: str) -> str | None:
         """Look up a UUID by file path."""

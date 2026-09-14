@@ -33,6 +33,10 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
     state = SyncState(repo)
     state.load()
     entity_id = payload["data"]["id"]
+    # Reject known local ambiguity before spending Linear requests or scratch
+    # I/O. Authoritative removals retain their existing all-alias semantics.
+    if payload["action"] != "remove":
+        state.validate_aliases(entity_id)
     paths = [".sync/id-map.json", ".sync/state.json"]
     paths.extend(state.get_paths(entity_id))
     if payload["type"] == "Project":
@@ -48,6 +52,8 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
         }
         for child_id in child_ids:
             if child_id:
+                if payload["action"] != "remove":
+                    state.validate_aliases(child_id)
                 paths.extend(state.get_paths(child_id))
     with TemporaryDirectory(prefix="issueclaw-entity-") as directory:
         scratch = Path(directory)
