@@ -54,6 +54,32 @@ write boundary through `SyncState.validate_aliases`. They require an explicit
 resolution policy; retrying them or upgrading a cloud plan cannot choose a safe
 winner. Authoritative removal retains its existing all-owned-alias behavior.
 
+### Explicit Linear-authoritative recovery
+
+Only after operator approval, preserve the complete current mirror on a remote
+`recovery/` branch and use a separate clean local branch for resolution. Then:
+
+```sh
+python -m issueclaw.alias_recovery --repo-dir /path/to/recovery-checkout --items-file /private/pending-sample.json --recovery-branch recovery/approved-snapshot --limit 25
+```
+
+This is a mutating preparation tool, not ordinary replay or preview. It verifies
+that the backup ref exists remotely and that each historical file's Git blob hash
+matches that preserved commit before attempting recovery. In the isolated local
+checkout it temporarily equalizes those verified aliases, reuses the production
+renderer to fetch current Linear content, and restores originals before returning
+the complete edits. Source failure or cancellation restores originals. Apply-time
+disk failures stop the batch; inspect the disposable checkout before retrying.
+Do not run another writer in that checkout. A forced process kill can leave local
+uncommitted preparation state, recoverable from the remote snapshot.
+
+At most 25 conflicting owners and 120 seconds per invocation, with 20 seconds per
+owner. Successful edits remain local for review/commit; commit each batch before
+continuing, and publish a separate resolution PR. The command never publishes,
+claims or ACKs inbox work, never runs on `main`, and never changes the policy of
+ordinary replay. Keep the recovery branch after merging. The queue will still
+need a normal receipt-before-ACK replay after resolution lands.
+
 `captureStatements` is the single transaction for webhook and metadata capture.
 Webhooks record source versions when updatedAt is available. Metadata equal to or
 older than a captured version queues no new work, including already processed
