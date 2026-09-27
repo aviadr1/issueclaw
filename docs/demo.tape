@@ -1,8 +1,13 @@
-# Terminal demo: mirror fixture issues into local markdown, then search them.
-# No Linear API key. docs/demo_mirror.py uses the real renderer.
+# Terminal demo: a Linear mirror as plain markdown in git.
 #
-# Regenerate from the repo root. Needs VHS, ttyd, ffmpeg, and rg.
-# Create the project env first so the hidden setup can activate it:
+# No Linear account or API key. The hidden setup seeds a mirror of three
+# fixture issues with docs/demo_mirror.py, which writes files with issueclaw's
+# own renderer (the same code `issueclaw pull` uses) and commits them.
+# Everything on screen after that is real output: `issueclaw status`, `rg`,
+# a markdown edit, and `issueclaw diff` previewing what `issueclaw push`
+# would send to Linear.
+#
+# Regenerate from the repo root. Needs VHS, ttyd, ffmpeg, git, and rg:
 #
 #   uv sync
 #   vhs docs/demo.tape
@@ -12,39 +17,53 @@
 Output docs/demo.gif
 
 Require rg
+Require git
 
 Set Shell "bash"
 Set Theme "Catppuccin Mocha"
-Set FontSize 18
-Set Width 920
-Set Height 500
+Set FontSize 16
+Set Width 1000
+Set Height 640
 Set Padding 20
 Set Framerate 20
-Set TypingSpeed 28ms
+Set TypingSpeed 30ms
 Set WindowBar Colorful
 
-Env PS1 "$ "
-
 Hide
-Type "source .venv/bin/activate"
+Type "source .venv/bin/activate && export PS1='$ '"
 Enter
-Sleep 500ms
-Type "export PS1='$ '"
+Type "export GIT_AUTHOR_NAME=dev GIT_AUTHOR_EMAIL=dev@example.com GIT_COMMITTER_NAME=dev GIT_COMMITTER_EMAIL=dev@example.com"
 Enter
-Sleep 300ms
-Type "rm -rf /tmp/issueclaw-demo"
+Type "rm -rf /tmp/issueclaw-demo && python docs/demo_mirror.py /tmp/issueclaw-demo > /dev/null && cd /tmp/issueclaw-demo"
+Enter
+Type "git -c init.defaultBranch=main init -q && git add -A && git commit -qm 'issueclaw pull'"
+Enter
+Sleep 1s
+Type "clear"
 Enter
 Sleep 300ms
 Show
 
-Type "python docs/demo_mirror.py /tmp/issueclaw-demo"
+Type "# Linear, mirrored into git as markdown"
 Enter
-Sleep 1.5s
-
-Type "cd /tmp/issueclaw-demo"
+Type "issueclaw status"
 Enter
-Sleep 400ms
+Sleep 2s
 
 Type "rg -n login linear"
 Enter
-Sleep 3s
+Sleep 2.5s
+
+Type "head -6 linear/teams/ENG/issues/ENG-31-*.md"
+Enter
+Sleep 2s
+
+Type "# edit the file, commit, and preview the push to Linear"
+Enter
+Type "sed -i 's/^status: Todo/status: In Progress/' linear/teams/ENG/issues/ENG-31-*.md"
+Enter
+Type "git commit -qam 'Start ENG-31'"
+Enter
+Type "issueclaw diff"
+Enter
+Sleep 4s

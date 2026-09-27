@@ -1,6 +1,9 @@
-"""Write a fixture Linear mirror with issueclaw's renderer.
+"""Write a fixture Linear mirror for the README demo, without a Linear API key.
 
-No API key. Used by docs/demo.tape.
+Files are written with the same path, render, and sync-state functions that
+`issueclaw pull` uses, so `issueclaw status` and `issueclaw diff` read the
+result like a real mirror. Used by docs/demo.tape and
+tests/test_demo_mirror.py.
 """
 
 from __future__ import annotations
