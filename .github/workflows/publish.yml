@@ -47,6 +47,15 @@ jobs:
       - name: Build sdist and wheel
         run: uv build
 
+      - name: Smoke-test the built wheel
+        run: |
+          wheel=$(ls dist/issueclaw-*.whl)
+          expected="issueclaw, version ${GITHUB_REF_NAME#v}"
+          actual=$(uvx --from "$wheel" issueclaw --version)
+          echo "$actual"
+          test "$actual" = "$expected"
+          uvx --from "$wheel" issueclaw self skill > /dev/null
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
