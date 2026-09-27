@@ -1,7 +1,7 @@
 [project]
 name = "issueclaw"
 version = "0.1.0"
-description = "Issues as Code. Bidirectional sync between Linear and Git."
+description = "Mirror Linear into markdown files in git, and push your edits back. Issues as code for developers and AI agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -16,17 +16,17 @@ keywords = [
     "project-management",
     "sync",
     "issues-as-code",
+    "markdown",
+    "git",
+    "ai-agents",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Bug Tracking",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
     "click>=8.3.2",
@@ -42,7 +42,6 @@ Homepage = "https://github.com/aviadr1/issueclaw"
 Documentation = "https://github.com/aviadr1/issueclaw/tree/main/docs"
 Repository = "https://github.com/aviadr1/issueclaw"
 Issues = "https://github.com/aviadr1/issueclaw/issues"
-Changelog = "https://github.com/aviadr1/issueclaw/releases"
 
 [dependency-groups]
 dev = [
@@ -66,6 +65,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/issueclaw"]
+
+# Ship only what builds the wheel. The test suite also checks this repo's own
+# .github/workflows, so it only runs from a git checkout.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/issueclaw",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 markers = [
