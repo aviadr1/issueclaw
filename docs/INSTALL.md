@@ -7,19 +7,29 @@
 
 ## Install the CLI
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
-```
-
-Or manually:
+Git install works today:
 
 ```bash
 uv tool install git+https://github.com/aviadr1/issueclaw.git
 ```
 
+Or:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
+```
+
+PyPI, after the first release:
+
+```bash
+# Available after the first version tag is published to PyPI.
+uv tool install issueclaw
+# pip install issueclaw
+```
+
 Verify: `issueclaw self detect`
 
-Upgrade: `issueclaw self update`
+Upgrade a git install: `issueclaw self update`
 
 ## Environment variables
 
@@ -167,6 +177,6 @@ uv run pyright
 uv run ruff check && uv run ruff format --check
 ```
 
-## Not on PyPI (yet)
+## Distribution
 
-issueclaw is installed from GitHub. Consumer repos don't list it in `pyproject.toml` — CI installs it fresh each run.
+Git install is what works before the first PyPI release. After that release, `uv tool install issueclaw` and `pip install issueclaw` install the same package. Consumer repos still don't list issueclaw in `pyproject.toml` — CI installs it fresh each run, from git or from PyPI.

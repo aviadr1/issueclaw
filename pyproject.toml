@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Issues as Code. Bidirectional sync between Linear and Git."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Aviad Rozenhek" }
 ]
@@ -18,10 +19,13 @@ keywords = [
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Bug Tracking",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
@@ -35,8 +39,10 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/aviadr1/issueclaw"
+Documentation = "https://github.com/aviadr1/issueclaw/tree/main/docs"
 Repository = "https://github.com/aviadr1/issueclaw"
 Issues = "https://github.com/aviadr1/issueclaw/issues"
+Changelog = "https://github.com/aviadr1/issueclaw/releases"
 
 [dependency-groups]
 dev = [
@@ -53,11 +59,13 @@ dev = [
 issueclaw = "issueclaw.main:cli"
 issueclaw-inbox-replay = "issueclaw.inbox_replay:main"
 issueclaw-inbox-reconcile = "issueclaw.inbox_reconcile:main"
-precommit = "pre_commit.main:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/issueclaw"]
 
 [tool.pytest.ini_options]
 markers = [

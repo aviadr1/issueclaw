@@ -11,6 +11,10 @@
 
 Mirror Linear into local markdown so developers and agents can work against files, not slow paginated API calls.
 
+![Mirror issues into local markdown and search them](docs/demo.gif)
+
+The recording uses fixture issues (`docs/demo_mirror.py`), so it does not need a Linear API key. Regenerate it from the repo root with [VHS](https://github.com/charmbracelet/vhs): `vhs docs/demo.tape`.
+
 ## Why Developers Care
 
 - `linear/**` gives you a full local mirror of Linear in `.md` files.
@@ -46,19 +50,29 @@ Installing the CLI does not create a mirror repo. `issueclaw init` does.
 
 ## Step 1: Install The CLI
 
-### Quick install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
-```
-
-### Manual install
+### From Git (works today)
 
 ```bash
 uv tool install git+https://github.com/aviadr1/issueclaw.git
 ```
 
+Or:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
+```
+
+### From PyPI (after the first release)
+
+```bash
+# Available after the first version tag is published to PyPI.
+uv tool install issueclaw
+# pip install issueclaw
+```
+
 ### Upgrade
+
+Git installs upgrade with:
 
 ```bash
 issueclaw self update
