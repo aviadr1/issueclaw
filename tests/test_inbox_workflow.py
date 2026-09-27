@@ -3,12 +3,18 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 import pytest
 import yaml
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Runs a GitHub Actions `run:` step, which only executes on Linux "
+    "runners; on Windows `bash` is often WSL, which drops the test's environment.",
+)
 @pytest.mark.parametrize(
     "override,accepted",
     [

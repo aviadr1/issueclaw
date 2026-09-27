@@ -98,14 +98,14 @@ async def test_child_conflicts_never_escape_isolated_preparation(
             state.add_mapping(alias, "update-0")
         state.save()
         before = {
-            str(p.relative_to(tmp_path)): p.read_bytes()
+            p.relative_to(tmp_path).as_posix(): p.read_bytes()
             for p in tmp_path.rglob("*")
             if p.is_file()
         }
         with pytest.raises(ValueError):
             await prepare_entity(payload, "unused", tmp_path)
         assert before == {
-            str(p.relative_to(tmp_path)): p.read_bytes()
+            p.relative_to(tmp_path).as_posix(): p.read_bytes()
             for p in tmp_path.rglob("*")
             if p.is_file()
         }

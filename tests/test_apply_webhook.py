@@ -409,7 +409,9 @@ async def test_comment_lifecycle_refreshes_parent_and_is_repeatable(tmp_path, ac
             assert ("Current verification" in content) is (action != "remove")
             state = SyncState(tmp_path)
             state.load()
-            assert state.get_path("issue-uuid-1") == str(path.relative_to(tmp_path))
+            assert (
+                state.get_path("issue-uuid-1") == path.relative_to(tmp_path).as_posix()
+            )
 
 
 @pytest.mark.asyncio

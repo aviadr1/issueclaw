@@ -43,7 +43,8 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
         # Copy only this project's mapped update files, so child renames and
         # conflict checks retain the same protection as top-level identities.
         prefixes = [
-            str(Path(p).parent / "updates") + "/" for p in state.get_paths(entity_id)
+            (Path(p).parent / "updates").as_posix() + "/"
+            for p in state.get_paths(entity_id)
         ]
         child_ids = {
             state.get_uuid(p)
@@ -83,7 +84,7 @@ async def prepare_entity(payload: dict, api_key: str, repo: Path) -> list[FileCh
                         "Unprepared child aliases require explicit resolution"
                     )
         after = {
-            str(p.relative_to(scratch)): p.read_bytes()
+            p.relative_to(scratch).as_posix(): p.read_bytes()
             for p in scratch.rglob("*")
             if p.is_file()
         }

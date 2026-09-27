@@ -98,7 +98,7 @@ async def test_collision_fallback_never_overwrites_unrelated_content(
         state.add_mapping(fallback, fallback_owner)
         state.save()
     before = {
-        str(p.relative_to(tmp_path)): p.read_bytes()
+        p.relative_to(tmp_path).as_posix(): p.read_bytes()
         for p in tmp_path.rglob("*")
         if p.is_file()
     }
@@ -106,7 +106,7 @@ async def test_collision_fallback_never_overwrites_unrelated_content(
         await refresh(tmp_path, "Document", entry, "second-id", "Shared name")
     # Pull may update last-sync only on success; no failing writer may touch files.
     assert {
-        str(p.relative_to(tmp_path)): p.read_bytes()
+        p.relative_to(tmp_path).as_posix(): p.read_bytes()
         for p in tmp_path.rglob("*")
         if p.is_file()
     } == before

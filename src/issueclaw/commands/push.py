@@ -487,7 +487,7 @@ def detect_git_changes(repo_dir: Path) -> list[FileChange]:
     new_dir = repo_dir / "linear" / "new"
     if new_dir.exists():
         for md_file in new_dir.rglob("*.md"):
-            rel_path = str(md_file.relative_to(repo_dir))
+            rel_path = md_file.relative_to(repo_dir).as_posix()
             seen_queue_paths.add(rel_path)
             changes.append(
                 FileChange(

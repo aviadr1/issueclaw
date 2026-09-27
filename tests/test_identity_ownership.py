@@ -69,7 +69,7 @@ async def test_refresh_preserves_conflicting_files(
             aliases.add_mapping(target, "foreign")
             aliases.save()
     before = {
-        str(p.relative_to(tmp_path)): p.read_bytes()
+        p.relative_to(tmp_path).as_posix(): p.read_bytes()
         for p in tmp_path.rglob("*")
         if p.is_file()
     }
@@ -88,7 +88,7 @@ async def test_refresh_preserves_conflicting_files(
     if isolated and conflict == "divergent":
         client.fetch_issue.assert_not_awaited()
     assert {
-        str(p.relative_to(tmp_path)): p.read_bytes()
+        p.relative_to(tmp_path).as_posix(): p.read_bytes()
         for p in tmp_path.rglob("*")
         if p.is_file()
     } == before
