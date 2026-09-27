@@ -7,29 +7,21 @@
 
 ## Install the CLI
 
-Git install works today:
-
 ```bash
 uv tool install git+https://github.com/aviadr1/issueclaw.git
 ```
 
-Or:
+Or with the install script, which runs the same command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 ```
 
-PyPI, after the first release:
-
-```bash
-# Available after the first version tag is published to PyPI.
-uv tool install issueclaw
-# pip install issueclaw
-```
+issueclaw is not on PyPI yet. After the first release, `uv tool install issueclaw` or `pip install issueclaw` will also work.
 
 Verify: `issueclaw self detect`
 
-Upgrade a git install: `issueclaw self update`
+Upgrade a git install with `issueclaw self update`, which reinstalls from GitHub `main`. Upgrade a PyPI install with `uv tool upgrade issueclaw` or `pip install -U issueclaw`, because `self update` would switch it to the git version.
 
 ## Environment variables
 
@@ -54,11 +46,13 @@ issueclaw pull
 # Check sync status
 issueclaw status
 
-# Edit a markdown file, then push to Linear
-issueclaw push
+# Edit a markdown file and commit it. diff and push compare the last
+# commit with its parent, so uncommitted edits are not pushed.
+git commit -am "Update issue"
 
-# Preview what would change
+# Preview what would change, then push to Linear
 issueclaw diff
+issueclaw push
 
 # Create entities directly
 issueclaw create issue --team AI --title "Fix login bug" --priority 2
@@ -179,4 +173,4 @@ uv run ruff check && uv run ruff format --check
 
 ## Distribution
 
-Git install is what works before the first PyPI release. After that release, `uv tool install issueclaw` and `pip install issueclaw` install the same package. Consumer repos still don't list issueclaw in `pyproject.toml` — CI installs it fresh each run, from git or from PyPI.
+issueclaw installs from GitHub today. The package is ready for PyPI, and `.github/workflows/publish.yml` publishes it when a `v*.*.*` tag matching `[project].version` is pushed. Consumer repos don't list issueclaw in `pyproject.toml`: the reusable workflows install it from GitHub on every run (`uv tool install git+https://github.com/aviadr1/issueclaw.git`), even after a PyPI release.
