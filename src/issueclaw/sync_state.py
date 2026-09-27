@@ -105,7 +105,7 @@ class SyncState:
             for c in uuid
         ):
             raise ValueError("Invalid identity for filename")
-        fallback = str(path.with_name(f"{path.stem}-{uuid}{path.suffix}"))
+        fallback = path.with_name(f"{path.stem}-{uuid}{path.suffix}").as_posix()
         owner = self.get_uuid(relative)
         if self.get_uuid(fallback) == uuid or (owner is not None and owner != uuid):
             return fallback

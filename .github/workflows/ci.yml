@@ -64,6 +64,25 @@ jobs:
       - name: Basedpyright
         run: uv run basedpyright
 
+  test-windows:
+    # Not a required check. It keeps mirror paths POSIX on Windows, where
+    # str(Path) produces backslashes and the mirror rejects them.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests
+        run: uv run pytest -q -n auto
+
   test:
     runs-on: ubuntu-latest
     steps:
