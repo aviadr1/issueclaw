@@ -15,7 +15,7 @@ linear/
 .sync/id-map.json                  ← maps file paths → Linear UUIDs (do not edit)
 ```
 
-Teams: AI, ENG, WEB, MOB, BE, OPS, PRD, DSG
+Team directories use your workspace's team keys. List them with `ls linear/teams/`.
 
 ---
 
