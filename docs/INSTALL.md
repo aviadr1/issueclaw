@@ -3,21 +3,25 @@
 ## Prerequisites
 
 - **Python 3.12+**
-- **[uv](https://docs.astral.sh/uv/)** — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **[uv](https://docs.astral.sh/uv/)** (recommended) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
 ## Install the CLI
+
+```bash
+uv tool install issueclaw     # or: pip install issueclaw
+```
+
+To run the latest `main` from GitHub instead:
 
 ```bash
 uv tool install git+https://github.com/aviadr1/issueclaw.git
 ```
 
-Or with the install script, which runs the same command:
+Or with the install script, which runs the same git install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
 ```
-
-issueclaw is not on PyPI yet. After the first release, `uv tool install issueclaw` or `pip install issueclaw` will also work.
 
 Verify: `issueclaw self detect`
 

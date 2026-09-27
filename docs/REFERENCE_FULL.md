@@ -48,14 +48,14 @@ Inspired by the [OpenClaw](https://github.com/openclaw/openclaw) philosophy of a
 ## Quick Start
 
 ```bash
-# Install (from GitHub — not yet on PyPI)
-curl -fsSL https://raw.githubusercontent.com/aviadr1/issueclaw/main/install.sh | sh
+# Install from PyPI
+uv tool install issueclaw     # or: pip install issueclaw
 
-# Or install manually with uv
+# Upgrade
+uv tool upgrade issueclaw
+
+# Or run the latest main from GitHub (upgrade with `issueclaw self update`)
 uv tool install git+https://github.com/aviadr1/issueclaw.git
-
-# Upgrade to latest
-issueclaw self update
 
 # Set up a new repo with workflows, secrets, and Linear webhook
 export LINEAR_API_KEY=lin_api_...

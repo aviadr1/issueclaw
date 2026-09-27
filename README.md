@@ -3,6 +3,7 @@
 [![CI (main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/ci.yml?query=branch%3Amain)
 [![CodeQL (main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/aviadr1/issueclaw/actions/workflows/codeql.yml?query=branch%3Amain)
 [![Coverage (main)](https://codecov.io/gh/aviadr1/issueclaw/branch/main/graph/badge.svg)](https://app.codecov.io/gh/aviadr1/issueclaw/tree/main)
+[![PyPI](https://img.shields.io/pypi/v/issueclaw.svg)](https://pypi.org/project/issueclaw/)
 [![License: MIT](https://img.shields.io/github/license/aviadr1/issueclaw)](https://github.com/aviadr1/issueclaw/blob/main/LICENSE)
 [![Ruff](https://img.shields.io/badge/lint-ruff-46a2f1?logo=ruff&logoColor=white)](https://docs.astral.sh/ruff/)
 [![Basedpyright](https://img.shields.io/badge/types-basedpyright-5a45ff)](https://github.com/DetachHead/basedpyright)
@@ -17,14 +18,14 @@ Linear lives behind a paginated API, so every search is a request, AI agents can
 
 ## Install
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.12+.
 
 ```bash
-uv tool install git+https://github.com/aviadr1/issueclaw.git
+uv tool install issueclaw     # or: pip install issueclaw
 issueclaw --version
 ```
 
-issueclaw is not on PyPI yet. After the first release, `uv tool install issueclaw` or `pip install issueclaw` will work too.
+To run the latest `main` instead: `uv tool install git+https://github.com/aviadr1/issueclaw.git`.
 
 ## Quick start
 
@@ -135,7 +136,7 @@ issueclaw workflows doctor --repo-dir /path/to/linear-git
 
 ## Upgrade
 
-A git install upgrades with `issueclaw self update`, which reinstalls from GitHub `main` using uv. Once issueclaw is on PyPI, upgrade a PyPI install with `uv tool upgrade issueclaw` or `pip install -U issueclaw` instead, because `self update` would switch it to the git version.
+Upgrade a PyPI install with `uv tool upgrade issueclaw` or `pip install -U issueclaw`. A git install upgrades with `issueclaw self update`, which reinstalls from GitHub `main` using uv; don't run it on a PyPI install, because it would switch it to the git version.
 
 ## Documentation
 
