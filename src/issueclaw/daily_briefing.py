@@ -223,7 +223,14 @@ def publish(messages, state, cutoff, slack, save):
         state["last_cutoff"]
     ) >= report.instant(cutoff):
         return
-    ledger = state.setdefault("messages", {})
+    # Completed cutoffs are guarded by last_cutoff; only the pending thread needs
+    # receipts. Bound the state file instead of accumulating daily inventories.
+    ledger = {
+        key: receipt
+        for key, receipt in state.setdefault("messages", {}).items()
+        if key.startswith(cutoff + "/")
+    }
+    state["messages"] = ledger
     thread = None
     for name, text in messages:
         key = cutoff + "/" + name
