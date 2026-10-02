@@ -321,12 +321,27 @@ def prepare(config, mirror, out, state, now, cutoff=None):
         raise RuntimeError("Incomplete GitHub evidence; publication is blocked")
     tickets = set()
     inventory = []
+    reading_index = []
+    records = out / "pr-records"
+    records.mkdir(exist_ok=True)
     for source in manifest["repositories"]:
         rows = json.loads((out / "evidence" / source["file"]).read_text())
         for row in rows:
             merged = row.get("mergedAt")
             in_window = bool(merged and start <= report.instant(merged) < end)
             active = row["state"] == "OPEN"
+            record_file = f"{row['repo'].replace('/', '--')}--{row['number']}.json"
+            write_json(records / record_file, row)
+            reading_index.append(
+                {
+                    "pr": f"{row['repo']}#{row['number']}",
+                    "file": "pr-records/" + record_file,
+                    "daily_merged": in_window,
+                    "current_open": active,
+                    "review_events": len(row.get("reviews", [])),
+                    "inline_review_comments": len(row.get("review_comments", [])),
+                }
+            )
             if in_window or active:
                 tickets.update(row["ticket_mentions"])
                 entry = {
@@ -501,6 +516,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
         },
     )
     write_json(out / "inventory.json", inventory)
+    write_json(out / "reading-index.json", reading_index)
     write_json(out / "tickets.json", ticket_rows)
     write_json(out / "context.json", related_files)
     write_json(out / "ci.json", ci)
@@ -545,6 +561,21 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             + [f"{i:03d}-inventory.md" for i in range(2, len(chunks) + 2)],
         },
     )
+
+
+def validate_coverage(inventory, audit):
+    expected = {f"{row['repo']}#{row['number']}" for row in inventory}
+    seen = [row.get("pr") for row in audit]
+    if (
+        len(seen) != len(set(seen))
+        or set(seen) != expected
+        or any(
+            row.get("placement") not in {"story", "queue", "inventory"}
+            or not str(row.get("reason", "")).strip()
+            for row in audit
+        )
+    ):
+        raise RuntimeError("PR coverage audit must explain each inventory entry once")
 
 
 def main():
@@ -596,6 +627,9 @@ def main():
         for row in inventory
     ):
         raise RuntimeError("Inventory coverage is incomplete")
+    validate_coverage(inventory, json.loads((args.out / "coverage.json").read_text()))
+    if not (args.out / "coverage.md").read_text().strip():
+        raise RuntimeError("Missing coverage explanation")
     if args.command == "publish":
         if state.get("last_cutoff") and report.instant(
             state["last_cutoff"]
