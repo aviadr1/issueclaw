@@ -85,7 +85,7 @@ def event_evidence(repo, number, start, end):
     return result
 
 
-def collect(config, start, end, out_dir):
+def collect(config, start, end, out_dir, *, include_open=False):
     """Never suppress ticket-linked, CI, release, or bot PRs before synthesis.
 
     The separate merge query retains work merged in-window but updated later.
@@ -106,6 +106,8 @@ def collect(config, start, end, out_dir):
         ],
     }
     fields = "number,title,body,author,url,headRefName,baseRefName,state,isDraft,createdAt,updatedAt,mergedAt"
+    if include_open:
+        fields += ",reviewRequests,reviewDecision,headRefOid"
     for repo in config["repos"]:
         try:
             by_number = {}
@@ -133,10 +135,58 @@ def collect(config, start, end, out_dir):
                     )
                 by_number.update((row["number"], row) for row in rows)
 
+            if include_open:
+                # Carry-over work must survive even when it has no recent update.
+                rows = gh_json(
+                    "pr",
+                    "list",
+                    "-R",
+                    repo,
+                    "--state",
+                    "open",
+                    "--limit",
+                    "1000",
+                    "--json",
+                    fields,
+                )
+                if len(rows) >= 1000:
+                    raise ValueError(
+                        "open query reached 1000 PRs; inventory incomplete"
+                    )
+                by_number.update((row["number"], row) for row in rows)
+
             def enrich(pr):
                 pr = dict(pr)
                 pr.update(event_evidence(repo, pr["number"], start, end))
                 bucket = classify(pr, start, end)
+                if include_open and pr["state"] == "OPEN":
+                    bucket = "draft" if pr["isDraft"] else "open"
+                    # Fetch rollups one PR at a time: adding them to a 100-row
+                    # GraphQL search can exceed GitHub response/resource limits.
+                    snapshot = gh_json(
+                        "pr",
+                        "view",
+                        str(pr["number"]),
+                        "-R",
+                        repo,
+                        "--json",
+                        "headRefOid,statusCheckRollup",
+                    )
+                    if snapshot["headRefOid"] != pr["headRefOid"]:
+                        raise ValueError(
+                            f"PR {pr['number']} head changed during collection; retry"
+                        )
+                    pr["statusCheckRollup"] = snapshot["statusCheckRollup"]
+                    pr["requested_reviewers"] = [
+                        config.get("people", {}).get(
+                            r.get("login"),
+                            r.get("login")
+                            or r.get("name")
+                            or r.get("slug")
+                            or "unknown",
+                        )
+                        for r in pr.get("reviewRequests", [])
+                    ]
                 if bucket is None:
                     return None
                 login = (pr.get("author") or {}).get("login", "unknown")

@@ -1,0 +1,133 @@
+name: Daily learning briefing (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+      tooling-ref:
+        type: string
+        required: true
+      post-to-slack:
+        type: boolean
+        default: false
+      cutoff:
+        type: string
+        default: ''
+    secrets:
+      REPOS_READ_TOKEN:
+        required: true
+      ANTHROPIC_API_KEY:
+        required: true
+      SLACK_BOT_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install reporting tools
+        run: |
+          uv venv /tmp/briefing-venv
+          uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
+          npm install -g @anthropic-ai/claude-code
+      - name: Collect daily, review-history, ticket and CI evidence
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          BRIEFING_CUTOFF: ${{ inputs.cutoff }}
+          BRIEFING_PUBLISH: ${{ inputs.post-to-slack }}
+        run: |
+          args=()
+          if [ -n "$BRIEFING_CUTOFF" ]; then args+=(--cutoff "$BRIEFING_CUTOFF"); fi
+          if [ "$BRIEFING_PUBLISH" != 'true' ]; then args+=(--isolated); fi
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing prepare \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing "${args[@]}"
+      - name: Write learning briefing
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -o pipefail
+          if /tmp/briefing-venv/bin/python -c 'import json; exit(0 if json.load(open("/tmp/daily-briefing/window.json")).get("already_posted") or json.load(open("/tmp/daily-briefing/window.json")).get("resume") else 1)'; then
+            exit 0
+          fi
+          claude -p "$(cat .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md)" \
+            --dangerously-skip-permissions --model claude-sonnet-4-6 \
+            --output-format text > /tmp/daily-briefing/generation.log
+      - name: Validate message and inventory coverage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+        run: |
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing validate \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing
+          if [ -f /tmp/daily-briefing/messages/01-toplevel.md ]; then
+            test -s /tmp/daily-briefing/coverage.md
+            cat /tmp/daily-briefing/messages/01-toplevel.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Preserve evidence, coverage and messages
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: daily-learning-briefing
+          path: /tmp/daily-briefing/
+          retention-days: 45
+          if-no-files-found: error
+
+  publish:
+    needs: generate
+    if: ${{ inputs.post-to-slack }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v6
+        with:
+          name: daily-learning-briefing
+          path: /tmp/daily-briefing/
+      - name: Publish or resume Slack thread
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+        run: |
+          uv venv /tmp/briefing-venv
+          uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing publish \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing
