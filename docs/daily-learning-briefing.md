@@ -3,7 +3,7 @@
 A knowledge repository can run the reusable `daily-learning-briefing.yml` workflow
 with its own source configuration, schedule and existing reporting secrets. The
 workflow collects GitHub/Linear-mirror evidence, generates one concrete brief with
-named authors and reviewers, validates coverage, preserves artifacts, and posts a
+named authors and reviewers, validates coverage, validates a per-PR JSON coverage audit, preserves artifacts, and posts a
 channel message plus the complete inventory as replies in the same Slack thread.
 
 ## Caller configuration

@@ -8,14 +8,24 @@ Read inventory.json in manageable chunks; account for every repository and the t
 of every inventory. The complete daily merged/open/draft inventory and linked/active
 Linear tickets are already rendered into messages/*-inventory.md: do not modify them.
 Read evidence/manifest.json and ci.json, tickets.json and context.json. Exclude prior
-generated report documents from your reasoning. Read selected full PR records in
-per-repository evidence/*.json, retaining actual dated review/inline-comment links.
+generated report documents from your reasoning. The ONLY daily/current inventory is /tmp/daily-briefing/inventory.json. Files named
+*-inventory.json under evidence/ describe THIRTY DAYS, not today's merges. Never
+use them for daily counts. Read reading-index.json: it gives exact daily_merged
+flags, current_open flags, review-event counts and individual pr-records/*.json
+paths. Read selected individual records instead of enormous repository JSON files.
+Use Python json.load and selection to inspect large tickets/context/index files;
+never abandon a source because a text-reading tool truncates it. Inspect ticket
+owners for selected stories. Search records with nonzero review_events or
+inline_review_comments before deciding whether review recurrence is supported.
+Read actual dated reviews and review_comments in those records, not just PR bodies.
+Review_snapshot contains current reviews; dated reviews/comments are the 30-day
+history. Do not claim reviews are absent without checking reading-index totals.
 The evidence window includes 30 days of discussion; the daily merged window is ONLY
 window.json start (inclusive) to end_exclusive. Open PRs, reviewers, CI and tickets
 are current snapshots. Do not call older work new or infer implementation from
 updatedAt alone. If checkpoint recovery extends the daily window, say so.
 
-Write exactly messages/01-toplevel.md, approximately 350–500 words, maximum 550.
+Write /tmp/daily-briefing/messages/01-toplevel.md, approximately 350–500 words, maximum 550.
 Use standard Markdown, concise bullets and bold, no tables. Header: Backend learning
 briefing — local date and exact local window, including timezone. Use the provided
 window timezone, converting UTC timestamps correctly. Direct source links belong
@@ -47,12 +57,23 @@ For 'What to fix once', identify a repeated concrete problem in reviews using at
 least two independent PRs and actual reviewer comments, then propose one shared
 contract/test/helper/architecture check that could prevent it. If the evidence only
 shows an incident or related implementations, label that accurately; do not invent
-review recurrence. A day with no supported new pattern may omit this section.
+review recurrence. A day with no supported pattern may omit this section.
 Learning is the goal: explain how capabilities fit together and what we should
 change as a team. Do not rank people or list per-person PR totals. Use names in
 prose without Slack pings unless the caller explicitly configures verified IDs.
 
-Finish with one terse freshness/uncertainty line where material. Write a separate
-coverage.md describing the selected stories, each PR's inclusion or inventory-only
+Finish with one terse freshness/uncertainty line where material. Write /tmp/daily-briefing/coverage.md (NOT inside messages/) describing the selected stories, each PR's inclusion or inventory-only
 reason, reviewer evidence for any repeated problem, and any data limitations. It
 must reconcile with inventory.json; it is preserved as an artifact, not posted.
+
+Also write /tmp/daily-briefing/coverage.json as a JSON array with EXACTLY one entry
+for EVERY row in /tmp/daily-briefing/inventory.json, with no extras or duplicates:
+{"pr":"owner/repo#123","placement":"story|queue|inventory","reason":"concrete reason"}.
+You may use Python to build inventory-only defaults from the authoritative inventory,
+then update selected story/queue entries. Reconcile counts with that inventory in
+Python. Verify full ISO dates before comparing times: 01:45 on the next day is not
+01:45 on the starting day. Earlier PRs referenced for context must be explicitly
+called earlier context in the briefing, never counted as newly merged. Before
+finishing, check all three output paths exist and the coverage keys match exactly.
+Never describe a current-head CI snapshot as all green if it contains missing,
+skipped, cancelled or pending checks; cite the actual check/run and its status.

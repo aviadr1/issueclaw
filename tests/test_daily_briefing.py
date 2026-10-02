@@ -400,3 +400,18 @@ def test_weekday_window_keeps_friday_workday_and_weekend(date, start, end, hours
     assert a.isoformat() == start
     assert b.isoformat() == end
     assert (b - a).total_seconds() == hours * 3600
+
+
+def test_coverage_audit_requires_each_pr_once():
+    rows = [{"repo": "org/repo", "number": 1}, {"repo": "org/repo", "number": 2}]
+    good = [
+        {"pr": "org/repo#1", "placement": "story", "reason": "Adds a capability"},
+        {"pr": "org/repo#2", "placement": "inventory", "reason": "Old draft"},
+    ]
+    daily.validate_coverage(rows, good)
+    with pytest.raises(RuntimeError, match="coverage"):
+        daily.validate_coverage(rows, good[:1])
+    with pytest.raises(RuntimeError, match="coverage"):
+        daily.validate_coverage(rows, [good[0], good[0], good[1]])
+    with pytest.raises(RuntimeError, match="coverage"):
+        daily.validate_coverage(rows, [good[0], {**good[1], "reason": ""}])
