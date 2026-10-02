@@ -256,3 +256,70 @@ def test_successful_cutoff_is_idempotent():
         Slack(),
         lambda s: pytest.fail("no new state"),
     )
+
+
+def test_compact_discussions_page_all_channels_and_keep_inline_evidence(monkeypatch):
+    def node(n):
+        return {
+            "databaseId": n,
+            "body": "Actual review",
+            "createdAt": "2026-10-01T10:00:00Z",
+            "updatedAt": "2026-10-01T10:00:00Z",
+            "url": f"https://github.com/example/{n}",
+            "author": {"login": "rae"},
+        }
+
+    calls = []
+
+    def github(*args):
+        calls.append(args)
+        if args[1] == "graphql":
+            second = "commentsCursor=next" in args
+            pr = {}
+            pr["comments"] = {
+                "nodes": [node(2 if second else 1)],
+                "pageInfo": {"hasNextPage": not second, "endCursor": "next"},
+            }
+            if not second:
+                pr["reviews"] = {
+                    "totalCount": 1,
+                    "nodes": [
+                        {
+                            **node(3),
+                            "submittedAt": "2026-10-01T10:00:00Z",
+                            "state": "CHANGES_REQUESTED",
+                        }
+                    ],
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                }
+            return {"data": {"repository": {"pullRequest": pr}}}
+        return [[{"body": "Fix this invariant", "created_at": "2026-10-01T10:00:00Z"}]]
+
+    monkeypatch.setattr(report, "gh_json", github)
+    evidence = report.event_evidence(
+        "org/repo",
+        1,
+        datetime(2026, 10, 1, tzinfo=timezone.utc),
+        datetime(2026, 10, 2, tzinfo=timezone.utc),
+        compact=True,
+    )
+    assert len(evidence["comments"]) == 2
+    assert evidence["reviews"][0]["state"] == "CHANGES_REQUESTED"
+    assert evidence["review_comments"][0]["body"] == "Fix this invariant"
+    assert len(calls) == 3
+
+
+def test_unreviewed_pr_needs_no_rest_discussion_requests(monkeypatch):
+    def github(*args):
+        assert args[:2] == ("api", "graphql")
+        page = {
+            "nodes": [],
+            "totalCount": 0,
+            "pageInfo": {"hasNextPage": False, "endCursor": None},
+        }
+        return {
+            "data": {"repository": {"pullRequest": {"comments": page, "reviews": page}}}
+        }
+
+    monkeypatch.setattr(report, "gh_json", github)
+    assert report.compact_discussions("org/repo", 1)["review_comments"] == []

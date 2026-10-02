@@ -300,7 +300,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
         start = min(start, previous)
     history_start = min(start, end - timedelta(days=30))
     manifest = report.collect(
-        config, history_start, end, out / "evidence", include_open=True
+        config, history_start, end, out / "evidence", include_open=True, compact=True
     )
     if not manifest["complete"]:
         raise RuntimeError("Incomplete GitHub evidence; publication is blocked")

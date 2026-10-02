@@ -38,16 +38,107 @@ def classify(pr, start, end):
     return "follow_up" if merged else "closed_unmerged"
 
 
-def event_evidence(repo, number, start, end):
+def compact_discussions(repo, number):
+    """Page comments/reviews together; inline comments need REST only if reviews exist.
+
+    Published inline comments belong to a review. A PR with no reviews cannot have
+    published inline review comments; private pending drafts are not report evidence.
+    """
+    owner, name = repo.split("/")
+    query = """query($owner:String!, $name:String!, $number:Int!,
+        $commentsCursor:String, $reviewsCursor:String,
+        $commentsEnabled:Boolean!, $reviewsEnabled:Boolean!) {
+      repository(owner:$owner,name:$name) { pullRequest(number:$number) {
+        comments(first:100,after:$commentsCursor) @include(if:$commentsEnabled) {
+          nodes { databaseId body createdAt updatedAt url author { login ... on User { name } } }
+          pageInfo { hasNextPage endCursor }
+        }
+        reviews(first:100,after:$reviewsCursor) @include(if:$reviewsEnabled) {
+          totalCount
+          nodes { databaseId body submittedAt state url commit { oid } author { login ... on User { name } } }
+          pageInfo { hasNextPage endCursor }
+        }
+      } }
+    }"""
+    results = {"comments": [], "reviews": []}
+    enabled = {"comments": True, "reviews": True}
+    cursors = {}
+    review_count = 0
+    while any(enabled.values()):
+        args = [
+            "api",
+            "graphql",
+            "-f",
+            "query=" + query,
+            "-f",
+            "owner=" + owner,
+            "-f",
+            "name=" + name,
+            "-F",
+            "number=" + str(number),
+        ]
+        for key in enabled:
+            args += ["-F", key + "Enabled=" + str(enabled[key]).lower()]
+            if cursors.get(key):
+                args += ["-f", key + "Cursor=" + cursors[key]]
+        data = gh_json(*args)
+        if data.get("errors"):
+            raise ValueError(f"Incomplete discussion query for {repo}#{number}")
+        pr = data["data"]["repository"]["pullRequest"]
+        if pr is None:
+            raise ValueError(f"Missing discussion source {repo}#{number}")
+        for key in enabled:
+            if not enabled[key]:
+                continue
+            connection = pr[key]
+            if key == "reviews":
+                review_count = connection["totalCount"]
+            for node in connection["nodes"]:
+                results[key].append(
+                    {
+                        "id": node["databaseId"],
+                        "body": node["body"],
+                        "created_at": node.get("createdAt"),
+                        "updated_at": node.get("updatedAt"),
+                        "submitted_at": node.get("submittedAt"),
+                        "html_url": node["url"],
+                        "user": node.get("author"),
+                        "state": node.get("state"),
+                        "commit_id": (node.get("commit") or {}).get("oid"),
+                    }
+                )
+            enabled[key] = connection["pageInfo"]["hasNextPage"]
+            cursors[key] = connection["pageInfo"]["endCursor"]
+    inline = []
+    if review_count:
+        pages = gh_json(
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{repo}/pulls/{number}/comments?per_page=100",
+        )
+        inline = [event for page in pages for event in page]
+    results["review_comments"] = inline
+    return results
+
+
+def event_evidence(repo, number, start, end, *, compact=False):
     """Retain all discussion channels; never backdate post-cutoff comment text."""
     result = {}
+    bundled = compact_discussions(repo, number) if compact else None
+    if bundled is not None:
+        result["review_snapshot"] = bundled["reviews"]
     for key, endpoint, timestamps in (
         ("comments", f"issues/{number}/comments", ("created_at", "updated_at")),
         ("reviews", f"pulls/{number}/reviews", ("submitted_at",)),
         ("review_comments", f"pulls/{number}/comments", ("created_at", "updated_at")),
     ):
-        pages = gh_json(
-            "api", "--paginate", "--slurp", f"repos/{repo}/{endpoint}?per_page=100"
+        pages = (
+            [bundled[key]]
+            if bundled is not None
+            else gh_json(
+                "api", "--paginate", "--slurp", f"repos/{repo}/{endpoint}?per_page=100"
+            )
         )
         result[key] = []
         for page in pages:
@@ -85,7 +176,7 @@ def event_evidence(repo, number, start, end):
     return result
 
 
-def collect(config, start, end, out_dir, *, include_open=False):
+def collect(config, start, end, out_dir, *, include_open=False, compact=False):
     """Never suppress ticket-linked, CI, release, or bot PRs before synthesis.
 
     The separate merge query retains work merged in-window but updated later.
@@ -157,7 +248,9 @@ def collect(config, start, end, out_dir, *, include_open=False):
 
             def enrich(pr):
                 pr = dict(pr)
-                pr.update(event_evidence(repo, pr["number"], start, end))
+                pr.update(
+                    event_evidence(repo, pr["number"], start, end, compact=compact)
+                )
                 bucket = classify(pr, start, end)
                 if include_open and pr["state"] == "OPEN":
                     bucket = "draft" if pr["isDraft"] else "open"
