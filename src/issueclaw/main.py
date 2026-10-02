@@ -9,6 +9,7 @@ from issueclaw.commands.pull import pull_command
 from issueclaw.commands.push import push_command
 from issueclaw.commands.self_cmd import self_group
 from issueclaw.commands.status import status_command
+from issueclaw.slack_canvas import slack_canvas_command
 from issueclaw.commands.workflows_cmd import workflows_group
 
 
@@ -28,6 +29,7 @@ def cli(ctx, json_mode, verbose, quiet):
     ctx.obj["quiet"] = quiet
 
 
+cli.add_command(slack_canvas_command)
 cli.add_command(pull_command)
 cli.add_command(apply_webhook_command)
 cli.add_command(push_command)
