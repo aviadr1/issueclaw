@@ -415,3 +415,36 @@ def test_coverage_audit_requires_each_pr_once():
         daily.validate_coverage(rows, [good[0], good[0], good[1]])
     with pytest.raises(RuntimeError, match="coverage"):
         daily.validate_coverage(rows, [good[0], {**good[1], "reason": ""}])
+
+
+def test_delivery_ledger_drops_old_receipts_but_keeps_cutoff_idempotency():
+    old = "2026-10-01T05:00:00+00:00"
+    current = "2026-10-02T05:00:00+00:00"
+    state = {"last_cutoff": old, "messages": {old + "/01.md": {"ts": "old"}}}
+
+    class Slack:
+        def post(self, *args):
+            return "new"
+
+    daily.publish([("01.md", "new")], state, current, Slack(), lambda s: None)
+    assert state["messages"] == {current + "/01.md": {"ts": "new"}}
+    daily.publish(
+        [("01.md", "old")],
+        state,
+        old,
+        Slack(),
+        lambda s: pytest.fail("Already completed cutoff must not be written"),
+    )
+
+
+def test_github_failure_preserves_actionable_stderr(monkeypatch):
+    import subprocess
+
+    def failed(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            1, ["gh", "api", "graphql"], stderr="API rate limit exceeded"
+        )
+
+    monkeypatch.setattr(report.subprocess, "run", failed)
+    with pytest.raises(RuntimeError, match="API rate limit exceeded"):
+        report.gh_json("api", "graphql")
