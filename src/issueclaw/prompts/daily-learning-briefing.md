@@ -51,6 +51,11 @@ Write concrete sentences naming the people involved:
   'regression guard', say what CI rejects. Translate 'startup floor', 'shared utterance
   decision', and similar internal terms into concrete behavior.
 - Distinguish code merged, dev verified, production deployed and remaining gates.
+  A release PR merged into a production branch proves a branch merge, not a rollout.
+  A default-branch deployment success does not prove a production release deployed.
+  Require explicit environment/commit-specific deployment or post-deploy verification
+  evidence before saying production is fixed. Check feature flags, rollout prerequisites
+  and unchecked ticket acceptance criteria; state the remaining gate concretely.
 
 Use short bold labels: What changed; Waiting on people; CI; What to fix once.
 For 'What to fix once', identify a repeated concrete problem in reviews using at
