@@ -39,7 +39,7 @@ def classify(pr, start, end):
 
 
 def compact_discussions(repo, number):
-    """Page comments/reviews together; inline comments need REST only if reviews exist.
+    """Page comments/reviews together; fetch inline threads only if reviews exist.
 
     Published inline comments belong to a review. A PR with no reviews cannot have
     published inline review comments; private pending drafts are not report evidence.
@@ -111,13 +111,83 @@ def compact_discussions(repo, number):
             cursors[key] = connection["pageInfo"]["endCursor"]
     inline = []
     if review_count:
-        pages = gh_json(
-            "api",
-            "--paginate",
-            "--slurp",
-            f"repos/{repo}/pulls/{number}/comments?per_page=100",
-        )
-        inline = [event for page in pages for event in page]
+        thread_query = """query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
+          repository(owner:$owner,name:$name) { pullRequest(number:$number) {
+            reviewThreads(first:20,after:$cursor) {
+              nodes { id comments(first:20) {
+                nodes { databaseId body createdAt updatedAt url path line
+                        replyTo { databaseId } author { login ... on User { name } } }
+                pageInfo { hasNextPage endCursor }
+              } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } }
+        }"""
+        cursor = None
+        while True:
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                "query=" + thread_query,
+                "-f",
+                "owner=" + owner,
+                "-f",
+                "name=" + name,
+                "-F",
+                "number=" + str(number),
+            ]
+            if cursor:
+                args += ["-f", "cursor=" + cursor]
+            data = gh_json(*args)
+            if data.get("errors"):
+                raise ValueError(f"Incomplete inline query for {repo}#{number}")
+            threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+            for thread in threads["nodes"]:
+                comments = thread["comments"]
+                while True:
+                    for node in comments["nodes"]:
+                        inline.append(
+                            {
+                                "id": node["databaseId"],
+                                "body": node["body"],
+                                "created_at": node["createdAt"],
+                                "updated_at": node["updatedAt"],
+                                "html_url": node["url"],
+                                "user": node.get("author"),
+                                "path": node.get("path"),
+                                "line": node.get("line"),
+                                "in_reply_to_id": (node.get("replyTo") or {}).get(
+                                    "databaseId"
+                                ),
+                            }
+                        )
+                    if not comments["pageInfo"]["hasNextPage"]:
+                        break
+                    query = """query($id:ID!,$cursor:String!) {
+                      node(id:$id) { ... on PullRequestReviewThread { comments(first:100,after:$cursor) {
+                        nodes { databaseId body createdAt updatedAt url path line replyTo { databaseId } author { login ... on User { name } } }
+                        pageInfo { hasNextPage endCursor }
+                      } } }
+                    }"""
+                    more = gh_json(
+                        "api",
+                        "graphql",
+                        "-f",
+                        "query=" + query,
+                        "-f",
+                        "id=" + thread["id"],
+                        "-f",
+                        "cursor=" + comments["pageInfo"]["endCursor"],
+                    )
+                    if more.get("errors"):
+                        raise ValueError(
+                            f"Incomplete inline pagination for {repo}#{number}"
+                        )
+                    comments = more["data"]["node"]["comments"]
+            if not threads["pageInfo"]["hasNextPage"]:
+                break
+            cursor = threads["pageInfo"]["endCursor"]
     results["review_comments"] = inline
     return results
 

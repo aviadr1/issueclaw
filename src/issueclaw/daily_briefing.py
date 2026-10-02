@@ -413,39 +413,61 @@ def prepare(config, mirror, out, state, now, cutoff=None):
                     related_files.append(ticket)
     ci = []
     for repo in config["repos"]:
-        default = report.gh_json("api", f"repos/{repo}")["default_branch"]
-        pages = report.gh_json(
-            "api",
-            "--paginate",
-            "--slurp",
-            f"repos/{repo}/actions/runs?created=%3E%3D{(now - timedelta(days=2)).date()}&per_page=100",
-        )
-        latest = {}
-        for page in pages:
-            for run in page["workflow_runs"]:
-                if run["head_branch"] == default and run["event"] == "push":
-                    key = run["workflow_id"]
-                    if key not in latest or report.instant(
-                        run["created_at"]
-                    ) > report.instant(latest[key]["created_at"]):
-                        latest[key] = {
-                            k: run.get(k)
-                            for k in (
-                                "workflow_id",
-                                "name",
-                                "head_sha",
-                                "head_branch",
-                                "created_at",
-                                "status",
-                                "conclusion",
-                                "html_url",
-                            )
-                        }
+        owner, name = repo.split("/")
+        query = """query($owner:String!,$name:String!,$cursor:String) {
+          repository(owner:$owner,name:$name) { defaultBranchRef { name target { ... on Commit {
+            oid checkSuites(first:100,after:$cursor) {
+              nodes { conclusion status workflowRun { databaseId url createdAt workflow { name } } }
+              pageInfo { hasNextPage endCursor }
+            }
+          } } } }
+        }"""
+        latest, cursor, head = {}, None, None
+        while True:
+            args = [
+                "api",
+                "graphql",
+                "-f",
+                "query=" + query,
+                "-f",
+                "owner=" + owner,
+                "-f",
+                "name=" + name,
+            ]
+            if cursor:
+                args += ["-f", "cursor=" + cursor]
+            data = report.gh_json(*args)
+            if data.get("errors"):
+                raise RuntimeError(f"Incomplete default-branch CI for {repo}")
+            branch = data["data"]["repository"]["defaultBranchRef"]
+            target = branch["target"]
+            if head and head != target["oid"]:
+                raise RuntimeError(
+                    f"Default branch changed during CI collection for {repo}; retry"
+                )
+            head = target["oid"]
+            suites = target["checkSuites"]
+            for suite in suites["nodes"]:
+                run = suite.get("workflowRun")
+                if run:
+                    latest[run["databaseId"]] = {
+                        "name": run["workflow"]["name"],
+                        "head_sha": head,
+                        "head_branch": branch["name"],
+                        "created_at": run["createdAt"],
+                        "status": suite["status"],
+                        "conclusion": suite["conclusion"],
+                        "html_url": run["url"],
+                    }
+            if not suites["pageInfo"]["hasNextPage"]:
+                break
+            cursor = suites["pageInfo"]["endCursor"]
         ci.append(
             {
                 "repo": repo,
-                "default_branch": default,
-                "latest_push_runs": list(latest.values()),
+                "default_branch": branch["name"],
+                "head_sha": head,
+                "latest_head_runs": list(latest.values()),
             }
         )
     freshness = subprocess.check_output(

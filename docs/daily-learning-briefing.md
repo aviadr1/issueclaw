@@ -28,8 +28,10 @@ Current metadata is clearly separate from cutoff-bounded merge/discussion eviden
 The weekly collector remains unchanged by default. Daily collection opts into
 all open PRs and includes current head-SHA checks and requested reviewers. A query
 reaching GitHub's 1,000-result search limit blocks publication rather than silently
-omitting PRs. CI collection checks time-filtered default-branch push runs; the
-per-PR check rollups identify checks on the current PR head.
+omitting PRs. CI collection pages check suites on the current default-branch commit; per-PR
+check rollups identify checks on the current PR head. Discussions use paginated
+GraphQL comments, reviews and inline threads, avoiding thousands of REST requests
+when rebuilding the 30-day history. Timezone data ships with the package for Windows.
 
 ## Preview and recovery
 

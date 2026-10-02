@@ -213,9 +213,22 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         return {"complete": True, "repositories": [{"file": "repo.json"}]}
 
     def github(*args):
-        if args[-1].endswith("/org/repo"):
-            return {"default_branch": "main"}
-        return [{"workflow_runs": []}]
+        return {
+            "data": {
+                "repository": {
+                    "defaultBranchRef": {
+                        "name": "main",
+                        "target": {
+                            "oid": "abc",
+                            "checkSuites": {
+                                "nodes": [],
+                                "pageInfo": {"hasNextPage": False},
+                            },
+                        },
+                    }
+                }
+            }
+        }
 
     monkeypatch.setattr(report, "collect", collect)
     monkeypatch.setattr(report, "gh_json", github)
@@ -273,6 +286,32 @@ def test_compact_discussions_page_all_channels_and_keep_inline_evidence(monkeypa
 
     def github(*args):
         calls.append(args)
+        if args[1] == "graphql" and "reviewThreads" in args[args.index("-f") + 1]:
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "nodes": [
+                                    {
+                                        "id": "thread",
+                                        "comments": {
+                                            "nodes": [
+                                                {
+                                                    **node(4),
+                                                    "body": "Fix this invariant",
+                                                }
+                                            ],
+                                            "pageInfo": {"hasNextPage": False},
+                                        },
+                                    }
+                                ],
+                                "pageInfo": {"hasNextPage": False},
+                            }
+                        }
+                    }
+                }
+            }
         if args[1] == "graphql":
             second = "commentsCursor=next" in args
             pr = {}
