@@ -362,3 +362,41 @@ def test_unreviewed_pr_needs_no_rest_discussion_requests(monkeypatch):
 
     monkeypatch.setattr(report, "gh_json", github)
     assert report.compact_discussions("org/repo", 1)["review_comments"] == []
+
+
+@pytest.mark.parametrize(
+    "date,start,end,hours",
+    [
+        (
+            "2026-10-05T09:00:00+03:00",
+            "2026-10-02T05:00:00+00:00",
+            "2026-10-05T05:00:00+00:00",
+            72,
+        ),
+        (
+            "2026-10-06T09:00:00+03:00",
+            "2026-10-05T05:00:00+00:00",
+            "2026-10-06T05:00:00+00:00",
+            24,
+        ),
+        (
+            "2026-10-26T09:00:00+02:00",
+            "2026-10-23T05:00:00+00:00",
+            "2026-10-26T06:00:00+00:00",
+            73,
+        ),
+        (
+            "2026-10-03T09:00:00+03:00",
+            "2026-10-01T05:00:00+00:00",
+            "2026-10-02T05:00:00+00:00",
+            24,
+        ),
+    ],
+)
+def test_weekday_window_keeps_friday_workday_and_weekend(date, start, end, hours):
+    a, b = daily.window(
+        datetime.fromisoformat(date), "Asia/Jerusalem", 8, weekdays=[0, 1, 2, 3, 4]
+    )
+    assert a.isoformat() == start
+    assert b.isoformat() == end
+    assert (b - a).total_seconds() == hours * 3600

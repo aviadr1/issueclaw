@@ -10,6 +10,7 @@ channel message plus the complete inventory as replies in the same Slack thread.
 
 The JSON config supplies `repos` (owner/repo names), `people` (verified login/name
 mapping), `teams` (relevant Linear team identifiers), `timezone` (IANA), `hour`,
+`weekdays` (optional Python weekday numbers, Monday=0; all days by default),
 `channel` (Slack channel ID), `mirror_repository`, and `state_branch`. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
 the same reviewed issueclaw commit. Required secrets are `REPOS_READ_TOKEN`,
@@ -17,9 +18,12 @@ the same reviewed issueclaw commit. Required secrets are `REPOS_READ_TOKEN`,
 `contents: write` and `actions: read` for checkpoints and recovery artifacts.
 The existing Slack bot needs membership and posting permission in the destination.
 
-Scheduled runs use the most recent local daily cutoff even if GitHub starts late.
-The previous local cutoff is the start, so DST days cover 23 or 25 actual hours
-without gaps. Generation starts at the scheduled time; Slack arrives after
+Scheduled runs use the most recent configured local cutoff even if GitHub starts
+late. With `weekdays: [0, 1, 2, 3, 4]`, Monday covers Friday 08:00 through Monday
+08:00; Tuesday through Friday cover the previous morning through that morning.
+The first Monday includes Friday’s workday and the weekend even without an earlier
+checkpoint. DST changes preserve local boundaries without gaps (a fall-back Monday
+covers 73 actual hours). Generation starts at the scheduled time; Slack arrives after
 collection and generation, and GitHub can delay scheduled starts. It is not an
 exact-minute delivery guarantee. Review evidence is freshly collected for 30 days;
 open drafts and reviewers are collected even when their last update is older.

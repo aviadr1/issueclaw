@@ -23,12 +23,24 @@ import yaml
 from issueclaw import report_evidence as report
 
 
-def window(now, zone, hour):
+def previous_cutoff(end, weekdays):
+    start = end - timedelta(days=1)
+    while start.weekday() not in weekdays:
+        start -= timedelta(days=1)
+    return start
+
+
+def window(now, zone, hour, weekdays=None):
+    weekdays = set(range(7) if weekdays is None else weekdays)
+    if not weekdays or not weekdays <= set(range(7)):
+        raise ValueError("weekdays must contain weekday numbers from 0 to 6")
     local = now.astimezone(ZoneInfo(zone))
     end = local.replace(hour=hour, minute=0, second=0, microsecond=0)
     if local < end:
         end -= timedelta(days=1)
-    return (end - timedelta(days=1)).astimezone(timezone.utc), end.astimezone(
+    while end.weekday() not in weekdays:
+        end -= timedelta(days=1)
+    return previous_cutoff(end, weekdays).astimezone(timezone.utc), end.astimezone(
         timezone.utc
     )
 
@@ -283,11 +295,14 @@ def prepare(config, mirror, out, state, now, cutoff=None):
         info["resume"] = True
         write_json(out / "window.json", info)
         return
-    start, end = window(now, config["timezone"], config["hour"])
+    start, end = window(now, config["timezone"], config["hour"], config.get("weekdays"))
     if cutoff:
         end = report.instant(cutoff).astimezone(timezone.utc)
         start = (
-            end.astimezone(ZoneInfo(config["timezone"])) - timedelta(days=1)
+            previous_cutoff(
+                end.astimezone(ZoneInfo(config["timezone"])),
+                config.get("weekdays", range(7)),
+            )
         ).astimezone(timezone.utc)
     if state.get("last_cutoff"):
         previous = report.instant(state["last_cutoff"])
