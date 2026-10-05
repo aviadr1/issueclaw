@@ -783,12 +783,19 @@ def validate_output(out):
     return messages
 
 
-def generate(out, prompt):
+def generate(out, prompt, revision_notes=""):
     """Generate once, then allow at most two revisions using the same evidence."""
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted") or info.get("resume"):
         return
     instructions = prompt.read_text()
+    if revision_notes:
+        instructions += (
+            "\n\nRequired operator revision instructions:\n"
+            + revision_notes
+            + "\nRevise report.md and the TLDR using these instructions. "
+            "Keep prepared evidence and inventories unchanged; reconcile audits."
+        )
     protected = {
         p: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in list(out.rglob("*.json"))
@@ -818,7 +825,7 @@ def generate(out, prompt):
         ):
             raise RuntimeError("Prepared evidence changed during generation")
 
-    if not (out / "messages/01-toplevel.md").exists():
+    if revision_notes or not (out / "messages/01-toplevel.md").exists():
         run_model(instructions, "generation.log")
     for attempt in range(3):
         try:
@@ -865,6 +872,7 @@ def main():
     parser.add_argument("--cutoff")
     parser.add_argument("--prompt", type=Path)
     parser.add_argument("--evidence-run-id")
+    parser.add_argument("--revision-notes", default="")
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -875,7 +883,7 @@ def main():
     if args.command == "generate":
         if args.prompt is None:
             parser.error("generate requires --prompt")
-        generate(args.out, args.prompt)
+        generate(args.out, args.prompt, args.revision_notes)
         return
     if args.evidence_run_id:
         if args.command != "prepare" or not args.isolated:

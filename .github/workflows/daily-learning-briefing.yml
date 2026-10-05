@@ -15,6 +15,9 @@ on:
       cutoff:
         type: string
         default: ''
+      revision-notes:
+        type: string
+        default: ''
       evidence-run-id:
         type: string
         default: ''
@@ -74,12 +77,14 @@ jobs:
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing "${args[@]}"
       - name: Write and revise learning briefing
         env:
+          BRIEFING_REVISION_NOTES: ${{ inputs.revision-notes }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRIEFING_CONFIG: ${{ inputs.config }}
         run: |
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing generate \
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
-            --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md
+            --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
+            --revision-notes "$BRIEFING_REVISION_NOTES"
       - name: Validate message and inventory coverage
         env:
           GITHUB_TOKEN: ${{ github.token }}
