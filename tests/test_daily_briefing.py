@@ -667,7 +667,9 @@ def canvas_draft(tmp_path):
     (tmp_path / "messages/01-toplevel.md").write_text(
         "A short TLDR with the people and next decisions."
     )
-    (tmp_path / "messages/02-inventory.md").write_text("MERGED\n• Quiet inventory")
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "MERGED\n• Quiet inventory", encoding="utf-8"
+    )
     (tmp_path / "report.md").write_text("Full report " * 350)
     return prompt
 
