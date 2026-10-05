@@ -167,7 +167,7 @@ def slack_canvas_command(
         text = summary.read_text(encoding="utf-8")
         if url not in text:
             summary.write_text(
-                text.rstrip() + f"\n\n[Full design report in Slack Canvas]({url})\n",
+                text.rstrip() + f" [Full report in Slack Canvas]({url})\n",
                 encoding="utf-8",
             )
     click.echo(url)

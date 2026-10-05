@@ -72,6 +72,7 @@ def test_publish_and_resume(tmp_path, fail_info):
         assert result.exit_code == 0, result.output
     assert calls.count("canvases.create") == 1
     assert summary.read_text().count("https://team.slack.com/docs/F123") == 1
+    assert "\n\n" not in summary.read_text()
     assert "secret-test" not in state.read_text() + result.output
 
 
