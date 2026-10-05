@@ -107,3 +107,10 @@ receipt's pending marker only after checking Slack. A cutoff completes only when
 both the Canvas and its TLDR are delivered. New cutoffs replace the old receipt;
 previous reports remain accessible in Slack. Previews create neither Canvas nor
 Slack messages, and retain the assembled Markdown as an artifact.
+
+An operator can pass `revision-notes` to revise an existing preview even when its
+structural checks pass. Notes are passed through a quoted environment variable,
+not interpolated into shell code. Source/inventory immutability and audit checks
+still apply. A pending publication always skips the generator, including these
+notes. Callers should expose notes as a preview-only input; scheduled runs use the
+normal prompt. The revised artifact can then be reserved for exact publication.

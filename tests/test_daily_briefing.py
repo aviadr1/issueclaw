@@ -632,7 +632,9 @@ def test_generation_never_rewrites_pending_artifact(monkeypatch, tmp_path):
         "run",
         lambda *args, **kwargs: pytest.fail("immutable pending thread"),
     )
-    daily.generate(tmp_path, prompt)
+    daily.generate(
+        tmp_path, prompt, revision_notes="Must not rewrite a pending publication"
+    )
     assert len((tmp_path / "messages/01-toplevel.md").read_text().split()) == 551
 
 
@@ -760,3 +762,27 @@ def test_canvas_receipt_is_durable_and_retry_never_creates_twice(
             == "https://team.slack.com/docs/F123"
         )
     assert calls.count("canvases.create") == 1
+
+
+def test_operator_notes_revise_a_valid_canvas_preview(monkeypatch, tmp_path):
+    prompt = canvas_draft(tmp_path)
+    daily.validate_output(tmp_path)
+    calls = []
+
+    def claude(args, **kwargs):
+        calls.append(args)
+        assert "Explain the dev measurement accurately" in args[2]
+        (tmp_path / "report.md").write_text(
+            "A corrected full report.", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    daily.generate(
+        tmp_path, prompt, revision_notes="Explain the dev measurement accurately"
+    )
+    assert len(calls) == 1
+    assert (
+        (tmp_path / "canvas.md")
+        .read_text(encoding="utf-8")
+        .startswith("A corrected full report.")
+    )
