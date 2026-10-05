@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import click
 
 from issueclaw import daily_briefing as daily
 from issueclaw import report_evidence as report
@@ -146,8 +147,9 @@ def test_uncertain_reply_is_never_blindly_reposted():
     assert state.get("last_cutoff") is None
 
 
+@pytest.mark.parametrize("delivery_format", ["thread", "canvas"])
 def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, delivery_format
 ):
     import json
     import subprocess
@@ -242,6 +244,7 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
             "teams": ["BE"],
             "timezone": "Asia/Jerusalem",
             "hour": 8,
+            "delivery_format": delivery_format,
         },
         mirror,
         out,
@@ -256,6 +259,11 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
     messages = "".join(p.read_text() for p in (out / "messages").glob("*.md"))
     assert "org/repo#1" in messages and "org/repo#2" in messages and "Bo" in messages
     assert "BE-1" in messages
+    if delivery_format == "canvas":
+        delivery = json.loads((out / "delivery.json").read_text())
+        assert delivery["files"] == ["01-toplevel.md"]
+        assert delivery["inventory_files"]
+        assert delivery["canvas_title"] == "Backend learning briefing — 2026-10-02"
     review_evidence = json.loads((out / "review-learning-evidence.json").read_text())
     assert review_evidence["review_events"] == 2
     assert review_evidence["inline_review_comments"] == 2
@@ -637,3 +645,118 @@ def test_generator_cannot_rewrite_prepared_cutoff_or_inventory(monkeypatch, tmp_
     monkeypatch.setattr(daily.subprocess, "run", claude)
     with pytest.raises(RuntimeError, match="Prepared evidence changed"):
         daily.generate(tmp_path, prompt)
+
+
+def canvas_draft(tmp_path):
+    import json
+
+    prompt = prepared_draft(tmp_path)
+    (tmp_path / "window.json").write_text(
+        json.dumps({"delivery_format": "canvas", "timezone": "Asia/Jerusalem"})
+    )
+    (tmp_path / "delivery.json").write_text(
+        json.dumps(
+            {
+                "cutoff": "2026-10-05T05:00:00+00:00",
+                "files": ["01-toplevel.md"],
+                "inventory_files": ["02-inventory.md"],
+                "canvas_title": "Backend learning briefing — 2026-10-05",
+            }
+        )
+    )
+    (tmp_path / "messages/01-toplevel.md").write_text(
+        "A short TLDR with the people and next decisions."
+    )
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "MERGED\n• Quiet inventory", encoding="utf-8"
+    )
+    (tmp_path / "report.md").write_text("Full report " * 350)
+    return prompt
+
+
+def test_canvas_full_report_exceeds_550_words_and_contains_complete_inventory(tmp_path):
+    canvas_draft(tmp_path)
+    messages = daily.validate_output(tmp_path)
+    assert len(messages) == 1
+    assert len((tmp_path / "report.md").read_text().split()) > 550
+    assert "- Quiet inventory" in (tmp_path / "canvas.md").read_text()
+    assert "Full report" in (tmp_path / "canvas.md").read_text()
+
+
+def test_canvas_only_limits_the_tldr_and_digest_covers_full_report(tmp_path):
+    canvas_draft(tmp_path)
+    messages = daily.validate_output(tmp_path)
+    digest = daily.delivery_digest(tmp_path, messages)
+    (tmp_path / "report.md").write_text("Different full report")
+    daily.validate_output(tmp_path)
+    assert daily.delivery_digest(tmp_path, messages) != digest
+    (tmp_path / "messages/01-toplevel.md").write_text("word " * 181)
+    with pytest.raises(RuntimeError, match="TLDR exceeds 180 words"):
+        daily.validate_output(tmp_path)
+
+
+@pytest.mark.parametrize("failure", ["files_info", "uncertain_create"])
+def test_canvas_receipt_is_durable_and_retry_never_creates_twice(
+    monkeypatch, tmp_path, failure
+):
+    import copy
+    import json
+    import httpx
+    from issueclaw import slack_canvas
+
+    canvas_draft(tmp_path)
+    daily.validate_output(tmp_path)
+    state = {}
+    durable = []
+    calls = []
+
+    def save(value):
+        durable.append(copy.deepcopy(value))
+
+    def handle(request):
+        method = request.url.path.split("/")[-1]
+        calls.append(method)
+        if method == "canvases.create":
+            assert durable[-1]["canvas"]["receipt"]["pending"] is True
+            assert json.loads(request.content)["channel_id"] == "C123"
+            if failure == "uncertain_create":
+                raise httpx.ReadTimeout("lost response")
+            return httpx.Response(200, json={"ok": True, "canvas_id": "F123"})
+        assert method == "files.info"
+        assert durable[-1]["canvas"]["receipt"]["canvas_id"] == "F123"
+        if calls.count("files.info") == 1:
+            return httpx.Response(200, json={"ok": False, "error": "missing_scope"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/F123"},
+            },
+        )
+
+    monkeypatch.setattr(
+        slack_canvas,
+        "make_client",
+        lambda token: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    )
+    with pytest.raises((httpx.ReadTimeout, click.ClickException)):
+        daily.publish_canvas(tmp_path, {"channel": "C123"}, state, save, "test-token")
+    if failure == "uncertain_create":
+        with pytest.raises(click.ClickException, match="unknown"):
+            daily.publish_canvas(
+                tmp_path, {"channel": "C123"}, state, save, "test-token"
+            )
+    else:
+        assert (
+            daily.publish_canvas(
+                tmp_path, {"channel": "C123"}, state, save, "test-token"
+            )
+            == "https://team.slack.com/docs/F123"
+        )
+        assert (
+            durable[-1]["canvas"]["receipt"]["url"]
+            == "https://team.slack.com/docs/F123"
+        )
+    assert calls.count("canvases.create") == 1
