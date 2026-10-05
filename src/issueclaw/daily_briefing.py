@@ -329,11 +329,13 @@ def prepare(config, mirror, out, state, now, cutoff=None):
     tickets = set()
     inventory = []
     reading_index = []
+    review_records = []
     records = out / "pr-records"
     records.mkdir(exist_ok=True)
     for source in manifest["repositories"]:
         rows = json.loads((out / "evidence" / source["file"]).read_text())
         for row in rows:
+            review_records.append(row)
             merged = row.get("mergedAt")
             in_window = bool(merged and start <= report.instant(merged) < end)
             active = row["state"] == "OPEN"
@@ -524,6 +526,9 @@ def prepare(config, mirror, out, state, now, cutoff=None):
     )
     write_json(out / "inventory.json", inventory)
     write_json(out / "reading-index.json", reading_index)
+    write_json(
+        out / "review-learning-evidence.json", review_learning_evidence(review_records)
+    )
     write_json(out / "tickets.json", ticket_rows)
     write_json(out / "context.json", related_files)
     write_json(out / "ci.json", ci)
@@ -568,6 +573,77 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             + [f"{i:03d}-inventory.md" for i in range(2, len(chunks) + 2)],
         },
     )
+
+
+def review_learning_evidence(records):
+    """Keep review totals and usable dated comments separate from current snapshots."""
+    evidence = {"review_events": 0, "inline_review_comments": 0, "comments": []}
+    for row in records:
+        for field, count in (
+            ("reviews", "review_events"),
+            ("review_comments", "inline_review_comments"),
+        ):
+            evidence[count] += len(row.get(field, []))
+            for event in row.get(field, []):
+                body = event.get("body")
+                date = event.get("submitted_at") or event.get("created_at")
+                if not (body and body.strip() and date and event.get("html_url")):
+                    continue
+                if event.get("body_available_at_cutoff") is False:
+                    continue
+                evidence["comments"].append(
+                    {
+                        "pr": f"{row['repo']}#{row['number']}",
+                        "url": event["html_url"],
+                        "reviewer": (event.get("user") or {}).get("login", "unknown"),
+                        "date": date,
+                        "body": body,
+                    }
+                )
+    return evidence
+
+
+def validate_review_learning(evidence, audit, top):
+    """A claimed review pattern needs genuine comments from independent PRs."""
+
+    def reject(detail):
+        raise RuntimeError("Review learning audit: " + detail)
+
+    for key in ("review_events", "inline_review_comments"):
+        if audit.get(key) != evidence[key]:
+            reject("review totals disagree with collected evidence")
+    available = {(r["pr"], r["url"]) for r in evidence["comments"]}
+    prs = {pr for pr, _ in available}
+    inspected = set(audit.get("inspected_prs", []))
+    if not inspected <= prs or len(inspected) < min(2, len(prs)):
+        reject("inspect dated comments from independent PRs")
+    patterns = audit.get("patterns")
+    if not isinstance(patterns, list):
+        reject("patterns must be an array")
+    for pattern in patterns:
+        citations = pattern.get("evidence", [])
+        keys = {(r.get("pr"), r.get("url")) for r in citations}
+        if not keys <= available or len({pr for pr, _ in keys}) < 2:
+            reject("patterns need real comment URLs from at least two PRs")
+        if not {pr for pr, _ in keys} <= inspected:
+            reject("pattern sources must have been inspected")
+        if (
+            not pattern.get("summary", "").strip()
+            or not pattern.get("shared_solution", "").strip()
+        ):
+            reject("explain the repeated problem and shared solution")
+        if "What to fix once" not in top or any(url not in top for _, url in keys):
+            reject("the briefing must cite its review pattern evidence")
+    if not patterns and not audit.get("no_pattern_reason", "").strip():
+        reject("explain why no recurring problem is supported")
+    if evidence["comments"] and re.search(
+        r"no review (?:comments|evidence|reviews) (?:were |was |is )?(?:present|available|found)",
+        top,
+        re.I,
+    ):
+        reject("collected review evidence cannot be described as absent")
+    if re.search(r"\ball[- ]green\b", top, re.I):
+        raise RuntimeError("CI claims must name the observed checks and statuses")
 
 
 def validate_coverage(inventory, audit):
@@ -637,6 +713,11 @@ def main():
     validate_coverage(inventory, json.loads((args.out / "coverage.json").read_text()))
     if not (args.out / "coverage.md").read_text().strip():
         raise RuntimeError("Missing coverage explanation")
+    validate_review_learning(
+        json.loads((args.out / "review-learning-evidence.json").read_text()),
+        json.loads((args.out / "review-learning.json").read_text()),
+        messages[0][1],
+    )
     if args.command == "publish":
         if state.get("last_cutoff") and report.instant(
             state["last_cutoff"]

@@ -273,6 +273,9 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
     fields = "number,title,body,author,url,headRefName,baseRefName,state,isDraft,createdAt,updatedAt,mergedAt"
     if include_open:
         fields += ",reviewRequests,reviewDecision,headRefOid"
+    people = {
+        login.casefold(): name for login, name in config.get("people", {}).items()
+    }
     for repo in config["repos"]:
         try:
             by_number = {}
@@ -345,8 +348,8 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
                         )
                     pr["statusCheckRollup"] = snapshot["statusCheckRollup"]
                     pr["requested_reviewers"] = [
-                        config.get("people", {}).get(
-                            r.get("login"),
+                        people.get(
+                            (r.get("login") or "").casefold(),
                             r.get("login")
                             or r.get("name")
                             or r.get("slug")
@@ -357,7 +360,7 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
                 if bucket is None:
                     return None
                 login = (pr.get("author") or {}).get("login", "unknown")
-                pr["person"] = config.get("people", {}).get(login, login)
+                pr["person"] = people.get(login.casefold(), login)
                 pr["repo"] = repo
                 pr["bucket"] = bucket
                 blob = "\n".join(
