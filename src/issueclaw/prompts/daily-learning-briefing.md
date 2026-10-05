@@ -81,7 +81,9 @@ For 'What to fix once', identify a repeated concrete problem in reviews using at
 least two independent PRs and actual reviewer comments, then propose one shared
 contract/test/helper/architecture check that could prevent it. If the evidence only
 shows an incident or related implementations, label that accurately; do not invent
-review recurrence. The pattern may come from earlier reviews: explicitly label it a lesson from the
+review recurrence. Describe reviewed hazards as findings in proposed code. Do not say they shipped,
+remain unfixed or reached production without current PR/deployment evidence.
+The pattern may come from earlier reviews: explicitly label it a lesson from the
 30-day review history, rather than today's new work. Cite direct reviewer-comment
 URLs for at least two independent PRs in this section. Name the reviewers, identifying
 automated Codex reviews accurately. A day with no supported pattern may omit this
