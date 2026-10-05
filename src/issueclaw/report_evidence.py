@@ -10,9 +10,13 @@ from pathlib import Path
 
 
 def gh_json(*args):
-    result = subprocess.run(
-        ["gh", *args], capture_output=True, text=True, check=True, timeout=180
-    )
+    try:
+        result = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, check=True, timeout=180
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "GitHub request failed").strip()[:1500]
+        raise RuntimeError(f"GitHub evidence request failed: {detail}") from exc
     return json.loads(result.stdout)
 
 

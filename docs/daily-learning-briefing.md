@@ -49,7 +49,10 @@ prepared artifact run ID and content digest. Every message has a stable metadata
 key and a durable intent/receipt. Only a fully posted thread advances last_cutoff.
 The next run resumes a pending thread from that exact artifact, without regenerating
 its messages. A later run covers any missed days from the last successful cutoff.
-A successful cutoff is never reposted, even if a workflow is rerun.
+A successful cutoff is never reposted, even if a workflow is rerun. Receipts for
+older completed cutoffs are pruned when the next thread starts, keeping the
+checkpoint small. GitHub collection errors preserve the CLI diagnostic in the
+manifest, so quota and permission failures are distinguishable.
 
 If a network loss occurs after Slack may have accepted a message, recovery attempts
 to find its metadata in Slack history/replies. This requires history permissions;
