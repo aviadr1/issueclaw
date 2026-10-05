@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from issueclaw.pr_waiting import classify_waiting
+
 
 def gh_json(*args):
     try:
@@ -54,12 +56,12 @@ def compact_discussions(repo, number):
         $commentsEnabled:Boolean!, $reviewsEnabled:Boolean!) {
       repository(owner:$owner,name:$name) { pullRequest(number:$number) {
         comments(first:100,after:$commentsCursor) @include(if:$commentsEnabled) {
-          nodes { databaseId body createdAt updatedAt url author { login ... on User { name } } }
+          nodes { databaseId body createdAt updatedAt url author { login __typename ... on User { name } } }
           pageInfo { hasNextPage endCursor }
         }
         reviews(first:100,after:$reviewsCursor) @include(if:$reviewsEnabled) {
           totalCount
-          nodes { databaseId body submittedAt state url commit { oid } author { login ... on User { name } } }
+          nodes { databaseId body submittedAt state url commit { oid } author { login __typename ... on User { name } } }
           pageInfo { hasNextPage endCursor }
         }
       } }
@@ -112,7 +114,7 @@ def compact_discussions(repo, number):
                     }
                 )
             enabled[key] = connection["pageInfo"]["hasNextPage"]
-            cursors[key] = connection["pageInfo"]["endCursor"]
+            cursors[key] = connection["pageInfo"].get("endCursor")
     inline = []
     if review_count:
         thread_query = """query($owner:String!,$name:String!,$number:Int!,$cursor:String) {
@@ -120,7 +122,7 @@ def compact_discussions(repo, number):
             reviewThreads(first:20,after:$cursor) {
               nodes { id comments(first:20) {
                 nodes { databaseId body createdAt updatedAt url path line
-                        replyTo { databaseId } author { login ... on User { name } } }
+                        replyTo { databaseId } author { login __typename ... on User { name } } }
                 pageInfo { hasNextPage endCursor }
               } }
               pageInfo { hasNextPage endCursor }
@@ -170,7 +172,7 @@ def compact_discussions(repo, number):
                         break
                     query = """query($id:ID!,$cursor:String!) {
                       node(id:$id) { ... on PullRequestReviewThread { comments(first:100,after:$cursor) {
-                        nodes { databaseId body createdAt updatedAt url path line replyTo { databaseId } author { login ... on User { name } } }
+                        nodes { databaseId body createdAt updatedAt url path line replyTo { databaseId } author { login __typename ... on User { name } } }
                         pageInfo { hasNextPage endCursor }
                       } } }
                     }"""
@@ -196,12 +198,145 @@ def compact_discussions(repo, number):
     return results
 
 
-def event_evidence(repo, number, start, end, *, compact=False):
+def current_activity(repo, pr):
+    """Page current commits and human handoffs separately from dated learning.
+
+    Commit dates are not a complete push log; force-push events retain their real
+    timestamp. Current discussions are collected before filtering the merge window.
+    """
+    query = """query($owner:String!,$name:String!,$number:Int!,
+        $commitsCursor:String,$eventsCursor:String,
+        $commitsEnabled:Boolean!,$eventsEnabled:Boolean!) {
+      repository(owner:$owner,name:$name) { pullRequest(number:$number) {
+        state headRefOid
+        commits(first:100,after:$commitsCursor) @include(if:$commitsEnabled) {
+          nodes { commit { oid committedDate url
+            author { user { login } } committer { user { login } } } }
+          pageInfo { hasNextPage endCursor }
+        }
+        timelineItems(first:100,after:$eventsCursor,itemTypes:[REVIEW_REQUESTED_EVENT,
+          REVIEW_REQUEST_REMOVED_EVENT,HEAD_REF_FORCE_PUSHED_EVENT,
+          READY_FOR_REVIEW_EVENT,CONVERT_TO_DRAFT_EVENT,REOPENED_EVENT])
+          @include(if:$eventsEnabled) {
+          nodes { __typename
+            ... on ReviewRequestedEvent { createdAt actor { login __typename } }
+            ... on ReviewRequestRemovedEvent { createdAt actor { login __typename } }
+            ... on HeadRefForcePushedEvent { createdAt actor { login __typename } }
+            ... on ReadyForReviewEvent { createdAt actor { login __typename } }
+            ... on ConvertToDraftEvent { createdAt actor { login __typename } }
+            ... on ReopenedEvent { createdAt actor { login __typename } }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      } }
+    }"""
+    owner, name = repo.split("/")
+    events, enabled, cursors = [], {"commits": True, "events": True}, {}
+    while any(enabled.values()):
+        args = [
+            "api",
+            "graphql",
+            "-f",
+            "query=" + query,
+            "-f",
+            "owner=" + owner,
+            "-f",
+            "name=" + name,
+            "-F",
+            "number=" + str(pr["number"]),
+        ]
+        for key in enabled:
+            args += ["-F", key + "Enabled=" + str(enabled[key]).lower()]
+            if cursors.get(key):
+                args += ["-f", key + "Cursor=" + cursors[key]]
+        data = gh_json(*args)
+        if data.get("errors"):
+            raise ValueError(f"Incomplete current activity for {repo}#{pr['number']}")
+        current = data["data"]["repository"]["pullRequest"]
+        if (
+            not current
+            or current["state"] != "OPEN"
+            or current["headRefOid"] != pr["headRefOid"]
+        ):
+            raise ValueError(
+                f"PR {pr['number']} changed during activity collection; retry"
+            )
+        for key in enabled:
+            if not enabled[key]:
+                continue
+            connection = current["commits" if key == "commits" else "timelineItems"]
+            for node in connection["nodes"]:
+                if key == "commits":
+                    commit = node["commit"]
+                    events.append(
+                        {
+                            "kind": "commit",
+                            "at": commit["committedDate"],
+                            "url": commit["url"],
+                            "sha": commit["oid"],
+                            "identity_complete": bool(
+                                (commit.get("author", {}).get("user") or {}).get(
+                                    "login"
+                                )
+                            ),
+                            "actors": [
+                                (commit.get(role, {}).get("user") or {}).get("login")
+                                for role in ("author", "committer")
+                            ],
+                        }
+                    )
+                else:
+                    events.append(
+                        {
+                            "kind": node["__typename"],
+                            "at": node["createdAt"],
+                            "url": pr["url"],
+                            "actors": [(node.get("actor") or {}).get("login")],
+                            "automated": (node.get("actor") or {}).get("__typename")
+                            == "Bot",
+                        }
+                    )
+            enabled[key] = connection["pageInfo"]["hasNextPage"]
+            cursors[key] = connection["pageInfo"].get("endCursor")
+    for channel, kind in (
+        ("comments", "comment"),
+        ("reviews", "review"),
+        ("review_comments", "inline_comment"),
+    ):
+        for event in pr["discussion_snapshot"][channel]:
+            events.append(
+                {
+                    "kind": kind,
+                    "at": event.get("submitted_at")
+                    or event.get("updated_at")
+                    or event.get("created_at"),
+                    "url": event.get("html_url"),
+                    "state": event.get("state"),
+                    "actors": [(event.get("user") or {}).get("login")],
+                    "automated": (event.get("user") or {}).get("type") == "Bot"
+                    or (event.get("user") or {}).get("__typename") == "Bot",
+                }
+            )
+    events.sort(key=lambda event: event.get("at") or "")
+    return {
+        "complete": True,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "head_sha": pr["headRefOid"],
+        "events": events,
+        "limitations": [
+            "Commit timestamps are not a complete push log; deleted comments and removed commits are unavailable.",
+            "Issue-comment reviews require reading their bodies; formal reviews alone may not capture the team's review process.",
+        ],
+    }
+
+
+def event_evidence(repo, number, start, end, *, compact=False, include_current=False):
     """Retain all discussion channels; never backdate post-cutoff comment text."""
     result = {}
     bundled = compact_discussions(repo, number) if compact else None
     if bundled is not None:
         result["review_snapshot"] = bundled["reviews"]
+    current = {}
     for key, endpoint, timestamps in (
         ("comments", f"issues/{number}/comments", ("created_at", "updated_at")),
         ("reviews", f"pulls/{number}/reviews", ("submitted_at",)),
@@ -214,6 +349,8 @@ def event_evidence(repo, number, start, end, *, compact=False):
                 "api", "--paginate", "--slurp", f"repos/{repo}/{endpoint}?per_page=100"
             )
         )
+        if include_current:
+            current[key] = [event for page in pages for event in page]
         result[key] = []
         for page in pages:
             for event in page:
@@ -247,6 +384,8 @@ def event_evidence(repo, number, start, end, *, compact=False):
                 if edited_after:
                     evidence["body"] = None
                 result[key].append(evidence)
+    if include_current:
+        result["discussion_snapshot"] = current
     return result
 
 
@@ -326,7 +465,14 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
             def enrich(pr):
                 pr = dict(pr)
                 pr.update(
-                    event_evidence(repo, pr["number"], start, end, compact=compact)
+                    event_evidence(
+                        repo,
+                        pr["number"],
+                        start,
+                        end,
+                        compact=compact,
+                        include_current=include_open and pr["state"] == "OPEN",
+                    )
                 )
                 bucket = classify(pr, start, end)
                 if include_open and pr["state"] == "OPEN":
@@ -347,6 +493,10 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
                             f"PR {pr['number']} head changed during collection; retry"
                         )
                     pr["statusCheckRollup"] = snapshot["statusCheckRollup"]
+                    pr["activity_snapshot"] = current_activity(repo, pr)
+                    pr["waiting"] = classify_waiting(
+                        pr, instant(pr["activity_snapshot"]["as_of"]), people
+                    )
                     pr["requested_reviewers"] = [
                         people.get(
                             (r.get("login") or "").casefold(),

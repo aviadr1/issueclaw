@@ -36,8 +36,9 @@ If window.delivery_format is "canvas":
   usually 3–6 items, at most 8 distinct open/draft PRs anywhere in the report.
   Prioritize work that moved in this window, a concrete blocker, or a review whose
   next decision matters. A requested reviewer alone does not make a stale PR useful.
-  Include active work without reviewers when its progress or blocker matters; label
-  drafts. Name the author, ticket owner when relevant, reviewer and next step.
+  Keep active work under a separate "Active work" label inside this section; an open
+  PR or draft is not automatically waiting. Name the author, ticket owner when
+  relevant, the person who has the next action and that action.
   Link only tickets supporting those items; do not dump the ticket backlog or claim
   the full open/draft list follows. Explain why omitted PRs stay in evidence in the
   coverage audit. The complete private inventories still require exact coverage.
@@ -62,8 +63,32 @@ Use clear, concrete language:
 - Explain internal terms: 'payments tests load only payments routes' is clearer than
   'domain-scoped URLconf'. Say which tests/requests are affected. Avoid 'composition
   root', 'conftest leakage', 'startup floor' and similar unexplained jargon.
-- Waiting on people names the author, requested reviewer, concrete problem and next
-  decision. Mark drafts as drafts. Requested reviews are not completed reviews.
+- Waiting on people uses each selected PR's `waiting`, `activity_snapshot` and full
+  `discussion_snapshot`, not just requested_reviewers or reviewDecision. A requested
+  review that has not been given waits on the named reviewer(s). After feedback,
+  no later author commit/comment means waiting on the author. Four elapsed days
+  (96 hours) without substantive movement overrides both: waiting on the author
+  to follow up, unblock, merge or close. CI runs, labels and bot comments do not
+  reset the clock. Commit timestamps, human discussions/reviews, review requests
+  and readiness/reopen/force-push events establish movement; updatedAt alone does not.
+- Submitted reviews and inline replies establish feedback. Also READ issue-comment
+  bodies: teams may post substantive reviews there while formal requests remain.
+  The prepared `waiting` is a baseline for formal/inline feedback. For a clear
+  review posted as an issue comment, recompute in Python using
+  `issueclaw.pr_waiting.classify_waiting(record, as_of_datetime, people_mapping,
+  review_comment_urls=[exact_collected_comment_url, ...])` without modifying sources.
+  Supply only comments whose bodies clearly provide a review; a scheduling reply is
+  not a review. Compare author activity AFTER that comment before assigning a wait. A teammate's commit/comment is not an author
+  follow-up; acknowledge the teammate's work. Self-reviews are not external feedback.
+  Pending/dismissed formal reviews are not current feedback. An approval returns
+  the next action to the author as well; it does not make that reviewer a blocker.
+- Write each wait as "Waiting on Full Name — reason; evidence/date; next action".
+  Cite the actual review/comment or dated last movement. Label drafts and active
+  work separately. Author follow-up clears that specific author wait; outstanding
+  requests can return the action to reviewers. Do not invent a review dependency.
+  Missing current snapshots or unattributed possible author follow-up means the
+  waiting person is unverified, not absent. Use the activity snapshot's as_of time,
+  which can be later than the merge cutoff. Never present closed/merged PRs as waiting.
 - CI names observed checks and statuses, with exact run links. Failed, pending,
   skipped, cancelled and missing differ. Never say 'all green'. If only a security
   scan is visible, tests/types are unknown. Failed security CI alone does not prove

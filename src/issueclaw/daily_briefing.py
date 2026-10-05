@@ -368,6 +368,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
                         "headRefOid",
                         "baseRefName",
                         "mergedAt",
+                        "waiting",
                     )
                 }
                 entry["state"] = (

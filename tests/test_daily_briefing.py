@@ -52,6 +52,20 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
     )
 
     def github(*args):
+        if args[:2] == ("api", "graphql"):
+            page = {"nodes": [], "pageInfo": {"hasNextPage": False}}
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "state": "OPEN",
+                            "headRefOid": "abc",
+                            "commits": page,
+                            "timelineItems": page,
+                        }
+                    }
+                }
+            }
         if args[:2] == ("pr", "view"):
             return {"headRefOid": "abc", "statusCheckRollup": []}
         if args[0] == "pr":
@@ -76,6 +90,8 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
     assert rows[0]["bucket"] == "draft"
     assert rows[0]["person"] == "Bo"
     assert rows[0]["requested_reviewers"] == ["Rae"]
+    assert rows[0]["waiting"]["kind"] == "author"
+    assert rows[0]["waiting"]["reason"] == "inactive_four_days"
 
 
 def test_publish_resumes_thread_without_reposting_completed_messages():
