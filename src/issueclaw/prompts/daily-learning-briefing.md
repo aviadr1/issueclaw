@@ -30,7 +30,7 @@ window.json start (inclusive) to end_exclusive. Open PRs, reviewers, CI and tick
 are current snapshots. Do not call older work new or infer implementation from
 updatedAt alone. If checkpoint recovery extends the daily window, say so.
 
-Write /tmp/daily-briefing/messages/01-toplevel.md, approximately 350–500 words, maximum 550.
+Write /tmp/daily-briefing/messages/01-toplevel.md, approximately 350–450 words, maximum 550. Count whitespace-separated words with Python before finishing.
 Use standard Markdown, concise bullets and bold, no tables. Header: Backend learning
 briefing — local date and exact local window, including timezone. Use the provided
 window timezone, converting UTC timestamps correctly. Direct source links belong
@@ -44,7 +44,7 @@ Quiet days still get a short briefing with no new merges and actionable carry-ov
 
 Write concrete sentences naming the people involved:
 - Who authored the change, what failed or happened before, what happens now, and
-  what a teammate can do differently or needs to know. Use 2–4 short sentences.
+  what a teammate can do differently or needs to know. Use 1–2 short sentences per selected change.
 - Resolve names using verified person/requested_reviewers fields and author.name;
   unresolved identities stay logins. Do not guess. Name ticket owner and reviewers
   separately from author. Requested review is NOT a completed review. Agent-authored
@@ -70,11 +70,20 @@ Write concrete sentences naming the people involved:
   and unchecked ticket acceptance criteria; state the remaining gate concretely.
 
 Use short bold labels: What changed; Waiting on people; CI; What to fix once.
+Aim for 120 words on changes, 90 on people, 70 on CI, 100 on the review lesson.
+Group backend test-selection changes into one plain explanation; do not enumerate
+individual refactors or lead with per-repository merge counts. Select a few useful
+numbers, with correct denominators and environments; omit other measurements.
+Resolve reviewer names through the caller config's verified people mapping too.
+For database-selection lessons, require bounded rows/buffers inspected on large
+rejected backlogs; an Index Scan label alone does not prove bounded query work.
 For 'What to fix once', identify a repeated concrete problem in reviews using at
 least two independent PRs and actual reviewer comments, then propose one shared
 contract/test/helper/architecture check that could prevent it. If the evidence only
 shows an incident or related implementations, label that accurately; do not invent
-review recurrence. The pattern may come from earlier reviews: explicitly label it a lesson from the
+review recurrence. Describe reviewed hazards as findings in proposed code. Do not say they shipped,
+remain unfixed or reached production without current PR/deployment evidence.
+The pattern may come from earlier reviews: explicitly label it a lesson from the
 30-day review history, rather than today's new work. Cite direct reviewer-comment
 URLs for at least two independent PRs in this section. Name the reviewers, identifying
 automated Codex reviews accurately. A day with no supported pattern may omit this
