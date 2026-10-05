@@ -31,8 +31,18 @@ If window.delivery_format is "canvas":
   around 100–160 words, maximum 180 whitespace-separated words. Name the people
   involved, the most useful changes, review decisions and CI blockers. The publisher
   appends the confirmed Canvas link; do not invent a URL or post inventories here.
-- Validation assembles canvas.md from report.md plus the complete prepared PR and
-  ticket inventory. Do not rewrite inventory replies or canvas.md yourself.
+- When window.canvas_inventory is "merged", the publisher appends only the complete
+  merged-PR list. Keep open work in a prioritized "Waiting on people" section:
+  usually 3–6 items, at most 8 distinct open/draft PRs anywhere in the report.
+  Prioritize work that moved in this window, a concrete blocker, or a review whose
+  next decision matters. A requested reviewer alone does not make a stale PR useful.
+  Include active work without reviewers when its progress or blocker matters; label
+  drafts. Name the author, ticket owner when relevant, reviewer and next step.
+  Link only tickets supporting those items; do not dump the ticket backlog or claim
+  the full open/draft list follows. Explain why omitted PRs stay in evidence in the
+  coverage audit. The complete private inventories still require exact coverage.
+- Otherwise validation appends the complete PR and ticket inventory.
+  Do not rewrite inventory replies or canvas.md yourself.
 Otherwise write only messages/01-toplevel.md as a legacy 350–450-word briefing,
 maximum 550 words; the complete inventory follows as replies.
 

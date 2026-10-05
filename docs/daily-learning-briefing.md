@@ -14,7 +14,12 @@ mapping, matched case-insensitively), `teams` (relevant Linear team identifiers)
 `channel` (Slack channel ID), `mirror_repository`, and `state_branch`. Set
 `delivery_format: "canvas"` for a full report plus complete PR/ticket inventory in
 a channel-tabbed Canvas and one short TLDR message. Legacy thread delivery remains
-the default. The full Canvas report has no 550-word limit; only the TLDR is capped
+the default. Set `canvas_inventory: "merged"` to append only the window's merged
+PRs. Open/draft work is curated in the narrative (at most eight linked PRs), with
+named involvement and concrete next decisions; the full open/draft and ticket
+inventories remain private evidence artifacts and still require complete audits.
+The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions.
+The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
 the same reviewed issueclaw commit. Required secrets are `REPOS_READ_TOKEN`,
@@ -96,8 +101,8 @@ and repair its invalid draft. Evidence reuse is rejected for publishing runs.
 ## Canvas delivery and recovery
 
 Canvas mode reuses `issueclaw.slack_canvas`, the publisher used by design weekly
-reports. Validation assembles the full narrative and immutable complete inventory
-into `canvas.md`. Its title and content are included in the pending artifact digest.
+reports. Validation assembles the full narrative and the configured inventory appendix
+into `canvas.md`; complete source inventories remain in the artifact. Its title and content are included in the pending artifact digest.
 The shared Canvas publisher can checkpoint each creation intent, ID and confirmed
 URL through a callback; daily reporting stores these on its dedicated state branch.
 The confirmed link is appended to the TLDR in memory, and only that message is sent.
