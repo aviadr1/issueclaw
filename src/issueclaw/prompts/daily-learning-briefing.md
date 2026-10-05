@@ -74,7 +74,7 @@ Use clear, concrete language:
 - Submitted reviews and inline replies establish feedback. Also READ issue-comment
   bodies: teams may post substantive reviews there while formal requests remain.
   The prepared `waiting` is a baseline for formal/inline feedback. For a clear
-  review posted as an issue comment, recompute in Python using
+  review posted as an issue comment, recompute with `/tmp/briefing-venv/bin/python` using
   `issueclaw.pr_waiting.classify_waiting(record, as_of_datetime, people_mapping,
   review_comment_urls=[exact_collected_comment_url, ...])` without modifying sources.
   Supply only comments whose bodies clearly provide a review; a scheduling reply is
