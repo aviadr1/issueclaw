@@ -4,19 +4,24 @@ A knowledge repository can run the reusable `daily-learning-briefing.yml` workfl
 with its own source configuration, schedule and existing reporting secrets. The
 workflow collects GitHub/Linear-mirror evidence, generates one concrete brief with
 named authors and reviewers, validates coverage, validates per-PR coverage and review-learning JSON audits, preserves artifacts, and posts a
-channel message plus the complete inventory as replies in the same Slack thread.
+channel message plus the complete inventory as replies, or one TLDR linking to a full Slack Canvas.
 
 ## Caller configuration
 
 The JSON config supplies `repos` (owner/repo names), `people` (verified login/name
 mapping, matched case-insensitively), `teams` (relevant Linear team identifiers), `timezone` (IANA), `hour`,
 `weekdays` (optional Python weekday numbers, Monday=0; all days by default),
-`channel` (Slack channel ID), `mirror_repository`, and `state_branch`. Keep company
+`channel` (Slack channel ID), `mirror_repository`, and `state_branch`. Set
+`delivery_format: "canvas"` for a full report plus complete PR/ticket inventory in
+a channel-tabbed Canvas and one short TLDR message. Legacy thread delivery remains
+the default. The full Canvas report has no 550-word limit; only the TLDR is capped
+at 180 words. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
 the same reviewed issueclaw commit. Required secrets are `REPOS_READ_TOKEN`,
 `ANTHROPIC_API_KEY`, and `SLACK_BOT_TOKEN`. The caller's `GITHUB_TOKEN` needs
 `contents: write` and `actions: read` for checkpoints and recovery artifacts.
 The existing Slack bot needs membership and posting permission in the destination.
+Canvas delivery also needs `canvases:write` and `files:read`, as design reporting does.
 
 Scheduled runs use the most recent configured local cutoff even if GitHub starts
 late. With `weekdays: [0, 1, 2, 3, 4]`, Monday covers Friday 08:00 through Monday
@@ -87,3 +92,18 @@ model calls; changing either blocks the run. Revisions do not recollect sources.
 Pending publication artifacts are never rewritten. An isolated preview may supply
 `evidence-run-id` to download an earlier artifact from the same caller repository
 and repair its invalid draft. Evidence reuse is rejected for publishing runs.
+
+## Canvas delivery and recovery
+
+Canvas mode reuses `issueclaw.slack_canvas`, the publisher used by design weekly
+reports. Validation assembles the full narrative and immutable complete inventory
+into `canvas.md`. Its title and content are included in the pending artifact digest.
+The shared Canvas publisher can checkpoint each creation intent, ID and confirmed
+URL through a callback; daily reporting stores these on its dedicated state branch.
+The confirmed link is appended to the TLDR in memory, and only that message is sent.
+A failure fetching the permalink retries with the known canvas ID; an uncertain
+creation outcome stops for inspection. Record the recovered ID and clear the canvas
+receipt's pending marker only after checking Slack. A cutoff completes only when
+both the Canvas and its TLDR are delivered. New cutoffs replace the old receipt;
+previous reports remain accessible in Slack. Previews create neither Canvas nor
+Slack messages, and retain the assembled Markdown as an artifact.

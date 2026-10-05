@@ -5,6 +5,7 @@ on a separate Git branch; collection and generation never edit the Linear mirror
 """
 
 import argparse
+import asyncio
 import base64
 import hashlib
 import json
@@ -21,6 +22,7 @@ import httpx
 import yaml
 
 from issueclaw import report_evidence as report
+from issueclaw import slack_canvas
 
 
 def previous_cutoff(end, weekdays):
@@ -573,6 +575,69 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             + [f"{i:03d}-inventory.md" for i in range(2, len(chunks) + 2)],
         },
     )
+    configure_delivery(out, config)
+
+
+def configure_delivery(out, config):
+    """Opt into a full Canvas plus one TLDR; preserve the collected snapshot."""
+    if config.get("delivery_format", "thread") != "canvas":
+        return
+    info = json.loads((out / "window.json").read_text())
+    if info.get("already_posted"):
+        return
+    info["delivery_format"] = "canvas"
+    write_json(out / "window.json", info)
+    delivery = json.loads((out / "delivery.json").read_text())
+    delivery["inventory_files"] = delivery.get("inventory_files", delivery["files"][1:])
+    delivery["files"] = ["01-toplevel.md"]
+    date = (
+        report.instant(delivery["cutoff"]).astimezone(ZoneInfo(info["timezone"])).date()
+    )
+    delivery["canvas_title"] = f"Backend learning briefing — {date}"
+    write_json(out / "delivery.json", delivery)
+    top = out / "messages/01-toplevel.md"
+    if top.exists() and not (out / "report.md").exists():
+        (out / "report.md").write_text(
+            top.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+
+def delivery_digest(out, messages):
+    info = json.loads((out / "window.json").read_text())
+    content = messages
+    if info.get("delivery_format") == "canvas":
+        delivery = json.loads((out / "delivery.json").read_text())
+        content = [
+            messages,
+            delivery["canvas_title"],
+            (out / "canvas.md").read_text(encoding="utf-8"),
+        ]
+    return hashlib.sha256(json.dumps(content).encode()).hexdigest()
+
+
+def publish_canvas(out, config, state, save, token):
+    """Reuse the report Canvas publisher with receipts on the durable state branch."""
+    delivery = json.loads((out / "delivery.json").read_text())
+    cutoff = delivery["cutoff"]
+    if state.get("canvas", {}).get("cutoff") != cutoff:
+        state["canvas"] = {"cutoff": cutoff, "receipt": {}}
+    path = out / "canvas-state.json"
+    write_json(path, state["canvas"]["receipt"])
+
+    def checkpoint(receipt):
+        state["canvas"]["receipt"] = receipt
+        save(state)
+
+    return asyncio.run(
+        slack_canvas.publish(
+            (out / "canvas.md").read_text(encoding="utf-8"),
+            delivery["canvas_title"],
+            config["channel"],
+            path,
+            token,
+            on_save=checkpoint,
+        )
+    )
 
 
 def review_learning_evidence(records):
@@ -673,13 +738,18 @@ def validate_output(out):
     if any(not text or len(text) > 15000 for _, text in messages):
         raise RuntimeError("Missing, empty or oversized briefing message")
     inventory = json.loads((out / "inventory.json").read_text())
-    if len(messages[0][1].split()) > 550:
-        raise RuntimeError("Top-level briefing exceeds 550 words")
-    if any(
-        f"{row['repo']}#{row['number']}"
-        not in "\n".join(text for _, text in messages[1:])
-        for row in inventory
-    ):
+    canvas_mode = info.get("delivery_format") == "canvas"
+    if len(messages[0][1].split()) > (180 if canvas_mode else 550):
+        raise RuntimeError(
+            "TLDR exceeds 180 words"
+            if canvas_mode
+            else "Top-level briefing exceeds 550 words"
+        )
+    inventory_text = "\n".join(
+        (out / "messages" / name).read_text(encoding="utf-8")
+        for name in delivery.get("inventory_files", delivery["files"][1:])
+    )
+    if any(f"{row['repo']}#{row['number']}" not in inventory_text for row in inventory):
         raise RuntimeError("Inventory coverage is incomplete")
     validate_coverage(inventory, json.loads((out / "coverage.json").read_text()))
     if not (out / "coverage.md").read_text().strip():
@@ -687,8 +757,29 @@ def validate_output(out):
     validate_review_learning(
         json.loads((out / "review-learning-evidence.json").read_text()),
         json.loads((out / "review-learning.json").read_text()),
-        messages[0][1],
+        (out / "report.md").read_text(encoding="utf-8")
+        if canvas_mode
+        else messages[0][1],
     )
+    if canvas_mode:
+        content = (out / "report.md").read_text(encoding="utf-8").strip()
+        if not content:
+            raise RuntimeError("Missing full Canvas report")
+        canvas_inventory = re.sub(r"(?m)^• ", "- ", inventory_text)
+        for section, label in (
+            ("MERGED", "Merged PRs"),
+            ("OPEN", "Open PRs"),
+            ("DRAFT", "Draft PRs"),
+            ("RELEVANT TICKETS (current mirror)", "Relevant tickets (current mirror)"),
+        ):
+            canvas_inventory = re.sub(
+                r"(?m)^" + re.escape(section) + r"$",
+                "### " + label + "\n",
+                canvas_inventory,
+            )
+        content += "\n\n## Complete PR and ticket inventory\n\n" + canvas_inventory
+        slack_canvas.validate_content(content)
+        (out / "canvas.md").write_text(content, encoding="utf-8")
     return messages
 
 
@@ -733,15 +824,25 @@ def generate(out, prompt):
         try:
             validate_output(out)
             return
-        except (RuntimeError, OSError, ValueError) as error:
+        except (
+            RuntimeError,
+            OSError,
+            ValueError,
+            slack_canvas.click.ClickException,
+        ) as error:
             if attempt == 2:
                 raise
             repair = (
                 instructions + "\n\nRevise the EXISTING generated draft and audits. "
                 "Keep the prepared evidence and inventory messages unchanged. "
                 "Do not recollect sources or regenerate the per-PR ledger from scratch. "
-                "Use Python to count words; target 400-450 and stay below 550. "
-                "Remove author PR totals, jargon and unneeded measurements. "
+                + (
+                    "Use Python to count TLDR words; target 100-160 and stay below 180. "
+                    "Write the full report in report.md without a word limit. "
+                    if info.get("delivery_format") == "canvas"
+                    else "Use Python to count words; target 400-450 and stay below 550. "
+                )
+                + "Remove author PR totals, jargon and unneeded measurements. "
                 "Verify denominators and environments for every retained number. "
                 "Resolve reviewer names through the caller's verified people mapping. "
                 "For query-plan lessons require bounded buffers/rows inspected, "
@@ -801,6 +902,7 @@ def main():
         info = json.loads((args.out / "window.json").read_text())
         info.pop("resume", None)
         write_json(args.out / "window.json", info)
+        configure_delivery(args.out, config)
         return
     store = StateStore(
         os.environ.get("GITHUB_REPOSITORY", config.get("mirror_repository", "")),
@@ -829,7 +931,7 @@ def main():
             return
         if args.isolated:
             parser.error("isolated previews cannot publish")
-        digest = hashlib.sha256(json.dumps(messages).encode()).hexdigest()
+        digest = delivery_digest(args.out, messages)
         if state.get("pending") and state["pending"]["digest"] != digest:
             raise RuntimeError(
                 "Prepared messages differ from the partially posted thread"
@@ -841,6 +943,17 @@ def main():
                 "cutoff": delivery["cutoff"],
             }
             store.save(state)
+        if (
+            json.loads((args.out / "window.json").read_text()).get("delivery_format")
+            == "canvas"
+        ):
+            url = publish_canvas(
+                args.out, config, state, store.save, os.environ["SLACK_BOT_TOKEN"]
+            )
+            messages = [
+                (name, text + f"\n[Full report in Slack Canvas]({url})")
+                for name, text in messages
+            ]
         slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
         publish(messages, state, delivery["cutoff"], slack, store.save)
 
