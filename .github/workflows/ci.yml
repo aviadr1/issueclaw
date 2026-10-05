@@ -68,6 +68,7 @@ jobs:
     # Not a required check. It keeps mirror paths POSIX on Windows, where
     # str(Path) produces backslashes and the mirror rejects them.
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 

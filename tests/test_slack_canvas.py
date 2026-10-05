@@ -78,6 +78,7 @@ def test_publish_and_resume(tmp_path, fail_info):
 @pytest.mark.parametrize(
     "content",
     ["", "```mermaid\ngraph LR\n```", "![Local](file:///tmp/image.png)", "x" * 1048577],
+    ids=["empty", "mermaid", "local-image", "oversized"],
 )
 def test_invalid_content_rejected_before_network(tmp_path, content):
     source = tmp_path / "canvas.md"
