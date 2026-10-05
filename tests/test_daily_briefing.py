@@ -549,3 +549,91 @@ def test_review_audit_accepts_cited_independent_reviews_and_quiet_windows():
     )
     with pytest.raises(RuntimeError, match="CI claims must name"):
         daily.validate_review_learning(evidence, audit, top + " CI: all green")
+
+
+def prepared_draft(tmp_path):
+    import json
+
+    (tmp_path / "messages").mkdir()
+    files = {
+        "window.json": {"already_posted": False},
+        "delivery.json": {
+            "cutoff": "2026-10-05T05:00:00+00:00",
+            "files": ["01-toplevel.md", "02-inventory.md"],
+        },
+        "inventory.json": [],
+        "coverage.json": [],
+        "review-learning-evidence.json": {
+            "review_events": 0,
+            "inline_review_comments": 0,
+            "comments": [],
+        },
+        "review-learning.json": {
+            "review_events": 0,
+            "inline_review_comments": 0,
+            "inspected_prs": [],
+            "patterns": [],
+            "no_pattern_reason": "Quiet history",
+        },
+    }
+    for name, value in files.items():
+        (tmp_path / name).write_text(json.dumps(value))
+    (tmp_path / "coverage.md").write_text("No inventory in this quiet window")
+    (tmp_path / "messages/02-inventory.md").write_text("Quiet inventory")
+    (tmp_path / "messages/01-toplevel.md").write_text("word " * 551)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Write a concrete learning brief")
+    return prompt
+
+
+def test_generation_repairs_validation_failure_without_recollecting(
+    monkeypatch, tmp_path
+):
+    prompt = prepared_draft(tmp_path)
+    calls = []
+
+    def claude(args, **kwargs):
+        calls.append(args)
+        assert "exceeds 550 words" in args[2]
+        (tmp_path / "messages/01-toplevel.md").write_text(
+            "No new work. Review carry-over."
+        )
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    daily.generate(tmp_path, prompt)
+    assert len(calls) == 1
+    assert daily.validate_output(tmp_path)[0][1] == "No new work. Review carry-over."
+
+
+def test_generation_stops_after_two_failed_revisions(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        daily.subprocess, "run", lambda args, **kwargs: calls.append(args)
+    )
+    with pytest.raises(RuntimeError, match="exceeds 550 words"):
+        daily.generate(tmp_path, prompt)
+    assert len(calls) == 2
+
+
+def test_generation_never_rewrites_pending_artifact(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+    (tmp_path / "window.json").write_text('{"resume": true}')
+    monkeypatch.setattr(
+        daily.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("immutable pending thread"),
+    )
+    daily.generate(tmp_path, prompt)
+    assert len((tmp_path / "messages/01-toplevel.md").read_text().split()) == 551
+
+
+def test_generator_cannot_rewrite_prepared_cutoff_or_inventory(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+
+    def claude(*args, **kwargs):
+        (tmp_path / "window.json").write_text('{"already_posted": true}')
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    with pytest.raises(RuntimeError, match="Prepared evidence changed"):
+        daily.generate(tmp_path, prompt)

@@ -661,13 +661,109 @@ def validate_coverage(inventory, audit):
         raise RuntimeError("PR coverage audit must explain each inventory entry once")
 
 
+def validate_output(out):
+    info = json.loads((out / "window.json").read_text())
+    if info.get("already_posted"):
+        return []
+    delivery = json.loads((out / "delivery.json").read_text())
+    messages = [
+        (name, (out / "messages" / name).read_text(encoding="utf-8").strip())
+        for name in delivery["files"]
+    ]
+    if any(not text or len(text) > 15000 for _, text in messages):
+        raise RuntimeError("Missing, empty or oversized briefing message")
+    inventory = json.loads((out / "inventory.json").read_text())
+    if len(messages[0][1].split()) > 550:
+        raise RuntimeError("Top-level briefing exceeds 550 words")
+    if any(
+        f"{row['repo']}#{row['number']}"
+        not in "\n".join(text for _, text in messages[1:])
+        for row in inventory
+    ):
+        raise RuntimeError("Inventory coverage is incomplete")
+    validate_coverage(inventory, json.loads((out / "coverage.json").read_text()))
+    if not (out / "coverage.md").read_text().strip():
+        raise RuntimeError("Missing coverage explanation")
+    validate_review_learning(
+        json.loads((out / "review-learning-evidence.json").read_text()),
+        json.loads((out / "review-learning.json").read_text()),
+        messages[0][1],
+    )
+    return messages
+
+
+def generate(out, prompt):
+    """Generate once, then allow at most two revisions using the same evidence."""
+    info = json.loads((out / "window.json").read_text())
+    if info.get("already_posted") or info.get("resume"):
+        return
+    instructions = prompt.read_text()
+    protected = {
+        p: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in list(out.rglob("*.json"))
+        + list((out / "messages").glob("*-inventory.md"))
+        if p not in {out / "coverage.json", out / "review-learning.json"}
+    }
+
+    def run_model(text, log_name):
+        with (out / log_name).open("w") as log:
+            subprocess.run(
+                [
+                    "claude",
+                    "-p",
+                    text,
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    "claude-sonnet-4-6",
+                    "--output-format",
+                    "text",
+                ],
+                stdout=log,
+                check=True,
+            )
+        if any(
+            not p.exists() or hashlib.sha256(p.read_bytes()).hexdigest() != digest
+            for p, digest in protected.items()
+        ):
+            raise RuntimeError("Prepared evidence changed during generation")
+
+    if not (out / "messages/01-toplevel.md").exists():
+        run_model(instructions, "generation.log")
+    for attempt in range(3):
+        try:
+            validate_output(out)
+            return
+        except (RuntimeError, OSError, ValueError) as error:
+            if attempt == 2:
+                raise
+            repair = (
+                instructions + "\n\nRevise the EXISTING generated draft and audits. "
+                "Keep the prepared evidence and inventory messages unchanged. "
+                "Do not recollect sources or regenerate the per-PR ledger from scratch. "
+                "Use Python to count words; target 400-450 and stay below 550. "
+                "Remove author PR totals, jargon and unneeded measurements. "
+                "Verify denominators and environments for every retained number. "
+                "Resolve reviewer names through the caller's verified people mapping. "
+                "For query-plan lessons require bounded buffers/rows inspected, "
+                "not merely an Index Scan label. "
+                "Preserve real review-pattern citations and reconcile the audits. "
+                f"Validation failure: {error}"
+            )
+            (out / f"revision-{attempt + 1}.txt").write_text(str(error))
+            run_model(repair, f"revision-{attempt + 1}.log")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "validate", "publish"])
+    parser.add_argument(
+        "command", choices=["prepare", "generate", "validate", "publish"]
+    )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--mirror", type=Path, default=Path("."))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cutoff")
+    parser.add_argument("--prompt", type=Path)
+    parser.add_argument("--evidence-run-id")
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -675,6 +771,37 @@ def main():
     )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    if args.command == "generate":
+        if args.prompt is None:
+            parser.error("generate requires --prompt")
+        generate(args.out, args.prompt)
+        return
+    if args.evidence_run_id:
+        if args.command != "prepare" or not args.isolated:
+            parser.error("evidence reuse is available only to isolated previews")
+        args.out.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "gh",
+                "run",
+                "download",
+                args.evidence_run_id,
+                "-R",
+                os.environ["GITHUB_REPOSITORY"],
+                "-n",
+                "daily-learning-briefing",
+                "-D",
+                str(args.out),
+            ],
+            env=dict(os.environ, GH_TOKEN=os.environ["GITHUB_TOKEN"]),
+            check=True,
+            timeout=180,
+            capture_output=True,
+        )
+        info = json.loads((args.out / "window.json").read_text())
+        info.pop("resume", None)
+        write_json(args.out / "window.json", info)
+        return
     store = StateStore(
         os.environ.get("GITHUB_REPOSITORY", config.get("mirror_repository", "")),
         config.get("state_branch", "briefing-state"),
@@ -691,33 +818,10 @@ def main():
             args.cutoff,
         )
         return
-    info = json.loads((args.out / "window.json").read_text())
-    if info.get("already_posted"):
+    messages = validate_output(args.out)
+    if not messages:
         return
     delivery = json.loads((args.out / "delivery.json").read_text())
-    messages = [
-        (name, (args.out / "messages" / name).read_text(encoding="utf-8").strip())
-        for name in delivery["files"]
-    ]
-    if any(not text or len(text) > 15000 for _, text in messages):
-        raise RuntimeError("Missing, empty or oversized briefing message")
-    inventory = json.loads((args.out / "inventory.json").read_text())
-    if len(messages[0][1].split()) > 550:
-        raise RuntimeError("Top-level briefing exceeds 550 words")
-    if any(
-        f"{row['repo']}#{row['number']}"
-        not in "\n".join(text for _, text in messages[1:])
-        for row in inventory
-    ):
-        raise RuntimeError("Inventory coverage is incomplete")
-    validate_coverage(inventory, json.loads((args.out / "coverage.json").read_text()))
-    if not (args.out / "coverage.md").read_text().strip():
-        raise RuntimeError("Missing coverage explanation")
-    validate_review_learning(
-        json.loads((args.out / "review-learning-evidence.json").read_text()),
-        json.loads((args.out / "review-learning.json").read_text()),
-        messages[0][1],
-    )
     if args.command == "publish":
         if state.get("last_cutoff") and report.instant(
             state["last_cutoff"]

@@ -80,3 +80,10 @@ patterns supported by only one PR, and missing top-level citations. Empty patter
 need an explicit reason. These checks establish provenance; they cannot prove that
 a generated interpretation is sound. The prompt requires plain before/after language,
 explicit roles for people and observed CI check names instead of blanket health claims.
+
+Generation validates the draft and permits at most two focused revisions against
+the same prepared sources. Evidence JSON and inventory replies are hashed before
+model calls; changing either blocks the run. Revisions do not recollect sources.
+Pending publication artifacts are never rewritten. An isolated preview may supply
+`evidence-run-id` to download an earlier artifact from the same caller repository
+and repair its invalid draft. Evidence reuse is rejected for publishing runs.
