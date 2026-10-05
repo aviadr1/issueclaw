@@ -586,6 +586,7 @@ def configure_delivery(out, config):
     if info.get("already_posted"):
         return
     info["delivery_format"] = "canvas"
+    info["what_changed_order_last"] = config.get("what_changed_order_last", [])
     if config.get("canvas_inventory") == "merged":
         info["canvas_inventory"] = "merged"
     write_json(out / "window.json", info)

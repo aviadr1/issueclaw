@@ -19,6 +19,11 @@ PRs. Open/draft work is curated in the narrative (at most eight linked PRs), wit
 named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
 The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions.
+Each "What changed" effort heading names its verified lead(s). A caller may set
+`what_changed_order_last` to a list of verified person names; efforts with any of
+those leads appear after other efforts, including co-led work. Authors, primary
+ticket/project owners and requested reviewers remain distinct in the body. The
+ordering changes visibility without omitting work or introducing person rankings.
 The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to

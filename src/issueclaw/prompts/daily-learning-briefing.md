@@ -52,6 +52,19 @@ meaningful changes in ALL configured repos. Group mechanical dependency bumps in
 the originating capability. Quiet days can be short and cover actionable carry-over.
 Lead with behavior, not merge counts. Never rank people or give per-person PR totals.
 
+Every effort heading under "What changed" must include its lead(s) in the title:
+`### Payments tests load only payments routes — Leads: Rae Chen`.
+Use verified attribution from the primary ticket/project owner and responsible PR
+contributors; include multiple leads only when their involvement in this effort is
+supported. Keep authors, ticket owners and reviewers distinct in the body. A review
+assignment alone does not make someone a lead. If PR ownership is the only evidence,
+attribute the effort to that verified PR author without implying personal code authorship.
+
+Respect window.what_changed_order_last (verified person names): place efforts led by
+any listed person AFTER all other efforts in "What changed", including co-led efforts.
+Within each group, order by learning value and relevance. This is an editorial
+visibility preference; retain meaningful changes and never rank people by PR counts.
+
 Use clear, concrete language:
 - Name the PR author, explain what happened before and what happens now, and what a
   teammate can do differently. Separate authors, ticket owners and reviewers. Agent
