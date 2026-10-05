@@ -153,3 +153,32 @@ Upgrade a PyPI install with `uv tool upgrade issueclaw` or `pip install -U issue
 ## License
 
 MIT
+
+### Slack report Canvases
+
+Prepare Canvas-compatible Markdown (headings, lifecycle tables, captioned HTTPS
+images, preview and recording links), then publish it separately from messages:
+
+```bash
+issueclaw slack-canvas --source /tmp/report/canvas.md --title "Design weekly" \
+  --channel C123 --state /tmp/report/canvas-state.json \
+  --summary /tmp/messages/01-toplevel.md
+```
+
+Set `SLACK_BOT_TOKEN` with `canvases:write` and `files:read`. The app must be able
+to add a Canvas tab to the destination channel. Slack channel-tabbed Canvases
+allow channel members to edit. This command creates the Canvas tab and appends
+its confirmed permalink to the prepared summary; it never sends a message.
+Use `--dry-run` to validate without credentials or network access.
+
+Keep the Canvas source outside any directory your message publisher scans.
+Use accessible hosted images or Slack file permalinks; private GitHub artifact
+URLs and recordings belong in source links, with clear captions and access
+limitations. Local images and Mermaid diagrams cannot render in Canvas.
+
+Persist the state file as a CI artifact, including on failure, and restore it
+before retrying. Confirmed Canvas IDs are reused. Changed content/destination
+requires a fresh state file. A timeout during creation leaves `pending: true`:
+inspect Slack and record the recovered `canvas_id` (removing `pending`) before
+retrying. If creation definitely failed, remove that pending state after checking.
+The command deliberately does not retry ambiguous creation responses.
