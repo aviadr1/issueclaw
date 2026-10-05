@@ -3,13 +3,13 @@
 A knowledge repository can run the reusable `daily-learning-briefing.yml` workflow
 with its own source configuration, schedule and existing reporting secrets. The
 workflow collects GitHub/Linear-mirror evidence, generates one concrete brief with
-named authors and reviewers, validates coverage, validates a per-PR JSON coverage audit, preserves artifacts, and posts a
+named authors and reviewers, validates coverage, validates per-PR coverage and review-learning JSON audits, preserves artifacts, and posts a
 channel message plus the complete inventory as replies in the same Slack thread.
 
 ## Caller configuration
 
 The JSON config supplies `repos` (owner/repo names), `people` (verified login/name
-mapping), `teams` (relevant Linear team identifiers), `timezone` (IANA), `hour`,
+mapping, matched case-insensitively), `teams` (relevant Linear team identifiers), `timezone` (IANA), `hour`,
 `weekdays` (optional Python weekday numbers, Monday=0; all days by default),
 `channel` (Slack channel ID), `mirror_repository`, and `state_branch`. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
@@ -68,3 +68,15 @@ The generator is given no Slack token or write credentials. It must not change
 issues, deployments or the source mirror. Evidence and generated messages are
 uploaded even on failure when available. Raw evidence stays in artifacts rather
 than being committed into the mirror or a new Linear report document every day.
+
+## Review evidence checks
+
+Preparation writes `review-learning-evidence.json` with exact 30-day formal-review
+and inline-comment totals and usable dated bodies. Current review snapshots and
+bodies edited after cutoff are excluded from the learning corpus. The generator
+writes `review-learning.json`, recording inspected PRs and the comment URLs behind
+any repeated problem. Validation rejects incorrect totals, fabricated citations,
+patterns supported by only one PR, and missing top-level citations. Empty patterns
+need an explicit reason. These checks establish provenance; they cannot prove that
+a generated interpretation is sound. The prompt requires plain before/after language,
+explicit roles for people and observed CI check names instead of blanket health claims.

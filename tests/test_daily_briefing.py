@@ -38,13 +38,13 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
         headRefName="fix",
         baseRefName="main",
         url="https://github.com/org/repo/pull/1",
-        author={"login": "author"},
+        author={"login": "AUTHOR"},
         state="OPEN",
         mergedAt=None,
         updatedAt="2026-01-01T00:00:00Z",
         createdAt="2026-01-01T00:00:00Z",
         isDraft=True,
-        reviewRequests=[{"login": "reviewer"}],
+        reviewRequests=[{"login": "REVIEWER"}],
         reviewDecision="REVIEW_REQUIRED",
         headRefOid="abc",
         statusCheckRollup=[],
@@ -62,7 +62,7 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
         datetime(2026, 10, 2, 6, tzinfo=timezone.utc), "Asia/Jerusalem", 8
     )
     manifest = report.collect(
-        {"repos": ["org/repo"], "people": {"reviewer": "Rae"}},
+        {"repos": ["org/repo"], "people": {"reviewer": "Rae", "author": "Bo"}},
         start,
         end,
         tmp_path,
@@ -73,6 +73,7 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
 
     rows = json.loads((tmp_path / "org--repo.json").read_text())
     assert rows[0]["bucket"] == "draft"
+    assert rows[0]["person"] == "Bo"
     assert rows[0]["requested_reviewers"] == ["Rae"]
 
 
@@ -187,6 +188,8 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         body="",
         url="https://github.com/org/repo/pull/1",
         person="Rae",
+        reviews=review_record(1)["reviews"],
+        review_comments=review_record(1)["review_comments"],
         ticket_mentions=[],
         state="MERGED",
         mergedAt="2026-10-01T06:00:00Z",
@@ -253,6 +256,13 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
     messages = "".join(p.read_text() for p in (out / "messages").glob("*.md"))
     assert "org/repo#1" in messages and "org/repo#2" in messages and "Bo" in messages
     assert "BE-1" in messages
+    review_evidence = json.loads((out / "review-learning-evidence.json").read_text())
+    assert review_evidence["review_events"] == 2
+    assert review_evidence["inline_review_comments"] == 2
+    assert {r["pr"] for r in review_evidence["comments"]} == {
+        "org/repo#1",
+        "org/repo#2",
+    }
 
 
 def test_successful_cutoff_is_idempotent():
@@ -448,3 +458,94 @@ def test_github_failure_preserves_actionable_stderr(monkeypatch):
     monkeypatch.setattr(report.subprocess, "run", failed)
     with pytest.raises(RuntimeError, match="API rate limit exceeded"):
         report.gh_json("api", "graphql")
+
+
+def review_record(number, body="Retrying the whole operation duplicates its effects"):
+    return {
+        "repo": "org/repo",
+        "number": number,
+        "reviews": [{"body": "", "html_url": "formal"}],
+        "review_comments": [
+            {
+                "body": body,
+                "html_url": f"https://github.com/org/repo/pull/{number}#discussion_r{number}",
+                "created_at": "2026-10-01T10:00:00Z",
+                "user": {"login": "rae"},
+                "body_available_at_cutoff": True,
+            }
+        ],
+    }
+
+
+def test_review_learning_uses_dated_bodies_and_counts_empty_formal_reviews():
+    rows = [review_record(1), review_record(2)]
+    rows[1]["review_comments"][0]["body_available_at_cutoff"] = False
+    rows[0]["review_snapshot"] = [{"body": "Current, outside history"}]
+    evidence = daily.review_learning_evidence(rows)
+    assert evidence["review_events"] == 2
+    assert evidence["inline_review_comments"] == 2
+    assert [r["pr"] for r in evidence["comments"]] == ["org/repo#1"]
+    assert evidence["comments"][0]["reviewer"] == "rae"
+
+
+def learning_audit():
+    return {
+        "review_events": 2,
+        "inline_review_comments": 2,
+        "inspected_prs": ["org/repo#1", "org/repo#2"],
+        "patterns": [
+            {
+                "summary": "Retries duplicate side effects",
+                "shared_solution": "Test retries against the shared effect boundary",
+                "evidence": [
+                    {
+                        "pr": f"org/repo#{n}",
+                        "url": review_record(n)["review_comments"][0]["html_url"],
+                    }
+                    for n in (1, 2)
+                ],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "defect", ["false_zero", "fabricated_link", "same_pr", "missing_citations"]
+)
+def test_review_audit_blocks_unsupported_learning_claims(defect):
+    evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
+    audit = learning_audit()
+    top = "**What to fix once** " + " ".join(
+        e["url"] for e in audit["patterns"][0]["evidence"]
+    )
+    if defect == "false_zero":
+        audit["review_events"] = 0
+    elif defect == "fabricated_link":
+        audit["patterns"][0]["evidence"][0]["url"] = "invented"
+    elif defect == "same_pr":
+        audit["patterns"][0]["evidence"][1] = audit["patterns"][0]["evidence"][0]
+    else:
+        top = "**What to fix once** Retry safely."
+    with pytest.raises(RuntimeError, match="Review learning audit"):
+        daily.validate_review_learning(evidence, audit, top)
+
+
+def test_review_audit_accepts_cited_independent_reviews_and_quiet_windows():
+    evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
+    audit = learning_audit()
+    top = "**What to fix once** " + " ".join(
+        e["url"] for e in audit["patterns"][0]["evidence"]
+    )
+    daily.validate_review_learning(evidence, audit, top)
+    quiet = {
+        "review_events": 0,
+        "inline_review_comments": 0,
+        "inspected_prs": [],
+        "patterns": [],
+        "no_pattern_reason": "No dated review evidence",
+    }
+    daily.validate_review_learning(
+        daily.review_learning_evidence([]), quiet, "Quiet day"
+    )
+    with pytest.raises(RuntimeError, match="CI claims must name"):
+        daily.validate_review_learning(evidence, audit, top + " CI: all green")
