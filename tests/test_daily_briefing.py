@@ -685,6 +685,90 @@ def test_canvas_full_report_exceeds_550_words_and_contains_complete_inventory(tm
     assert "Full report" in (tmp_path / "canvas.md").read_text()
 
 
+def test_curated_canvas_keeps_full_evidence_but_appends_only_merges(tmp_path):
+    import json
+
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "canvas_inventory": "merged"}
+    )
+    rows = [
+        {
+            "repo": "org/repo",
+            "number": n,
+            "state": state,
+            "url": f"https://github.com/org/repo/pull/{n}",
+            "title": title,
+            "person": "Rae",
+        }
+        for n, state, title in (
+            (1, "merged", "New capability"),
+            (2, "open", "Old open work"),
+            (3, "draft", "Old draft work"),
+        )
+    ]
+    daily.write_json(tmp_path / "inventory.json", rows)
+    daily.write_json(
+        tmp_path / "coverage.json",
+        [
+            {
+                "pr": f"org/repo#{r['number']}",
+                "placement": "inventory",
+                "reason": "Retained in evidence",
+            }
+            for r in rows
+        ],
+    )
+    evidence_text = "MERGED\n• org/repo#1\nOPEN\n• org/repo#2 Old open work\nDRAFT\n• org/repo#3 Old draft work\nRELEVANT TICKETS (current mirror)\n• Old ticket dump"
+    inventory_file = tmp_path / "messages/02-inventory.md"
+    inventory_file.write_text(evidence_text, encoding="utf-8")
+    daily.validate_output(tmp_path)
+    canvas = (tmp_path / "canvas.md").read_text()
+    assert "New capability" in canvas
+    assert "https://github.com/org/repo/pull/1" in canvas
+    assert "Old open work" not in canvas
+    assert "Old draft work" not in canvas
+    assert "Old ticket dump" not in canvas
+    assert inventory_file.read_text(encoding="utf-8") == evidence_text
+    assert len(json.loads((tmp_path / "inventory.json").read_text())) == 3
+
+
+def test_curated_canvas_rejects_an_unprioritized_open_pr_dump(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "canvas_inventory": "merged"}
+    )
+    rows = [
+        {
+            "repo": "org/repo",
+            "number": n,
+            "state": "open",
+            "url": f"https://github.com/org/repo/pull/{n}",
+            "title": "Open work",
+            "person": "Rae",
+        }
+        for n in range(1, 10)
+    ]
+    daily.write_json(tmp_path / "inventory.json", rows)
+    daily.write_json(
+        tmp_path / "coverage.json",
+        [
+            {
+                "pr": f"org/repo#{r['number']}",
+                "placement": "queue",
+                "reason": "Review requested",
+            }
+            for r in rows
+        ],
+    )
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "\n".join(f"org/repo#{r['number']}" for r in rows)
+    )
+    (tmp_path / "report.md").write_text("\n".join(r["url"] for r in rows))
+    with pytest.raises(RuntimeError, match="at most 8 open/draft PRs"):
+        daily.validate_output(tmp_path)
+
+
 def test_canvas_only_limits_the_tldr_and_digest_covers_full_report(tmp_path):
     canvas_draft(tmp_path)
     messages = daily.validate_output(tmp_path)

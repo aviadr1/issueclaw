@@ -586,6 +586,8 @@ def configure_delivery(out, config):
     if info.get("already_posted"):
         return
     info["delivery_format"] = "canvas"
+    if config.get("canvas_inventory") == "merged":
+        info["canvas_inventory"] = "merged"
     write_json(out / "window.json", info)
     delivery = json.loads((out / "delivery.json").read_text())
     delivery["inventory_files"] = delivery.get("inventory_files", delivery["files"][1:])
@@ -765,19 +767,49 @@ def validate_output(out):
         content = (out / "report.md").read_text(encoding="utf-8").strip()
         if not content:
             raise RuntimeError("Missing full Canvas report")
-        canvas_inventory = re.sub(r"(?m)^• ", "- ", inventory_text)
-        for section, label in (
-            ("MERGED", "Merged PRs"),
-            ("OPEN", "Open PRs"),
-            ("DRAFT", "Draft PRs"),
-            ("RELEVANT TICKETS (current mirror)", "Relevant tickets (current mirror)"),
-        ):
-            canvas_inventory = re.sub(
-                r"(?m)^" + re.escape(section) + r"$",
-                "### " + label + "\n",
-                canvas_inventory,
+        if info.get("canvas_inventory") == "merged":
+            # Curate the reader's queue while retaining every source in artifacts.
+            cited_urls = set(
+                re.findall(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+", content)
             )
-        content += "\n\n## Complete PR and ticket inventory\n\n" + canvas_inventory
+            linked_open = [
+                row
+                for row in inventory
+                if row.get("state") in {"open", "draft"} and row["url"] in cited_urls
+            ]
+            if len(linked_open) > 8:
+                raise RuntimeError("Curated report must cite at most 8 open/draft PRs")
+            merged = [row for row in inventory if row.get("state") == "merged"]
+            content += "\n\n## Merged PRs in this window\n\n"
+            content += (
+                "\n".join(
+                    f"- [{row['repo']}#{row['number']}]({row['url']}) {row['title']} — author: {row['person']}"
+                    for row in merged
+                )
+                or "No PRs merged in this window."
+            )
+            content += (
+                "\n\nFull open/draft PR and ticket inventories are retained in the "
+                "run's evidence artifact. The report highlights the work and review "
+                "decisions worth acting on."
+            )
+        else:
+            canvas_inventory = re.sub(r"(?m)^• ", "- ", inventory_text)
+            for section, label in (
+                ("MERGED", "Merged PRs"),
+                ("OPEN", "Open PRs"),
+                ("DRAFT", "Draft PRs"),
+                (
+                    "RELEVANT TICKETS (current mirror)",
+                    "Relevant tickets (current mirror)",
+                ),
+            ):
+                canvas_inventory = re.sub(
+                    r"(?m)^" + re.escape(section) + r"$",
+                    "### " + label + "\n",
+                    canvas_inventory,
+                )
+            content += "\n\n## Complete PR and ticket inventory\n\n" + canvas_inventory
         slack_canvas.validate_content(content)
         (out / "canvas.md").write_text(content, encoding="utf-8")
     return messages
@@ -812,7 +844,7 @@ def generate(out, prompt, revision_notes=""):
                     text,
                     "--dangerously-skip-permissions",
                     "--model",
-                    "claude-sonnet-4-6",
+                    "claude-sonnet-5-5",
                     "--output-format",
                     "text",
                 ],
