@@ -119,3 +119,25 @@ not interpolated into shell code. Source/inventory immutability and audit checks
 still apply. A pending publication always skips the generator, including these
 notes. Callers should expose notes as a preview-only input; scheduled runs use the
 normal prompt. The revised artifact can then be reserved for exact publication.
+
+## Waiting attribution
+
+Daily collection retains a complete current discussion snapshot, paginated commit
+identities/dates and human review-request/readiness/reopen/force-push events for
+open PRs. This current activity is separate from the cutoff-bounded learning corpus.
+Each PR record and inventory row includes a `waiting` baseline with named people,
+reason, evidence, last movement and an as-of timestamp. Four elapsed days (96 hours)
+without substantive movement returns the next action to the author, overriding
+pending review requests. Otherwise feedback without a later author commit/comment
+waits on the author; pending review requests wait on named reviewers. Author
+follow-up clears that feedback wait. Recent drafts without a review dependency
+remain active work. CI/label churn and bot comments never reset inactivity.
+
+The generator must also read reviews posted as ordinary issue comments, cite them
+and compare later author activity: formal review requests can remain even after
+such a review. Teammate changes are credited but do not become author follow-up.
+Missing snapshots or unattributed possible follow-up produce an unverified person,
+not a claim that the author has done nothing. Head changes during paginated activity
+collection block publication for retry. Retained commit timestamps are not a complete
+push log, and deleted comments or commits removed from the branch are unavailable.
+Waiting items remain curated; this does not add the old open backlog to the Canvas.
