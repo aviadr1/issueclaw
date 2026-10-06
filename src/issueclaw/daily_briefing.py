@@ -273,7 +273,8 @@ class Slack:
     def post(self, text, key, thread):
         payload = {
             "channel": self.channel,
-            "text": mrkdwn(text),
+            # Slack parses Markdown into native lists and rich-text blocks.
+            "markdown_text": text,
             "unfurl_links": False,
             "unfurl_media": False,
             "reply_broadcast": False,
@@ -394,9 +395,9 @@ def publish(
     save(state)
 
 
-def attach_message_files(slack, ts, file_ids):
+def attach_message_files(slack, ts, file_ids, *, markdown=None):
     """Share existing uploads on the bot's TLDR, preserving its current text."""
-    if not file_ids:
+    if not file_ids and markdown is None:
         return
     if any(not re.fullmatch(r"F[A-Z0-9]+", file) for file in file_ids):
         raise ValueError("Invalid Slack file ID")
@@ -420,28 +421,49 @@ def attach_message_files(slack, ts, file_ids):
     message = read_message()
     existing = {file["id"] for file in message.get("files", [])}
     missing = list(dict.fromkeys(file for file in file_ids if file not in existing))
-    if not missing:
+    if markdown is not None and mrkdwn(markdown) != message["text"]:
+        raise RuntimeError(
+            "Existing briefing text differs from the artifact; cannot reformat"
+        )
+    if not missing and markdown is None:
         return
-    slack.api(
-        "chat.update",
-        {
-            "channel": slack.channel,
-            "ts": ts,
-            "text": message["text"],
-            "file_ids": missing,
-            "as_user": True,
-        },
-    )
+    payload = {"channel": slack.channel, "ts": ts, "as_user": True}
+    if missing:
+        payload["file_ids"] = missing
+    if markdown is not None:
+        payload["markdown_text"] = markdown
+    else:
+        payload["text"] = message["text"]
+        # Supplying text without blocks makes chat.update discard native lists.
+        if "blocks" in message:
+            payload["blocks"] = message["blocks"]
+    slack.api("chat.update", payload)
     for attempt in range(3):
-        attached = {file["id"] for file in read_message().get("files", [])}
+        updated = read_message()
+        attached = {file["id"] for file in updated.get("files", [])}
         if set(file_ids) <= attached:
+            if markdown is not None and re.search(r"(?m)^ *- ", markdown):
+                lists = [
+                    element
+                    for block in updated.get("blocks", [])
+                    for element in block.get("elements", [])
+                    if element.get("type") == "rich_text_list"
+                ]
+                if not lists:
+                    raise RuntimeError(
+                        "Slack did not return native lists after formatting"
+                    )
+                if re.search(r"(?m)^ {2,}- ", markdown) and not any(
+                    element.get("indent", 0) > 0 for element in lists
+                ):
+                    raise RuntimeError("Slack did not retain nested bullet items")
             return
         if attempt < 2:
             time.sleep(2)
     raise RuntimeError("Video attachment is not visible; retry the prepared briefing")
 
 
-def repair_video_attachment(out, state, slack, save, file_ids):
+def repair_video_attachment(out, state, slack, save, file_ids, *, format_message=False):
     """Attach a recovered clip without reposting or advancing the coverage window."""
     delivery = json.loads((out / "delivery.json").read_text())
     cutoff = delivery["cutoff"]
@@ -450,8 +472,29 @@ def repair_video_attachment(out, state, slack, save, file_ids):
     receipt = state.get("messages", {}).get(cutoff + "/" + delivery["files"][0], {})
     if not receipt.get("ts"):
         raise RuntimeError("Missing completed briefing message receipt")
-    attach_message_files(slack, receipt["ts"], file_ids)
+    markdown = None
+    if format_message:
+        info = json.loads((out / "window.json").read_text())
+        if info.get("delivery_format") != "canvas":
+            raise RuntimeError("Formatting repair requires Canvas delivery")
+        markdown = (
+            (out / "messages" / delivery["files"][0])
+            .read_text(encoding="utf-8")
+            .strip()
+        )
+        markdown = canvas_message_link(
+            lessons.with_rules(
+                markdown,
+                lessons.lessons_of(out),
+                before_last_line=info.get("slack_summary_format") == "titles",
+            ),
+            state["canvas"]["receipt"]["url"],
+            titles=info.get("slack_summary_format") == "titles",
+        )
+    attach_message_files(slack, receipt["ts"], file_ids, markdown=markdown)
     state["video_repair"] = {"cutoff": cutoff, "ts": receipt["ts"], "files": file_ids}
+    if format_message:
+        state["video_repair"]["formatted"] = True
     save(state)
 
 
@@ -1238,6 +1281,7 @@ def main():
     parser.add_argument("--evidence-run-id")
     parser.add_argument("--revision-notes", default="")
     parser.add_argument("--file-id", action="append", default=[])
+    parser.add_argument("--format-message", action="store_true")
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -1305,6 +1349,7 @@ def main():
             Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"]),
             store.save,
             args.file_id,
+            format_message=args.format_message,
         )
         return
     if args.command == "prepare":

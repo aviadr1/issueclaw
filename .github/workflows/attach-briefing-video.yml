@@ -15,6 +15,10 @@ on:
       file-id:
         type: string
         required: true
+      format-message:
+        description: 'Reformat the matching original TLDR as native Slack Markdown'
+        type: boolean
+        default: false
     secrets:
       SLACK_BOT_TOKEN:
         required: true
@@ -54,8 +58,11 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           BRIEFING_CONFIG: ${{ inputs.config }}
           BRIEFING_FILE: ${{ inputs.file-id }}
+          BRIEFING_FORMAT: ${{ inputs.format-message }}
         run: |
+          args=()
+          if [ "$BRIEFING_FORMAT" = 'true' ]; then args+=(--format-message); fi
           uv venv /tmp/briefing-venv
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing attach-video \
-            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing --file-id "$BRIEFING_FILE"
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing --file-id "$BRIEFING_FILE" "${args[@]}"
