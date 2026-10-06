@@ -343,8 +343,9 @@ def publish(messages, state, cutoff, slack, save, videos=None):
                 )
             ledger[key] = {"ts": recovered["ts"]}
             save(state)
-        if key not in ledger and name in (videos or {}):
-            ts = share_with_file(text, key, thread, videos[name], state, slack, save)
+        video = (videos or {}).get(name)
+        if key not in ledger and video:
+            ts = share_with_file(text, key, thread, video, state, slack, save)
             if ts:
                 ledger[key] = {"ts": ts}
                 save(state)
