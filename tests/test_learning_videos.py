@@ -340,3 +340,16 @@ def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
     )
     lessons.run_agent(prompt, tmp_path, tmp_path, {}, "Use our house style.")
     assert seen[0].endswith("Use our house style.")
+
+
+def test_rules_go_before_the_closing_invitation_in_title_summaries():
+    found = [{"rule": "Index the filter you poll."}]
+    text = "**Title**\n\n- Topic\n\nRead today's report"
+    assert lessons.with_rules(text, found, before_last_line=True).endswith(
+        "- Topic\n\n**Learning:** Index the filter you poll.\nRead today's report"
+    )
+    assert (
+        lessons.with_rules("TLDR", found)
+        == "TLDR\n**Learning:** Index the filter you poll."
+    )
+    assert lessons.with_rules("TLDR", []) == "TLDR"

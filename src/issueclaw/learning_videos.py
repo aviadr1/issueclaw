@@ -198,3 +198,14 @@ def fill_placeholders(content, lessons, permalinks):
 
 def tldr_line(lessons):
     return "".join(f"\n**Learning:** {lesson['rule']}" for lesson in lessons)
+
+
+def with_rules(text, lessons, *, before_last_line=False):
+    """Add each lesson's rule to the Slack message, before its closing line if asked."""
+    rules = tldr_line(lessons)
+    if not rules:
+        return text
+    body, newline, last = text.rpartition("\n")
+    if before_last_line and newline:
+        return body + rules + "\n" + last
+    return text + rules

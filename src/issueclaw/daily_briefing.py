@@ -303,7 +303,9 @@ def share_with_file(text, key, thread, video, state, slack, save):
     return ts
 
 
-def publish(messages, state, cutoff, slack, save, videos=None):
+def publish(
+    messages, state, cutoff, slack, save, videos=None, *, canvas_invitation=None
+):
     """Checkpoint every message; only a completely posted thread advances time.
 
     `videos` maps a message name to (path, title): that message is posted as
@@ -364,6 +366,8 @@ def publish(messages, state, cutoff, slack, save, videos=None):
             thread = ledger[key]["ts"]
     state.pop("pending", None)
     state["last_cutoff"] = cutoff
+    if canvas_invitation is not None:
+        state["last_canvas_invitation"] = canvas_invitation
     save(state)
 
 
@@ -628,6 +632,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             "snapshot_as_of": now.isoformat(),
             "mirror_commit": freshness,
             "already_posted": False,
+            "previous_canvas_invitation": state.get("last_canvas_invitation"),
         },
     )
     write_json(out / "inventory.json", inventory)
@@ -690,6 +695,8 @@ def configure_delivery(out, config):
     if info.get("already_posted"):
         return
     info["delivery_format"] = "canvas"
+    if config.get("slack_summary_format") == "titles":
+        info["slack_summary_format"] = "titles"
     if config.get("canvas_inventory") == "merged":
         info["canvas_inventory"] = "merged"
     write_json(out / "window.json", info)
@@ -855,7 +862,7 @@ def validate_review_learning(evidence, audit, top):
             or not pattern.get("shared_solution", "").strip()
         ):
             reject("explain the repeated problem and shared solution")
-        if "What to fix once" not in top or any(url not in top for _, url in keys):
+        if any(url not in top for _, url in keys):
             reject("the briefing must cite its review pattern evidence")
     if not patterns and not audit.get("no_pattern_reason", "").strip():
         reject("explain why no recurring problem is supported")
@@ -884,11 +891,84 @@ def validate_coverage(inventory, audit):
         raise RuntimeError("PR coverage audit must explain each inventory entry once")
 
 
+def canvas_title_summary(content, title, invitation, previous=None):
+    """Use the narrative's own headings; appendix inventories are added later."""
+    invitation = invitation.strip()
+
+    def normalized(text):
+        return " ".join((text or "").split()).casefold()
+
+    if not invitation or "\n" in invitation or len(invitation.split()) > 25:
+        raise RuntimeError("Canvas invitation must be one short line, at most 25 words")
+    if re.search(r"[\[\]<>]|https?://", invitation):
+        raise RuntimeError(
+            "Canvas invitation must be plain text without an invented link"
+        )
+    if normalized(invitation) == normalized(previous):
+        raise RuntimeError("Canvas invitation must differ from the previous briefing")
+    headings, fence = [], None
+    for line in content.splitlines():
+        marker = re.match(r"^\s{0,3}(`{3,}|~{3,})", line)
+        if marker:
+            token = marker[1]
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        heading = re.match(r"^\s{0,3}(#{2,6})\s+(.+?)(?:\s+#+\s*)?$", line)
+        if heading:
+            headings.append((len(heading[1]), heading[2].strip()))
+    topics, section_level = [], None
+    grouped_sections = {"waiting on people", "active work", "ci"}
+    for index, (level, text) in enumerate(headings):
+        # These two labels group effort/lesson titles; include them on quiet days
+        # only when there are no child topics. Other headings remain visible.
+        has_children = index + 1 < len(headings) and headings[index + 1][0] > level
+        if text.casefold() in grouped_sections:
+            if not has_children:
+                raise RuntimeError(
+                    f"Canvas section {text} needs concrete subheadings for Slack sub-items"
+                )
+            section_level = level
+            topics.append("- " + text)
+            continue
+        if section_level is not None and level <= section_level:
+            section_level = None
+        if text.casefold() in {"what changed", "learning"} and has_children:
+            continue
+        topics.append(("  - " if section_level is not None else "- ") + text)
+    if not topics:
+        raise RuntimeError("Canvas title summary needs narrative topic headings")
+    return f"**{title}**\n\n" + "\n".join(topics) + "\n\n" + invitation
+
+
+def canvas_message_link(text, url, *, titles=False):
+    if titles:
+        body, _, invitation = text.rpartition("\n")
+        return body + f"\n[{invitation}]({url})"
+    return text + f"\n[Full report in Slack Canvas]({url})"
+
+
 def validate_output(out):
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted"):
         return []
     delivery = json.loads((out / "delivery.json").read_text())
+    title_summary = (
+        info.get("delivery_format") == "canvas"
+        and info.get("slack_summary_format") == "titles"
+    )
+    if title_summary:
+        text = canvas_title_summary(
+            (out / "report.md").read_text(encoding="utf-8"),
+            delivery["canvas_title"],
+            (out / "canvas-invitation.md").read_text(encoding="utf-8"),
+            info.get("previous_canvas_invitation"),
+        )
+        (out / "messages/01-toplevel.md").write_text(text + "\n", encoding="utf-8")
     messages = [
         (name, (out / "messages" / name).read_text(encoding="utf-8").strip())
         for name in delivery["files"]
@@ -897,7 +977,9 @@ def validate_output(out):
         raise RuntimeError("Missing, empty or oversized briefing message")
     inventory = json.loads((out / "inventory.json").read_text())
     canvas_mode = info.get("delivery_format") == "canvas"
-    if len(messages[0][1].split()) > (180 if canvas_mode else 550):
+    if not title_summary and len(messages[0][1].split()) > (
+        180 if canvas_mode else 550
+    ):
         raise RuntimeError(
             "TLDR exceeds 180 words"
             if canvas_mode
@@ -983,7 +1065,7 @@ def generate(out, prompt, revision_notes=""):
         instructions += (
             "\n\nRequired operator revision instructions:\n"
             + revision_notes
-            + "\nRevise report.md and the TLDR using these instructions. "
+            + "\nRevise report.md and the Slack invitation/message using these instructions. "
             "Keep prepared evidence and inventories unchanged; reconcile audits."
         )
     protected = {
@@ -1034,10 +1116,16 @@ def generate(out, prompt, revision_notes=""):
                 "Keep the prepared evidence and inventory messages unchanged. "
                 "Do not recollect sources or regenerate the per-PR ledger from scratch. "
                 + (
-                    "Use Python to count TLDR words; target 100-160 and stay below 180. "
-                    "Write the full report in report.md without a word limit. "
+                    "Write a fresh canvas-invitation.md line, at most 25 words; title bullets are assembled automatically. "
+                    if info.get("slack_summary_format") == "titles"
+                    else "Use Python to count TLDR words; target 100-160 and stay below 180. "
                     if info.get("delivery_format") == "canvas"
                     else "Use Python to count words; target 400-450 and stay below 550. "
+                )
+                + (
+                    "Write the full report in report.md without a word limit. "
+                    if info.get("delivery_format") == "canvas"
+                    else ""
                 )
                 + "Remove author PR totals, jargon and unneeded measurements. "
                 "Verify denominators and environments for every retained number. "
@@ -1159,10 +1247,9 @@ def main():
             store.save(state)
         slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
         videos = {}
-        if (
-            json.loads((args.out / "window.json").read_text()).get("delivery_format")
-            == "canvas"
-        ):
+        info = json.loads((args.out / "window.json").read_text())
+        titles = info.get("slack_summary_format") == "titles"
+        if info.get("delivery_format") == "canvas":
             found = lessons.lessons_of(args.out)
             permalinks = upload_lesson_videos(args.out, state, store.save, slack)
             url = publish_canvas(
@@ -1176,9 +1263,11 @@ def main():
             messages = [
                 (
                     name,
-                    text
-                    + lessons.tldr_line(found)
-                    + f"\n[Full report in Slack Canvas]({url})",
+                    canvas_message_link(
+                        lessons.with_rules(text, found, before_last_line=titles),
+                        url,
+                        titles=titles,
+                    ),
                 )
                 for name, text in messages
             ]
@@ -1191,7 +1280,20 @@ def main():
                 )
                 for lesson in shared
             }
-        publish(messages, state, delivery["cutoff"], slack, store.save, videos)
+        invitation = (
+            (args.out / "canvas-invitation.md").read_text(encoding="utf-8").strip()
+            if titles
+            else None
+        )
+        publish(
+            messages,
+            state,
+            delivery["cutoff"],
+            slack,
+            store.save,
+            videos,
+            canvas_invitation=invitation,
+        )
 
 
 if __name__ == "__main__":
