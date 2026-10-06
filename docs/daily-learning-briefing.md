@@ -180,13 +180,13 @@ After the briefing is drafted, the `learn` command gives each pattern in
 `review-learning.json` (up to the limit) to a separate agent: Claude Opus 5.5
 (`claude-opus-5-5`) at medium effort, with a 45-minute cap. Sonnet still writes
 the briefing itself. The agent reads the cited comments and the code with
-read-only GitHub access, then writes `learnings/<n>/learning.md`: a titled
-**Problem**, **Root cause**, **Fix** and **Rule** of 50–200 words that links the
-review comment. It also writes `learning.json` (slug, title, a rule of at most 30
-words, sources) and renders `video.mp4` with the kit. Validation drops a lesson
-without that structure or citation. A video outside 10 KB–60 MB or 10–75 s is
-dropped, but the lesson stays as text. Nothing here can block the briefing: agent,
-kit and render failures are recorded in `error.txt` or `video-error.txt`, and the
+read-only GitHub access, then writes `learnings/<n>/learning.md` (a short
+Problem / Root cause / Fix / Rule) and `learning.json` (slug, title, rule, sources),
+and renders `video.mp4` with the kit. Its output is used as written. A lesson is
+dropped only if the agent wrote no text, title or rule, and it is published without
+a video if no video was made. If the agent leaves before its render finishes, the
+kit's `render-learning.sh` is run to finish it. Nothing here can block the briefing:
+agent and render failures are recorded in `error.txt` or `render.log`, and the
 briefing publishes without the lesson. `learnings.json` records the lessons; a
 rerun, revision or evidence-reuse preview reuses it instead of running Opus again.
 Previews keep each video in the artifact for review.
