@@ -19,6 +19,10 @@ on:
         description: 'Reformat the matching original TLDR as native Slack Markdown'
         type: boolean
         default: false
+      split-delivery:
+        description: 'Restore the Canvas card and move the video to a separate channel post'
+        type: boolean
+        default: false
     secrets:
       SLACK_BOT_TOKEN:
         required: true
@@ -59,9 +63,11 @@ jobs:
           BRIEFING_CONFIG: ${{ inputs.config }}
           BRIEFING_FILE: ${{ inputs.file-id }}
           BRIEFING_FORMAT: ${{ inputs.format-message }}
+          BRIEFING_SPLIT: ${{ inputs.split-delivery }}
         run: |
           args=()
           if [ "$BRIEFING_FORMAT" = 'true' ]; then args+=(--format-message); fi
+          if [ "$BRIEFING_SPLIT" = 'true' ]; then args+=(--split-delivery); fi
           uv venv /tmp/briefing-venv
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing attach-video \
