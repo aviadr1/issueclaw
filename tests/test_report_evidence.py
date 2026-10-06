@@ -196,3 +196,104 @@ def test_event_endpoint_failure_never_claims_complete(github, tmp_path, channel)
     manifest = report.collect({"repos": ["org/ai"]}, START, END, tmp_path)
     assert not manifest["complete"]
     assert manifest["errors"]
+
+
+def test_current_activity_pages_commits_and_handoffs_and_keeps_post_cutoff_discussion(
+    monkeypatch,
+):
+    calls = []
+
+    def request(*args):
+        calls.append(args)
+        second = "commitsCursor=next" in args
+        current: dict[str, object] = {"state": "OPEN", "headRefOid": "head"}
+        current["commits"] = {
+            "nodes": [
+                {
+                    "commit": {
+                        "oid": "second" if second else "first",
+                        "committedDate": "2026-10-05T10:00:00Z",
+                        "url": "https://github.com/commit",
+                        "author": {"user": {"login": "author"}},
+                        "committer": {"user": None},
+                    }
+                }
+            ],
+            "pageInfo": {"hasNextPage": not second, "endCursor": "next"},
+        }
+        if not second:
+            current["timelineItems"] = {
+                "nodes": [
+                    {
+                        "__typename": "ReviewRequestedEvent",
+                        "createdAt": "2026-10-05T11:00:00Z",
+                        "actor": {"login": "author"},
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False},
+            }
+        return {"data": {"repository": {"pullRequest": current}}}
+
+    monkeypatch.setattr(report, "gh_json", request)
+    row = {
+        **pr(),
+        "state": "OPEN",
+        "headRefOid": "head",
+        "discussion_snapshot": {
+            "comments": [
+                {
+                    "created_at": "2026-10-05T12:00:00Z",
+                    "body": "Responded after cutoff",
+                    "user": {"login": "author"},
+                    "html_url": "https://github.com/comment",
+                }
+            ],
+            "reviews": [],
+            "review_comments": [],
+        },
+    }
+    snapshot = report.current_activity("org/repo", row)
+    assert snapshot["complete"]
+    assert len(calls) == 2
+    assert "eventsEnabled=false" in calls[1]
+    assert [e["sha"] for e in snapshot["events"] if e["kind"] == "commit"] == [
+        "first",
+        "second",
+    ]
+    assert snapshot["events"][-1]["kind"] == "comment"
+    assert snapshot["events"][-1]["at"] == "2026-10-05T12:00:00Z"
+
+
+@pytest.mark.parametrize("changed", [{"headRefOid": "new"}, {"state": "MERGED"}])
+def test_current_activity_rejects_changed_pr(monkeypatch, changed):
+    monkeypatch.setattr(
+        report,
+        "gh_json",
+        lambda *args: {
+            "data": {
+                "repository": {
+                    "pullRequest": {"state": "OPEN", "headRefOid": "old", **changed}
+                }
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="changed during activity collection"):
+        report.current_activity("org/repo", {**pr(), "headRefOid": "old"})
+
+
+def test_current_discussion_snapshot_does_not_change_cutoff_bounded_learning(github):
+    responses, _ = github
+    responses["issues"] = [
+        [
+            {
+                "created_at": "2026-09-12T00:00:00Z",
+                "body": "Author replied later",
+                "user": {"login": "author"},
+            }
+        ]
+    ]
+    evidence = report.event_evidence("org/repo", 1, START, END, include_current=True)
+    assert evidence["comments"] == []
+    assert (
+        evidence["discussion_snapshot"]["comments"][0]["body"] == "Author replied later"
+    )

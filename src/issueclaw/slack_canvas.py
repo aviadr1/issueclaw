@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -37,7 +38,15 @@ def save_state(path: Path, state: dict) -> None:
     temporary.replace(path)
 
 
-async def publish(source: str, title: str, channel: str, path: Path, token: str) -> str:
+async def publish(
+    source: str,
+    title: str,
+    channel: str,
+    path: Path,
+    token: str,
+    *,
+    on_save: Callable[[dict], None] | None = None,
+) -> str:
     fingerprint = hashlib.sha256(
         json.dumps([source, title, channel]).encode()
     ).hexdigest()
@@ -51,6 +60,12 @@ async def publish(source: str, title: str, channel: str, path: Path, token: str)
             "Canvas creation outcome is unknown. Inspect Slack before retrying; "
             "record the recovered canvas_id and remove pending in the state file."
         )
+
+    def checkpoint():
+        save_state(path, state)
+        if on_save:
+            on_save(state)
+
     async with make_client(token) as client:
 
         async def api(method: str, payload: dict) -> dict:
@@ -69,7 +84,7 @@ async def publish(source: str, title: str, channel: str, path: Path, token: str)
 
         if not state.get("canvas_id"):
             state = {"fingerprint": fingerprint, "pending": True}
-            save_state(path, state)
+            checkpoint()
             try:
                 result = await api(
                     "canvases.create",
@@ -92,10 +107,12 @@ async def publish(source: str, title: str, channel: str, path: Path, token: str)
                     )
                 ):
                     path.unlink()
+                    if on_save:
+                        on_save({})
                 raise
             state.pop("pending")
             state["canvas_id"] = result["canvas_id"]
-            save_state(path, state)
+            checkpoint()
         if not state.get("url"):
             info = await api("files.info", {"file": state["canvas_id"]})
             url = info["file"]["permalink"]
@@ -104,7 +121,7 @@ async def publish(source: str, title: str, channel: str, path: Path, token: str)
                     "Slack returned an invalid Canvas permalink."
                 )
             state["url"] = url
-            save_state(path, state)
+            checkpoint()
         return state["url"]
 
 

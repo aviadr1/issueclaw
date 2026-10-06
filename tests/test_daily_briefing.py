@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import click
 
 from issueclaw import daily_briefing as daily
 from issueclaw import report_evidence as report
@@ -38,19 +39,33 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
         headRefName="fix",
         baseRefName="main",
         url="https://github.com/org/repo/pull/1",
-        author={"login": "author"},
+        author={"login": "AUTHOR"},
         state="OPEN",
         mergedAt=None,
         updatedAt="2026-01-01T00:00:00Z",
         createdAt="2026-01-01T00:00:00Z",
         isDraft=True,
-        reviewRequests=[{"login": "reviewer"}],
+        reviewRequests=[{"login": "REVIEWER"}],
         reviewDecision="REVIEW_REQUIRED",
         headRefOid="abc",
         statusCheckRollup=[],
     )
 
     def github(*args):
+        if args[:2] == ("api", "graphql"):
+            page = {"nodes": [], "pageInfo": {"hasNextPage": False}}
+            return {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "state": "OPEN",
+                            "headRefOid": "abc",
+                            "commits": page,
+                            "timelineItems": page,
+                        }
+                    }
+                }
+            }
         if args[:2] == ("pr", "view"):
             return {"headRefOid": "abc", "statusCheckRollup": []}
         if args[0] == "pr":
@@ -62,7 +77,7 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
         datetime(2026, 10, 2, 6, tzinfo=timezone.utc), "Asia/Jerusalem", 8
     )
     manifest = report.collect(
-        {"repos": ["org/repo"], "people": {"reviewer": "Rae"}},
+        {"repos": ["org/repo"], "people": {"reviewer": "Rae", "author": "Bo"}},
         start,
         end,
         tmp_path,
@@ -73,7 +88,10 @@ def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp
 
     rows = json.loads((tmp_path / "org--repo.json").read_text())
     assert rows[0]["bucket"] == "draft"
+    assert rows[0]["person"] == "Bo"
     assert rows[0]["requested_reviewers"] == ["Rae"]
+    assert rows[0]["waiting"]["kind"] == "author"
+    assert rows[0]["waiting"]["reason"] == "inactive_four_days"
 
 
 def test_publish_resumes_thread_without_reposting_completed_messages():
@@ -145,8 +163,9 @@ def test_uncertain_reply_is_never_blindly_reposted():
     assert state.get("last_cutoff") is None
 
 
+@pytest.mark.parametrize("delivery_format", ["thread", "canvas"])
 def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, delivery_format
 ):
     import json
     import subprocess
@@ -187,6 +206,8 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         body="",
         url="https://github.com/org/repo/pull/1",
         person="Rae",
+        reviews=review_record(1)["reviews"],
+        review_comments=review_record(1)["review_comments"],
         ticket_mentions=[],
         state="MERGED",
         mergedAt="2026-10-01T06:00:00Z",
@@ -239,6 +260,7 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
             "teams": ["BE"],
             "timezone": "Asia/Jerusalem",
             "hour": 8,
+            "delivery_format": delivery_format,
         },
         mirror,
         out,
@@ -253,6 +275,18 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
     messages = "".join(p.read_text() for p in (out / "messages").glob("*.md"))
     assert "org/repo#1" in messages and "org/repo#2" in messages and "Bo" in messages
     assert "BE-1" in messages
+    if delivery_format == "canvas":
+        delivery = json.loads((out / "delivery.json").read_text())
+        assert delivery["files"] == ["01-toplevel.md"]
+        assert delivery["inventory_files"]
+        assert delivery["canvas_title"] == "Backend learning briefing — 2026-10-02"
+    review_evidence = json.loads((out / "review-learning-evidence.json").read_text())
+    assert review_evidence["review_events"] == 2
+    assert review_evidence["inline_review_comments"] == 2
+    assert {r["pr"] for r in review_evidence["comments"]} == {
+        "org/repo#1",
+        "org/repo#2",
+    }
 
 
 def test_successful_cutoff_is_idempotent():
@@ -448,3 +482,534 @@ def test_github_failure_preserves_actionable_stderr(monkeypatch):
     monkeypatch.setattr(report.subprocess, "run", failed)
     with pytest.raises(RuntimeError, match="API rate limit exceeded"):
         report.gh_json("api", "graphql")
+
+
+def review_record(number, body="Retrying the whole operation duplicates its effects"):
+    return {
+        "repo": "org/repo",
+        "number": number,
+        "reviews": [{"body": "", "html_url": "formal"}],
+        "review_comments": [
+            {
+                "body": body,
+                "html_url": f"https://github.com/org/repo/pull/{number}#discussion_r{number}",
+                "created_at": "2026-10-01T10:00:00Z",
+                "user": {"login": "rae"},
+                "body_available_at_cutoff": True,
+            }
+        ],
+    }
+
+
+def test_review_learning_uses_dated_bodies_and_counts_empty_formal_reviews():
+    rows = [review_record(1), review_record(2)]
+    rows[1]["review_comments"][0]["body_available_at_cutoff"] = False
+    rows[0]["review_snapshot"] = [{"body": "Current, outside history"}]
+    evidence = daily.review_learning_evidence(rows)
+    assert evidence["review_events"] == 2
+    assert evidence["inline_review_comments"] == 2
+    assert [r["pr"] for r in evidence["comments"]] == ["org/repo#1"]
+    assert evidence["comments"][0]["reviewer"] == "rae"
+
+
+def learning_audit():
+    return {
+        "review_events": 2,
+        "inline_review_comments": 2,
+        "inspected_prs": ["org/repo#1", "org/repo#2"],
+        "patterns": [
+            {
+                "summary": "Retries duplicate side effects",
+                "shared_solution": "Test retries against the shared effect boundary",
+                "evidence": [
+                    {
+                        "pr": f"org/repo#{n}",
+                        "url": review_record(n)["review_comments"][0]["html_url"],
+                    }
+                    for n in (1, 2)
+                ],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "defect", ["false_zero", "fabricated_link", "same_pr", "missing_citations"]
+)
+def test_review_audit_blocks_unsupported_learning_claims(defect):
+    evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
+    audit = learning_audit()
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
+        e["url"] for e in audit["patterns"][0]["evidence"]
+    )
+    if defect == "false_zero":
+        audit["review_events"] = 0
+    elif defect == "fabricated_link":
+        audit["patterns"][0]["evidence"][0]["url"] = "invented"
+    elif defect == "same_pr":
+        audit["patterns"][0]["evidence"][1] = audit["patterns"][0]["evidence"][0]
+    else:
+        top = "**What to fix once** Retry safely."
+    with pytest.raises(RuntimeError, match="Review learning audit"):
+        daily.validate_review_learning(evidence, audit, top)
+
+
+def test_review_audit_accepts_cited_independent_reviews_and_quiet_windows():
+    evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
+    audit = learning_audit()
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
+        e["url"] for e in audit["patterns"][0]["evidence"]
+    )
+    daily.validate_review_learning(evidence, audit, top)
+    quiet = {
+        "review_events": 0,
+        "inline_review_comments": 0,
+        "inspected_prs": [],
+        "patterns": [],
+        "no_pattern_reason": "No dated review evidence",
+    }
+    daily.validate_review_learning(
+        daily.review_learning_evidence([]), quiet, "Quiet day"
+    )
+    with pytest.raises(RuntimeError, match="CI claims must name"):
+        daily.validate_review_learning(evidence, audit, top + " CI: all green")
+
+
+def prepared_draft(tmp_path):
+    import json
+
+    (tmp_path / "messages").mkdir()
+    files = {
+        "window.json": {"already_posted": False},
+        "delivery.json": {
+            "cutoff": "2026-10-05T05:00:00+00:00",
+            "files": ["01-toplevel.md", "02-inventory.md"],
+        },
+        "inventory.json": [],
+        "coverage.json": [],
+        "review-learning-evidence.json": {
+            "review_events": 0,
+            "inline_review_comments": 0,
+            "comments": [],
+        },
+        "review-learning.json": {
+            "review_events": 0,
+            "inline_review_comments": 0,
+            "inspected_prs": [],
+            "patterns": [],
+            "no_pattern_reason": "Quiet history",
+        },
+    }
+    for name, value in files.items():
+        (tmp_path / name).write_text(json.dumps(value))
+    (tmp_path / "coverage.md").write_text("No inventory in this quiet window")
+    (tmp_path / "messages/02-inventory.md").write_text("Quiet inventory")
+    (tmp_path / "messages/01-toplevel.md").write_text("word " * 551)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Write a concrete learning brief")
+    return prompt
+
+
+def test_generation_repairs_validation_failure_without_recollecting(
+    monkeypatch, tmp_path
+):
+    prompt = prepared_draft(tmp_path)
+    calls = []
+
+    def claude(args, **kwargs):
+        calls.append(args)
+        assert "exceeds 550 words" in args[2]
+        (tmp_path / "messages/01-toplevel.md").write_text(
+            "No new work. Review carry-over."
+        )
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    daily.generate(tmp_path, prompt)
+    assert len(calls) == 1
+    assert daily.validate_output(tmp_path)[0][1] == "No new work. Review carry-over."
+
+
+def test_generation_stops_after_two_failed_revisions(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        daily.subprocess, "run", lambda args, **kwargs: calls.append(args)
+    )
+    with pytest.raises(RuntimeError, match="exceeds 550 words"):
+        daily.generate(tmp_path, prompt)
+    assert len(calls) == 2
+
+
+def test_generation_never_rewrites_pending_artifact(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+    (tmp_path / "window.json").write_text('{"resume": true}')
+    monkeypatch.setattr(
+        daily.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("immutable pending thread"),
+    )
+    daily.generate(
+        tmp_path, prompt, revision_notes="Must not rewrite a pending publication"
+    )
+    assert len((tmp_path / "messages/01-toplevel.md").read_text().split()) == 551
+
+
+def test_generator_cannot_rewrite_prepared_cutoff_or_inventory(monkeypatch, tmp_path):
+    prompt = prepared_draft(tmp_path)
+
+    def claude(*args, **kwargs):
+        (tmp_path / "window.json").write_text('{"already_posted": true}')
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    with pytest.raises(RuntimeError, match="Prepared evidence changed"):
+        daily.generate(tmp_path, prompt)
+
+
+def canvas_draft(tmp_path):
+    import json
+
+    prompt = prepared_draft(tmp_path)
+    (tmp_path / "window.json").write_text(
+        json.dumps({"delivery_format": "canvas", "timezone": "Asia/Jerusalem"})
+    )
+    (tmp_path / "delivery.json").write_text(
+        json.dumps(
+            {
+                "cutoff": "2026-10-05T05:00:00+00:00",
+                "files": ["01-toplevel.md"],
+                "inventory_files": ["02-inventory.md"],
+                "canvas_title": "Backend learning briefing — 2026-10-05",
+            }
+        )
+    )
+    (tmp_path / "messages/01-toplevel.md").write_text(
+        "A short TLDR with the people and next decisions."
+    )
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "MERGED\n• Quiet inventory", encoding="utf-8"
+    )
+    (tmp_path / "report.md").write_text("Full report " * 350)
+    return prompt
+
+
+def test_canvas_full_report_exceeds_550_words_and_contains_complete_inventory(tmp_path):
+    canvas_draft(tmp_path)
+    messages = daily.validate_output(tmp_path)
+    assert len(messages) == 1
+    assert len((tmp_path / "report.md").read_text().split()) > 550
+    assert "- Quiet inventory" in (tmp_path / "canvas.md").read_text()
+    assert "Full report" in (tmp_path / "canvas.md").read_text()
+
+
+def test_title_summary_uses_canvas_topics_and_fresh_invitation_without_prose(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    report = """# Briefing date
+## What changed
+### Payments checks load only payments routes — Leads: Rae Chen
+Long explanation stays in the Canvas.
+```markdown
+## An example inside code is not a topic
+```
+## Waiting on people
+### Rae Chen: confirm the payment changes after review
+Work queue.
+## Active work
+### Max Lee: recover images after lost queue messages
+Recent progress.
+## CI
+### Backend: security scan failed; tests passed
+Observed checks.
+## Learning
+### Catch slow background queries with the due-work harness
+Practical advice.
+"""
+    (tmp_path / "report.md").write_text(report, encoding="utf-8")
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Today's rabbit hole has guardrails. Open the Canvas for the full story."
+    )
+    messages = daily.validate_output(tmp_path)
+    assert len(messages) == 1
+    assert [
+        line for line in messages[0][1].splitlines() if line.lstrip().startswith("- ")
+    ] == [
+        "- Payments checks load only payments routes — Leads: Rae Chen",
+        "- Waiting on people",
+        "  - Rae Chen: confirm the payment changes after review",
+        "- Active work",
+        "  - Max Lee: recover images after lost queue messages",
+        "- CI",
+        "  - Backend: security scan failed; tests passed",
+        "- Catch slow background queries with the due-work harness",
+    ]
+    assert "Long explanation" not in messages[0][1]
+    assert "inside code" not in messages[0][1]
+    assert messages[0][1].endswith("Open the Canvas for the full story.")
+    assert (tmp_path / "messages/01-toplevel.md").read_text(
+        encoding="utf-8"
+    ).strip() == messages[0][1]
+    assert daily.validate_output(tmp_path) == messages
+
+
+def test_title_summary_keeps_every_title_even_when_the_list_exceeds_180_words(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    titles = [f"Capability {i} " + "specific behavior " * 10 for i in range(10)]
+    (tmp_path / "report.md").write_text("\n".join("### " + title for title in titles))
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Open the Canvas. The plot has indexes."
+    )
+    text = daily.validate_output(tmp_path)[0][1]
+    assert len(text.split()) > 180
+    assert sum(line.startswith("- ") for line in text.splitlines()) == len(titles)
+
+
+@pytest.mark.parametrize("section", ["Waiting on people", "Active work", "CI"])
+def test_title_summary_rejects_section_labels_without_concrete_subitems(section):
+    with pytest.raises(RuntimeError, match="needs concrete subheadings"):
+        daily.canvas_title_summary(
+            f"## {section}\nProse details.\n## Learning\n### Catch slow queries",
+            "Briefing",
+            "Open the Canvas for the details.",
+        )
+
+
+@pytest.mark.parametrize(
+    "invitation",
+    ["", "First paragraph\nSecond paragraph", "word " * 26, " Same invitation. "],
+)
+def test_title_summary_rejects_missing_long_multiline_or_repeated_invitation(
+    tmp_path, invitation
+):
+    import json
+
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    info = json.loads((tmp_path / "window.json").read_text())
+    info["previous_canvas_invitation"] = "same invitation."
+    daily.write_json(tmp_path / "window.json", info)
+    (tmp_path / "report.md").write_text("## CI\nTests passed.")
+    (tmp_path / "canvas-invitation.md").write_text(invitation)
+    with pytest.raises(RuntimeError, match="Canvas invitation"):
+        daily.validate_output(tmp_path)
+
+
+def test_completed_delivery_records_invitation_for_the_next_briefing():
+    state = {"messages": {"cutoff/01.md": {"ts": "1"}}}
+    daily.publish(
+        [("01.md", "Previously delivered")],
+        state,
+        "cutoff",
+        None,
+        lambda _: None,
+        canvas_invitation="Read on. The plot has indexes.",
+    )
+    assert state["last_canvas_invitation"] == "Read on. The plot has indexes."
+
+
+def test_canvas_link_is_first_and_keeps_the_closing_invitation():
+    message = "**Briefing**\n\n- One topic\n\nOpen the Canvas. The plot has indexes."
+    linked = daily.canvas_message_link(
+        message, "https://slack.com/docs/F123", titles=True
+    )
+    assert (
+        linked
+        == "[Your daily briefing canvas](https://slack.com/docs/F123)\n\n" + message
+    )
+    assert (
+        daily.canvas_message_link("Short paragraph", "https://slack.com/docs/F123")
+        == "[Your daily briefing canvas](https://slack.com/docs/F123)\n\nShort paragraph"
+    )
+
+
+def test_curated_canvas_keeps_full_evidence_but_appends_only_merges(tmp_path):
+    import json
+
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "canvas_inventory": "merged"}
+    )
+    rows = [
+        {
+            "repo": "org/repo",
+            "number": n,
+            "state": state,
+            "url": f"https://github.com/org/repo/pull/{n}",
+            "title": title,
+            "person": "Rae",
+        }
+        for n, state, title in (
+            (1, "merged", "New capability"),
+            (2, "open", "Old open work"),
+            (3, "draft", "Old draft work"),
+        )
+    ]
+    daily.write_json(tmp_path / "inventory.json", rows)
+    daily.write_json(
+        tmp_path / "coverage.json",
+        [
+            {
+                "pr": f"org/repo#{r['number']}",
+                "placement": "inventory",
+                "reason": "Retained in evidence",
+            }
+            for r in rows
+        ],
+    )
+    evidence_text = "MERGED\n• org/repo#1\nOPEN\n• org/repo#2 Old open work\nDRAFT\n• org/repo#3 Old draft work\nRELEVANT TICKETS (current mirror)\n• Old ticket dump"
+    inventory_file = tmp_path / "messages/02-inventory.md"
+    inventory_file.write_text(evidence_text, encoding="utf-8")
+    daily.validate_output(tmp_path)
+    canvas = (tmp_path / "canvas.md").read_text()
+    assert "New capability" in canvas
+    assert "https://github.com/org/repo/pull/1" in canvas
+    assert "Old open work" not in canvas
+    assert "Old draft work" not in canvas
+    assert "Old ticket dump" not in canvas
+    assert inventory_file.read_text(encoding="utf-8") == evidence_text
+    assert len(json.loads((tmp_path / "inventory.json").read_text())) == 3
+
+
+def test_curated_canvas_rejects_an_unprioritized_open_pr_dump(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "canvas_inventory": "merged"}
+    )
+    rows = [
+        {
+            "repo": "org/repo",
+            "number": n,
+            "state": "open",
+            "url": f"https://github.com/org/repo/pull/{n}",
+            "title": "Open work",
+            "person": "Rae",
+        }
+        for n in range(1, 10)
+    ]
+    daily.write_json(tmp_path / "inventory.json", rows)
+    daily.write_json(
+        tmp_path / "coverage.json",
+        [
+            {
+                "pr": f"org/repo#{r['number']}",
+                "placement": "queue",
+                "reason": "Review requested",
+            }
+            for r in rows
+        ],
+    )
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "\n".join(f"org/repo#{r['number']}" for r in rows)
+    )
+    (tmp_path / "report.md").write_text("\n".join(r["url"] for r in rows))
+    with pytest.raises(RuntimeError, match="at most 8 open/draft PRs"):
+        daily.validate_output(tmp_path)
+
+
+def test_canvas_only_limits_the_tldr_and_digest_covers_full_report(tmp_path):
+    canvas_draft(tmp_path)
+    messages = daily.validate_output(tmp_path)
+    digest = daily.delivery_digest(tmp_path, messages)
+    (tmp_path / "report.md").write_text("Different full report")
+    daily.validate_output(tmp_path)
+    assert daily.delivery_digest(tmp_path, messages) != digest
+    (tmp_path / "messages/01-toplevel.md").write_text("word " * 181)
+    with pytest.raises(RuntimeError, match="TLDR exceeds 180 words"):
+        daily.validate_output(tmp_path)
+
+
+@pytest.mark.parametrize("failure", ["files_info", "uncertain_create"])
+def test_canvas_receipt_is_durable_and_retry_never_creates_twice(
+    monkeypatch, tmp_path, failure
+):
+    import copy
+    import json
+    import httpx
+    from issueclaw import slack_canvas
+
+    canvas_draft(tmp_path)
+    daily.validate_output(tmp_path)
+    state = {}
+    durable = []
+    calls = []
+
+    def save(value):
+        durable.append(copy.deepcopy(value))
+
+    def handle(request):
+        method = request.url.path.split("/")[-1]
+        calls.append(method)
+        if method == "canvases.create":
+            assert durable[-1]["canvas"]["receipt"]["pending"] is True
+            assert json.loads(request.content)["channel_id"] == "C123"
+            if failure == "uncertain_create":
+                raise httpx.ReadTimeout("lost response")
+            return httpx.Response(200, json={"ok": True, "canvas_id": "F123"})
+        assert method == "files.info"
+        assert durable[-1]["canvas"]["receipt"]["canvas_id"] == "F123"
+        if calls.count("files.info") == 1:
+            return httpx.Response(200, json={"ok": False, "error": "missing_scope"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/F123"},
+            },
+        )
+
+    monkeypatch.setattr(
+        slack_canvas,
+        "make_client",
+        lambda token: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    )
+    with pytest.raises((httpx.ReadTimeout, click.ClickException)):
+        daily.publish_canvas(tmp_path, {"channel": "C123"}, state, save, "test-token")
+    if failure == "uncertain_create":
+        with pytest.raises(click.ClickException, match="unknown"):
+            daily.publish_canvas(
+                tmp_path, {"channel": "C123"}, state, save, "test-token"
+            )
+    else:
+        assert (
+            daily.publish_canvas(
+                tmp_path, {"channel": "C123"}, state, save, "test-token"
+            )
+            == "https://team.slack.com/docs/F123"
+        )
+        assert (
+            durable[-1]["canvas"]["receipt"]["url"]
+            == "https://team.slack.com/docs/F123"
+        )
+    assert calls.count("canvases.create") == 1
+
+
+def test_operator_notes_revise_a_valid_canvas_preview(monkeypatch, tmp_path):
+    prompt = canvas_draft(tmp_path)
+    daily.validate_output(tmp_path)
+    calls = []
+
+    def claude(args, **kwargs):
+        calls.append(args)
+        assert "Explain the dev measurement accurately" in args[2]
+        (tmp_path / "report.md").write_text(
+            "A corrected full report.", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    daily.generate(
+        tmp_path, prompt, revision_notes="Explain the dev measurement accurately"
+    )
+    assert len(calls) == 1
+    assert (
+        (tmp_path / "canvas.md")
+        .read_text(encoding="utf-8")
+        .startswith("A corrected full report.")
+    )

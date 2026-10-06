@@ -15,6 +15,24 @@ on:
       cutoff:
         type: string
         default: ''
+      run-early:
+        description: 'Manual run through now; callers can exclude the replaced scheduled date'
+        type: boolean
+        default: false
+      revision-notes:
+        type: string
+        default: ''
+      evidence-run-id:
+        type: string
+        default: ''
+      learning-videos-repository:
+        description: 'Video kit repository (src/learnings/AGENT.md); empty disables lessons'
+        type: string
+        default: ''
+      learning-videos-ref:
+        description: 'Reviewed commit of the video kit'
+        type: string
+        default: ''
     secrets:
       REPOS_READ_TOKEN:
         required: true
@@ -22,15 +40,56 @@ on:
         required: true
       SLACK_BOT_TOKEN:
         required: true
+      VIDEOS_READ_TOKEN:
+        description: 'Read access to the video kit when REPOS_READ_TOKEN lacks it'
+        required: false
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  generate:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      cutoff: ${{ steps.plan.outputs.cutoff }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - id: plan
+        name: Resolve early cutoff or scheduled date exception
+        env:
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          BRIEFING_EARLY: ${{ inputs.run-early }}
+          BRIEFING_CUTOFF: ${{ inputs.cutoff }}
+          BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
+        run: |
+          args=()
+          if [ "$BRIEFING_EARLY" = 'true' ]; then
+            if [ -n "$BRIEFING_CUTOFF" ] || [ -n "$BRIEFING_EVIDENCE_RUN" ]; then
+              echo 'An early run cannot reuse historical evidence or a historical cutoff' >&2
+              exit 1
+            fi
+            args+=(--early)
+          fi
+          python .briefing-tools/src/issueclaw/briefing_schedule.py \
+            --config "$BRIEFING_CONFIG" --event "$GITHUB_EVENT_NAME" \
+            "${args[@]}" >> "$GITHUB_OUTPUT"
+
+  generate:
+    needs: plan
+    if: ${{ needs.plan.outputs.enabled == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v6
         with:
@@ -59,25 +118,49 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           BRIEFING_CONFIG: ${{ inputs.config }}
-          BRIEFING_CUTOFF: ${{ inputs.cutoff }}
+          BRIEFING_CUTOFF: ${{ needs.plan.outputs.cutoff || inputs.cutoff }}
+          BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
           BRIEFING_PUBLISH: ${{ inputs.post-to-slack }}
         run: |
           args=()
           if [ -n "$BRIEFING_CUTOFF" ]; then args+=(--cutoff "$BRIEFING_CUTOFF"); fi
           if [ "$BRIEFING_PUBLISH" != 'true' ]; then args+=(--isolated); fi
+          if [ -n "$BRIEFING_EVIDENCE_RUN" ]; then args+=(--evidence-run-id "$BRIEFING_EVIDENCE_RUN"); fi
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing prepare \
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing "${args[@]}"
-      - name: Write learning briefing
+      - name: Write and revise learning briefing
         env:
+          BRIEFING_REVISION_NOTES: ${{ inputs.revision-notes }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
         run: |
-          set -o pipefail
-          if /tmp/briefing-venv/bin/python -c 'import json; exit(0 if json.load(open("/tmp/daily-briefing/window.json")).get("already_posted") or json.load(open("/tmp/daily-briefing/window.json")).get("resume") else 1)'; then
-            exit 0
-          fi
-          claude -p "$(cat .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md)" \
-            --dangerously-skip-permissions --model claude-sonnet-4-6 \
-            --output-format text > /tmp/daily-briefing/generation.log
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing generate \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
+            --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
+            --revision-notes "$BRIEFING_REVISION_NOTES"
+      - name: Check out the learning video kit
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.learning-videos-repository }}
+          ref: ${{ inputs.learning-videos-ref }}
+          path: .learning-videos
+          token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Root-cause each review pattern and make its video (Opus 5.5, medium)
+        # Optional and fail-soft: the briefing publishes without lessons on failure.
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+        run: |
+          test -f .learning-videos/src/learnings/AGENT.md
+          (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md             --videos-dir .learning-videos
       - name: Validate message and inventory coverage
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -99,7 +182,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: generate
+    needs: [plan, generate]
     if: ${{ inputs.post-to-slack }}
     runs-on: ubuntu-latest
     timeout-minutes: 20

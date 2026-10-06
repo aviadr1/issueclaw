@@ -1,0 +1,74 @@
+name: Attach a recovered briefing video (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+      tooling-ref:
+        type: string
+        required: true
+      source-run-id:
+        type: string
+        required: true
+      file-id:
+        type: string
+        required: true
+      format-message:
+        description: 'Reformat the matching original TLDR as native Slack Markdown'
+        type: boolean
+        default: false
+      split-delivery:
+        description: 'Restore the Canvas card and move the video to a separate channel post'
+        type: boolean
+        default: false
+    secrets:
+      SLACK_BOT_TOKEN:
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Restore the original briefing artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRIEFING_SOURCE_RUN: ${{ inputs.source-run-id }}
+        run: |
+          gh run download "$BRIEFING_SOURCE_RUN" -R "$GITHUB_REPOSITORY" \
+            -n daily-learning-briefing -D /tmp/daily-briefing
+      - name: Attach video to the existing TLDR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          BRIEFING_FILE: ${{ inputs.file-id }}
+          BRIEFING_FORMAT: ${{ inputs.format-message }}
+          BRIEFING_SPLIT: ${{ inputs.split-delivery }}
+        run: |
+          args=()
+          if [ "$BRIEFING_FORMAT" = 'true' ]; then args+=(--format-message); fi
+          if [ "$BRIEFING_SPLIT" = 'true' ]; then args+=(--split-delivery); fi
+          uv venv /tmp/briefing-venv
+          uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing attach-video \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing --file-id "$BRIEFING_FILE" "${args[@]}"
