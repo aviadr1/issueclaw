@@ -3,10 +3,10 @@
 After the briefing is drafted, each review pattern it found (review-learning.json)
 can be handed to a separate agent (Claude Opus 5.5, medium effort). The agent
 digs into the cited comments and code for the real root cause, writes a short
-lesson, and renders a short 3Blue1Brown-style video with the caller's video kit
+lesson, and renders a short explainer video with the caller's video kit
 (a checkout of a repository following promo-videos' ``src/learnings/AGENT.md``).
 
-Everything here is optional and fail-soft. A lesson that fails validation is
+Everything here is optional and fail-soft. A lesson the agent didn't write is
 dropped, and a missing video leaves the lesson as text, so the briefing never waits
 on either. Outputs live in the run artifact under ``learnings/<n>/``; videos are
 uploaded to Slack at publish time, not committed anywhere.
@@ -20,7 +20,6 @@ import subprocess
 MODEL = "claude-opus-5-5"
 EFFORT = "medium"
 AGENT_TIMEOUT = 45 * 60
-MAX_VIDEO_BYTES = 60 * 1024 * 1024
 PLACEHOLDER = "{{{{learning-video-{n}}}}}"
 
 
@@ -42,7 +41,6 @@ def write_inputs(out, directory, pattern):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "pattern.json").write_text(json.dumps(pattern, indent=2) + "\n")
     (directory / "comments.json").write_text(json.dumps(comments, indent=2) + "\n")
-    return cited
 
 
 def run_agent(prompt, directory, videos, env, instructions=""):
@@ -75,51 +73,14 @@ def run_agent(prompt, directory, videos, env, instructions=""):
         )
 
 
-def validate_lesson(directory, cited):
-    """A lesson is short, structured, cites the review it came from, and names one rule."""
+def read_lesson(directory):
+    """The lesson's title and rule, for the Canvas heading and the Slack line."""
     meta = json.loads((directory / "learning.json").read_text())
     body = (directory / "learning.md").read_text(encoding="utf-8").strip()
-    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", meta.get("slug", "")):
-        raise ValueError("learning.json slug must be lowercase and hyphenated")
     title, rule = meta.get("title", "").strip(), meta.get("rule", "").strip()
-    if not title or not rule or len(rule.split()) > 30:
-        raise ValueError("learning.json needs a title and a rule of at most 30 words")
-    if not body.startswith("# "):
-        raise ValueError("learning.md must start with its '# ' title")
-    words = len(body.split("\n", 1)[-1].split())
-    if not 50 <= words <= 200:
-        raise ValueError(f"learning.md body has {words} words; keep it to 50-200")
-    for label in ("Problem", "Root cause", "Fix", "Rule"):
-        # "**Problem**", "**Problem:**" and "**Problem**:" all label the paragraph
-        if not re.search(r"\*\*" + label + r":?\*\*", body):
-            raise ValueError(f"learning.md is missing **{label}**")
-    if not any(url in body for url in cited):
-        raise ValueError("learning.md must link the review comment it came from")
-    return {"title": title, "rule": rule, "slug": meta["slug"]}
-
-
-def validate_video(path):
-    size = path.stat().st_size
-    if not 10_000 < size <= MAX_VIDEO_BYTES:
-        raise ValueError(f"video.mp4 is {size} bytes")
-    probe = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "csv=p=0",
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if probe.returncode == 0 and probe.stdout.strip():
-        seconds = float(probe.stdout.strip())
-        if not 10 <= seconds <= 75:
-            raise ValueError(f"video.mp4 is {seconds:.0f} s; keep it to 10-75 s")
+    if not body or not title or not rule:
+        raise ValueError("the agent wrote no lesson")
+    return {"title": title, "rule": rule, "slug": meta.get("slug", "")}
 
 
 RENDER_TIMEOUT = 20 * 60
@@ -159,9 +120,9 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
     for n, pattern in enumerate(select_patterns(out, limit), 1):
         directory = out / "learnings" / str(n)
         try:
-            cited = write_inputs(out, directory, pattern)
+            write_inputs(out, directory, pattern)
             run(prompt, directory, videos, env, instructions)
-            lesson = validate_lesson(directory, cited)
+            lesson = read_lesson(directory)
         except subprocess.CalledProcessError as error:
             note = f"agent exited with {error.returncode}; see agent.log"
             (directory / "error.txt").write_text(note + "\n")
@@ -171,15 +132,9 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
             (directory / "error.txt").write_text(note + "\n")
             continue
         video = directory / "video.mp4"
-        lesson["video"] = False
-        if not video.exists():
+        if not video.exists() and lesson["slug"]:
             finish_render(videos, lesson["slug"], video, env)
-        if video.exists():
-            try:
-                validate_video(video)
-                lesson["video"] = True
-            except (OSError, ValueError) as error:
-                (directory / "video-error.txt").write_text(f"{error}\n")
+        lesson["video"] = video.exists() and video.stat().st_size > 0
         lesson["n"] = n
         lesson["dir"] = f"learnings/{n}"
         lessons.append(lesson)

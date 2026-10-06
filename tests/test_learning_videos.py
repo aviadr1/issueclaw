@@ -109,19 +109,7 @@ def agent(video=True, body=LESSON, slug="limit-one"):
     return run
 
 
-@pytest.fixture(autouse=True)
-def no_ffprobe(monkeypatch):
-    real = subprocess.run
-
-    def run(args, **kwargs):
-        if args[0] == "ffprobe":
-            return subprocess.CompletedProcess(args, 1, "", "")
-        return real(args, **kwargs)
-
-    monkeypatch.setattr(lessons.subprocess, "run", run)
-
-
-def test_learn_keeps_a_valid_lesson_and_its_video(tmp_path):
+def test_learn_keeps_the_lesson_and_its_video(tmp_path):
     prompt = briefing(tmp_path)
     found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
     assert found == [
@@ -138,27 +126,21 @@ def test_learn_keeps_a_valid_lesson_and_its_video(tmp_path):
     assert lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=pytest.fail) == found
 
 
-@pytest.mark.parametrize(
-    "body, slug",
-    [
-        (LESSON.replace(COMMENT, "https://example.com"), "limit-one"),
-        (LESSON.replace("**Root cause**", "Cause"), "limit-one"),
-        (LESSON + " word" * 200, "limit-one"),
-        (LESSON, "Not A Slug"),
-    ],
-)
-def test_learn_drops_an_unsupported_lesson_without_failing(tmp_path, body, slug):
+def test_whatever_the_agent_writes_is_used(tmp_path):
+    # no format policing: any wording, labels or length is the agent's call
     prompt = briefing(tmp_path)
-    assert (
-        lessons.learn(
-            tmp_path, prompt, tmp_path, 1, {}, run=agent(body=body, slug=slug)
-        )
-        == []
+    found = lessons.learn(
+        tmp_path,
+        prompt,
+        tmp_path,
+        1,
+        {},
+        run=agent(body="# Short\n\nAny text.", slug=""),
     )
-    assert (tmp_path / "learnings/1/error.txt").read_text()
+    assert found[0]["title"] == "LIMIT 1 bounds the answer, not the work"
 
 
-def test_a_failed_agent_or_bad_video_never_blocks_the_briefing(tmp_path):
+def test_a_failed_agent_or_missing_video_never_blocks_the_briefing(tmp_path):
     prompt = briefing(tmp_path)
 
     def crash(*args):
@@ -168,14 +150,8 @@ def test_a_failed_agent_or_bad_video_never_blocks_the_briefing(tmp_path):
     assert "see agent.log" in (tmp_path / "learnings/1/error.txt").read_text()
 
     (tmp_path / "learnings.json").unlink()
-
-    def tiny_video(prompt, directory, videos, env, instructions=""):
-        agent(video=False)(prompt, directory, videos, env)
-        (directory / "video.mp4").write_bytes(b"\0")
-
-    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=tiny_video)
+    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(video=False))
     assert found[0]["video"] is False
-    assert (tmp_path / "learnings/1/video-error.txt").read_text()
 
 
 def test_learn_skips_posted_and_resumed_publications(tmp_path):
@@ -380,16 +356,6 @@ def test_rules_go_before_the_closing_invitation_in_title_summaries():
         == "TLDR\n**Learning:** Index the filter you poll."
     )
     assert lessons.with_rules("TLDR", []) == "TLDR"
-
-
-def test_labels_may_carry_their_colon_inside_the_bold(tmp_path):
-    # the label style Opus wrote in the first real CI preview
-    prompt = briefing(tmp_path)
-    body = LESSON
-    for label in ("Problem", "Root cause", "Fix", "Rule"):
-        body = body.replace(f"**{label}**", f"**{label}:**")
-    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(body=body))
-    assert found and found[0]["slug"] == "limit-one"
 
 
 def test_a_render_the_agent_left_unfinished_is_completed(tmp_path, monkeypatch):
