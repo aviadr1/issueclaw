@@ -224,6 +224,10 @@ on retry) and the TLDR is posted as plain text. Canvas embedding of video files
 follows Slack's file-embed syntax; if a workspace shows a link rather than a player,
 the video is still in the TLDR.
 
+Messages use Slack's `markdown_text` input so topic bullets and their nested items
+become native lists. Video attachment preserves the returned rich-text blocks;
+updating only `text` would discard their formatting.
+
 For a clip recovered after a briefing completed, the reusable
 `attach-briefing-video.yml` workflow accepts the original artifact run and an
 already uploaded Slack file ID. It calls `daily_briefing attach-video --file-id F…`
@@ -232,3 +236,9 @@ and a pending publication blocks the repair. It preserves the message text and
 coverage cutoff and records the attachment separately. The caller must serialize
 this workflow with publication. A separately repaired Canvas should reference
 the same file ID.
+
+The recovery workflow's optional `format-message` input reparses the original TLDR
+as Markdown and verifies Slack returns native lists. It reconstructs the Markdown
+from the original artifact and confirmed Canvas URL, then requires the current
+message text to match exactly before changing presentation. Its file attachment
+and coverage cutoff stay in place.
