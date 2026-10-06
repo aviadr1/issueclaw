@@ -213,16 +213,17 @@ placeholder is filled at publication. A learning the briefing never wrote up is 
 added. `report.md` keeps the briefing's text, so the review-citation audit is
 unchanged. The lessons and the videos' hashes are part of the pending digest. At publication, each
 video is uploaded once and embedded in the Canvas through its Slack file link,
-and the TLDR gains a **Learning:** line with each lesson's rule. After the TLDR is
-posted, `chat.update` attaches those same uploaded file IDs to it, sharing the files
-with the channel. This makes the Canvas references readable by channel members.
-Attachment is verified before the coverage cutoff advances. A failed attachment
-retries against the checkpointed TLDR timestamp without posting another message
+and the TLDR gains a **Learning:** line with each lesson's rule. The formatted
+briefing post carries the Canvas file as its card. A separate channel post follows
+with one line summarizing the lesson and those same uploaded video file IDs.
+The Canvas references that shared video, so channel members can open it there too.
+Both posts and their attachments are verified before the coverage cutoff advances.
+A failed attachment retries against the checkpointed message without posting another
 or uploading another copy. Uploading needs the bot's `files:write` scope. If Slack refuses an upload,
 the refusal is recorded for that cutoff: the Canvas has no embed (it stays identical
 on retry) and the TLDR is posted as plain text. Canvas embedding of video files
 follows Slack's file-embed syntax; if a workspace shows a link rather than a player,
-the video is still in the TLDR.
+the video is still in its separate Slack post.
 
 Messages use Slack's `markdown_text` input so topic bullets and their nested items
 become native lists. Video attachment preserves the returned rich-text blocks;
@@ -244,3 +245,8 @@ as Markdown and verifies Slack returns native lists. It reconstructs the Markdow
 from the original artifact and confirmed Canvas URL, then requires the current
 message text to match exactly before changing presentation. Its file attachment
 and coverage cutoff stay in place.
+
+The optional `split-delivery` recovery input restores the Canvas card on the
+original briefing and posts the recovered video with its lesson rule in a separate
+channel message. Both message timestamps are checkpointed, so retrying the repair
+does not duplicate the follow-up. Formatting and split repairs cannot be combined.

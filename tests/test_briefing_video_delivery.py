@@ -6,7 +6,7 @@ import pytest
 from issueclaw import daily_briefing as daily
 
 
-class Slack:
+class Slack(daily.Slack):
     channel = "C1"
 
     def __init__(self):
@@ -16,17 +16,31 @@ class Slack:
             "files": [],
         }
         self.calls = []
+        self.messages = {"1.1": self.message}
 
     def api(self, method, payload):
         self.calls.append((method, payload))
         if method == "conversations.history":
-            return {"messages": [self.message]}
+            return {"messages": [self.messages[payload["latest"]]]}
+        if method == "chat.postMessage":
+            ts = str(len(self.messages) + 1) + ".0"
+            message = {
+                "ts": ts,
+                "text": daily.mrkdwn(payload["markdown_text"]),
+                "files": [],
+                "metadata": payload["metadata"],
+            }
+            if "thread_ts" in payload:
+                message["thread_ts"] = payload["thread_ts"]
+            self.messages[ts] = message
+            return {"ok": True, "ts": ts, "message": message}
         assert method == "chat.update"
+        message = self.messages[payload["ts"]]
         if "text" in payload:
-            assert payload["text"] == self.message["text"]
-            self.message["blocks"] = payload.get("blocks", [])
+            assert payload["text"] == message["text"]
+            message["blocks"] = payload.get("blocks", [])
         if "markdown_text" in payload:
-            self.message["blocks"] = [
+            message["blocks"] = [
                 {
                     "type": "rich_text",
                     "elements": [
@@ -36,8 +50,18 @@ class Slack:
                 }
             ]
         if "file_ids" in payload:
-            self.message["files"] = [{"id": file} for file in payload["file_ids"]]
-        return {"ok": True, "message": self.message}
+            message["files"] = [{"id": file} for file in payload["file_ids"]]
+        return {"ok": True, "message": message}
+
+    def find(self, key):
+        return next(
+            (
+                m
+                for m in self.messages.values()
+                if m.get("metadata", {}).get("event_payload", {}).get("key") == key
+            ),
+            None,
+        )
 
 
 def test_publisher_submits_markdown_for_native_nested_lists():
@@ -61,6 +85,61 @@ def test_publisher_submits_markdown_for_native_nested_lists():
     assert payload["markdown_text"] == markdown
     assert "text" not in payload and "blocks" not in payload
     assert payload["metadata"]["event_payload"]["key"] == "cutoff/01.md"
+
+
+def test_canvas_card_and_video_are_separate_channel_posts_and_retry_is_safe():
+    slack = Slack()
+    cutoff = "2026-10-06T00:34:00+00:00"
+    state = {"messages": {cutoff + "/01.md": {"ts": "1.1"}}, "pending": {"run_id": "1"}}
+    # Simulate Slack rejecting the video attachment after accepting its post.
+    api = slack.api
+    rejected = []
+
+    def fail_video_once(method, payload):
+        if (
+            method == "chat.update"
+            and payload.get("file_ids") == ["F1"]
+            and not rejected
+        ):
+            rejected.append(True)
+            raise daily.SlackRejected("temporary attachment failure")
+        return api(method, payload)
+
+    slack.api = fail_video_once
+
+    def finish():
+        daily.finish_canvas_delivery(
+            state,
+            cutoff,
+            "01.md",
+            "F2",
+            ("**Learning:** Index eligible work.", ["F1"]),
+            slack,
+            lambda s: None,
+        )
+
+    with pytest.raises(daily.SlackRejected):
+        daily.publish(
+            [("01.md", "TLDR")], state, cutoff, slack, lambda s: None, finalize=finish
+        )
+    assert "last_cutoff" not in state and "pending" in state
+    daily.publish(
+        [("01.md", "TLDR")], state, cutoff, slack, lambda s: None, finalize=finish
+    )
+    assert state["last_cutoff"] == cutoff
+    assert slack.message["files"] == [{"id": "F2"}]
+    videos = [m for ts, m in slack.messages.items() if ts != "1.1"]
+    assert len(videos) == 1
+    assert videos[0]["files"] == [{"id": "F1"}]
+    assert "thread_ts" not in videos[0] and "\n" not in videos[0]["text"]
+    assert len([c for c in slack.calls if c[0] == "chat.postMessage"]) == 1
+
+
+def test_replacing_video_with_canvas_restores_only_the_canvas_card():
+    slack = Slack()
+    slack.message["files"] = [{"id": "F1"}, {"id": "F2"}]
+    daily.attach_message_files(slack, "1.1", ["F2"], replace=True)
+    assert slack.message["files"] == [{"id": "F2"}]
 
 
 def test_attaching_video_keeps_native_list_blocks():
@@ -155,7 +234,7 @@ def test_repair_only_attaches_to_the_latest_completed_briefing(tmp_path):
     (tmp_path / "window.json").write_text(
         json.dumps({"delivery_format": "canvas", "slack_summary_format": "titles"})
     )
-    state["canvas"] = {"receipt": {"url": url}}
+    state["canvas"] = {"receipt": {"url": url, "canvas_id": "F2"}}
     slack.message["text"] = daily.mrkdwn(
         source.rsplit("\n", 1)[0] + f"\n[Read more]({url})"
     )
@@ -170,6 +249,23 @@ def test_repair_only_attaches_to_the_latest_completed_briefing(tmp_path):
     ][-1]
     assert formatted["markdown_text"].startswith(
         f"[Your daily briefing canvas]({url})\n\n"
+    )
+    (tmp_path / "learnings.json").write_text(
+        json.dumps([{"rule": "Index eligible work."}])
+    )
+    daily.repair_video_attachment(
+        tmp_path, state, slack, saved.append, ["F1"], split_delivery=True
+    )
+    daily.repair_video_attachment(
+        tmp_path, state, slack, saved.append, ["F1"], split_delivery=True
+    )
+    assert state["last_cutoff"] == cutoff
+    assert state["video_repair"]["split"] is True
+    assert slack.message["files"] == [{"id": "F2"}]
+    assert len(slack.messages) == 2
+    assert (
+        slack.messages[state["video_repair"]["ts"]]["text"]
+        == "*Learning:* Index eligible work."
     )
     state["last_cutoff"] = "2026-10-07T05:00:00+00:00"
     with pytest.raises(RuntimeError, match="latest completed"):

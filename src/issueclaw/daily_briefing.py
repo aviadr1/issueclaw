@@ -317,6 +317,43 @@ def share_with_file(text, key, thread, video, state, slack, save):
     return ts
 
 
+def post_once(text, key, state, slack, save, thread=None, video=None):
+    """Checkpoint a post and recover uncertain acceptance before any retry."""
+    ledger = state.setdefault("messages", {})
+    if key in ledger and "ts" not in ledger[key] and "file" in ledger[key]:
+        ts = slack.shared_ts(ledger[key]["file"])
+        if ts:
+            ledger[key] = {"ts": ts}
+        else:
+            del ledger[key]
+        save(state)
+    if key in ledger and "ts" not in ledger[key]:
+        recovered = slack.find(key)
+        if not recovered:
+            raise RuntimeError(
+                "Uncertain Slack delivery: inspect thread before clearing checkpoint intent"
+            )
+        ledger[key] = {"ts": recovered["ts"]}
+        save(state)
+    if key not in ledger and video:
+        ts = share_with_file(text, key, thread, video, state, slack, save)
+        if ts:
+            ledger[key] = {"ts": ts}
+            save(state)
+    if key not in ledger:
+        ledger[key] = {"intent": True}
+        save(state)
+        try:
+            ts = slack.post(text, key, thread)
+        except SlackRejected:
+            del ledger[key]
+            save(state)
+            raise
+        ledger[key] = {"ts": ts}
+        save(state)
+    return ledger[key]["ts"]
+
+
 def publish(
     messages,
     state,
@@ -349,44 +386,9 @@ def publish(
     thread = None
     for name, text in messages:
         key = cutoff + "/" + name
-        if key in ledger and "ts" not in ledger[key] and "file" in ledger[key]:
-            # A video share is found through its file. One that never became
-            # visible was not shared, and its unshared upload is discarded.
-            ts = slack.shared_ts(ledger[key]["file"])
-            if ts:
-                ledger[key] = {"ts": ts}
-            else:
-                del ledger[key]
-            save(state)
-        if key in ledger and "ts" not in ledger[key]:
-            # A request may have reached Slack before the job died. Never blindly
-            # resend an uncertain message, even if recovery lacks history scopes.
-            recovered = slack.find(key)
-            if not recovered:
-                raise RuntimeError(
-                    "Uncertain Slack delivery: inspect thread before clearing checkpoint intent"
-                )
-            ledger[key] = {"ts": recovered["ts"]}
-            save(state)
-        video = (videos or {}).get(name)
-        if key not in ledger and video:
-            ts = share_with_file(text, key, thread, video, state, slack, save)
-            if ts:
-                ledger[key] = {"ts": ts}
-                save(state)
-        if key not in ledger:
-            ledger[key] = {"intent": True}
-            save(state)
-            try:
-                ts = slack.post(text, key, thread)
-            except SlackRejected:
-                del ledger[key]
-                save(state)
-                raise
-            ledger[key] = {"ts": ts}
-            save(state)
+        ts = post_once(text, key, state, slack, save, thread, (videos or {}).get(name))
         if thread is None:
-            thread = ledger[key]["ts"]
+            thread = ts
     if finalize is not None:
         finalize()
     state.pop("pending", None)
@@ -399,7 +401,9 @@ def publish(
     save(state)
 
 
-def attach_message_files(slack, ts, file_ids, *, markdown=None, expected_text=None):
+def attach_message_files(
+    slack, ts, file_ids, *, markdown=None, expected_text=None, replace=False
+):
     """Share existing uploads on the bot's TLDR, preserving its current text."""
     if not file_ids and markdown is None:
         return
@@ -425,6 +429,8 @@ def attach_message_files(slack, ts, file_ids, *, markdown=None, expected_text=No
     message = read_message()
     existing = {file["id"] for file in message.get("files", [])}
     missing = list(dict.fromkeys(file for file in file_ids if file not in existing))
+    if replace and existing != set(file_ids):
+        missing = list(dict.fromkeys(file_ids))
     if markdown is not None and message["text"] not in {
         mrkdwn(markdown),
         expected_text,
@@ -448,7 +454,7 @@ def attach_message_files(slack, ts, file_ids, *, markdown=None, expected_text=No
     for attempt in range(3):
         updated = read_message()
         attached = {file["id"] for file in updated.get("files", [])}
-        if set(file_ids) <= attached:
+        if set(file_ids) == attached if replace else set(file_ids) <= attached:
             if markdown is not None and re.search(r"(?m)^ *- ", markdown):
                 lists = [
                     element
@@ -470,7 +476,37 @@ def attach_message_files(slack, ts, file_ids, *, markdown=None, expected_text=No
     raise RuntimeError("Video attachment is not visible; retry the prepared briefing")
 
 
-def repair_video_attachment(out, state, slack, save, file_ids, *, format_message=False):
+def finish_canvas_delivery(
+    state, cutoff, parent_name, canvas_id, video_summary, slack, save
+):
+    """Keep the Canvas card on the report; share its videos on one separate post."""
+    parent = state["messages"][cutoff + "/" + parent_name]["ts"]
+    attach_message_files(slack, parent, [canvas_id], replace=True)
+    if not video_summary:
+        return None
+    text, files = video_summary
+    key = cutoff + "/02-learning-video.md"
+    ts = post_once(text, key, state, slack, save)
+    attach_message_files(slack, ts, files, replace=True)
+    return ts
+
+
+def learning_video_summary(found, file_ids):
+    if not file_ids:
+        return None
+    if not found:
+        raise ValueError("Video delivery needs a learning summary")
+    # One short line below the Canvas post; the video and full Canvas hold detail.
+    return (
+        "**Learning:** "
+        + " ".join(" ".join(lesson["rule"].split()) for lesson in found),
+        file_ids,
+    )
+
+
+def repair_video_attachment(
+    out, state, slack, save, file_ids, *, format_message=False, split_delivery=False
+):
     """Attach a recovered clip without reposting or advancing the coverage window."""
     delivery = json.loads((out / "delivery.json").read_text())
     cutoff = delivery["cutoff"]
@@ -479,6 +515,29 @@ def repair_video_attachment(out, state, slack, save, file_ids, *, format_message
     receipt = state.get("messages", {}).get(cutoff + "/" + delivery["files"][0], {})
     if not receipt.get("ts"):
         raise RuntimeError("Missing completed briefing message receipt")
+    if split_delivery:
+        if format_message:
+            raise ValueError(
+                "Split delivery and formatting repairs are separate operations"
+            )
+        canvas_id = state["canvas"]["receipt"]["canvas_id"]
+        ts = finish_canvas_delivery(
+            state,
+            cutoff,
+            delivery["files"][0],
+            canvas_id,
+            learning_video_summary(lessons.lessons_of(out), file_ids),
+            slack,
+            save,
+        )
+        state["video_repair"] = {
+            "cutoff": cutoff,
+            "ts": ts,
+            "files": file_ids,
+            "split": True,
+        }
+        save(state)
+        return
     markdown = None
     expected_text = None
     if format_message:
@@ -1296,6 +1355,7 @@ def main():
     parser.add_argument("--revision-notes", default="")
     parser.add_argument("--file-id", action="append", default=[])
     parser.add_argument("--format-message", action="store_true")
+    parser.add_argument("--split-delivery", action="store_true")
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -1364,6 +1424,7 @@ def main():
             store.save,
             args.file_id,
             format_message=args.format_message,
+            split_delivery=args.split_delivery,
         )
         return
     if args.command == "prepare":
@@ -1432,11 +1493,21 @@ def main():
                 if receipt.get("permalink")
             ]
 
-            # The same files power the Canvas and TLDR. Attach before completing
-            # delivery so a failure retries this message instead of posting another.
+            # The Canvas owns the report's card. Videos have their own channel post,
+            # with both receipts complete before advancing the coverage cutoff.
             def attach_videos():
-                key = delivery["cutoff"] + "/" + messages[0][0]
-                attach_message_files(slack, state["messages"][key]["ts"], files)
+                finish_canvas_delivery(
+                    state,
+                    delivery["cutoff"],
+                    messages[0][0],
+                    state["canvas"]["receipt"]["canvas_id"],
+                    learning_video_summary(
+                        [lesson for lesson in found if str(lesson["n"]) in permalinks],
+                        files,
+                    ),
+                    slack,
+                    store.save,
+                )
 
             finalize = attach_videos
 
