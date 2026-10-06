@@ -8,6 +8,7 @@ from issueclaw import learning_videos as lessons
 
 COMMENT = "https://github.com/org/repo/pull/1#discussion_r1"
 OTHER = "https://github.com/org/repo/pull/2#discussion_r2"
+PRIMITIVE = "https://github.com/org/repo/pull/3"
 LESSON = f"""# LIMIT 1 bounds the answer, not the work
 
 **Problem** A five-second poll asked for one fresh row and still read the whole
@@ -22,10 +23,17 @@ rows it can return, so one seek finds the answer.
 **Rule** Index the filter you poll, and test it against a large backlog of
 rows it must skip.
 """
+REPORT = (
+    "Date and window\n\n## What changed\n\nThings.\n\n## Learning\n\n"
+    f"### Catch slow polls\n\nLong review write-up {COMMENT} {OTHER}\n\n"
+    f"### A new primitive for retries\n\nWhy it works {PRIMITIVE}\n\n"
+    "## CI\n\nNamed checks.\n"
+)
 
 
-def briefing(tmp_path, canvas=True):
-    """A validated-shape briefing artifact with one review pattern."""
+def briefing(tmp_path, canvas=True, report=REPORT):
+    """A validated-shape briefing artifact whose Learning section has two lessons:
+    one from a repeated review problem, one about a new primitive."""
     (tmp_path / "messages").mkdir()
     pattern = {
         "summary": "Polls scan ineligible backlogs",
@@ -51,17 +59,8 @@ def briefing(tmp_path, canvas=True):
             "review_events": 2,
             "inline_review_comments": 2,
             "comments": [
-                {
-                    "pr": "org/repo#1",
-                    "url": COMMENT,
-                    "reviewer": "rae",
-                    "body": "LIMIT 1 still scans",
-                },
-                {
-                    "pr": "org/repo#2",
-                    "url": "https://github.com/org/repo/pull/2#discussion_r2",
-                    "body": "other",
-                },
+                {"pr": "org/repo#1", "url": COMMENT, "body": "LIMIT 1 still scans"},
+                {"pr": "org/repo#2", "url": OTHER, "body": "other"},
             ],
         },
         "review-learning.json": {
@@ -78,10 +77,7 @@ def briefing(tmp_path, canvas=True):
     (tmp_path / "messages/02-inventory.md").write_text(
         "MERGED\n• none", encoding="utf-8"
     )
-    (tmp_path / "report.md").write_text(
-        "Date and window\n\n## What changed\n\nThings.\n\n"
-        f"## What to fix once\n\n{COMMENT} {OTHER}\n"
-    )
+    (tmp_path / "report.md").write_text(report, encoding="utf-8")
     prompt = tmp_path / "prompt.md"
     prompt.write_text("Lesson in {learning_dir}, videos in {videos_dir}")
     return prompt
@@ -89,9 +85,6 @@ def briefing(tmp_path, canvas=True):
 
 def agent(video=True, body=LESSON, slug="limit-one"):
     def run(prompt, directory, videos, env, instructions=""):
-        assert (
-            json.loads((directory / "comments.json").read_text())[0]["url"] == COMMENT
-        )
         (directory / "learning.md").write_text(body)
         (directory / "learning.json").write_text(
             json.dumps(
@@ -117,13 +110,39 @@ def test_learn_keeps_the_lesson_and_its_video(tmp_path):
             "title": "LIMIT 1 bounds the answer, not the work",
             "rule": "Index the filter you poll.",
             "slug": "limit-one",
+            "sources": [COMMENT],
             "video": True,
             "n": 1,
             "dir": "learnings/1",
+            "replaces": "Catch slow polls",
         }
     ]
     # a second run (a retry or revision) reuses the recorded lessons
     assert lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=pytest.fail) == found
+
+
+def test_every_lesson_the_briefing_teaches_is_a_topic_not_only_review_patterns(
+    tmp_path,
+):
+    briefing(tmp_path)
+    topics = lessons.select_topics(tmp_path, 5)
+    assert [t["heading"] for t in topics] == [
+        "Catch slow polls",
+        "A new primitive for retries",
+    ]
+    lessons.write_inputs(tmp_path, tmp_path / "in", topics[1])
+    assert PRIMITIVE in (tmp_path / "in/draft.md").read_text()
+    # a lesson with no review behind it gets no comments, and that's fine
+    assert json.loads((tmp_path / "in/comments.json").read_text()) == []
+    lessons.write_inputs(tmp_path, tmp_path / "in1", topics[0])
+    cited = json.loads((tmp_path / "in1/comments.json").read_text())
+    assert [c["url"] for c in cited] == [COMMENT, OTHER]
+
+
+def test_a_learning_section_without_subsections_is_one_topic(tmp_path):
+    briefing(tmp_path, report="Window\n\n## Learning\n\nOne lesson.\n\n## CI\n\nx\n")
+    assert [t["heading"] for t in lessons.select_topics(tmp_path, 5)] == ["Learning"]
+    assert lessons.select_topics(tmp_path / "missing", 5) == []
 
 
 def test_whatever_the_agent_writes_is_used(tmp_path):
@@ -160,16 +179,19 @@ def test_learn_skips_posted_and_resumed_publications(tmp_path):
     assert lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=pytest.fail) == []
 
 
-def test_lesson_replaces_the_briefings_learning_where_it_was(tmp_path):
+def test_lesson_replaces_the_briefings_draft_where_it_was(tmp_path):
     prompt = briefing(tmp_path)
     lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
     messages = daily.validate_output(tmp_path)
     canvas = (tmp_path / "canvas.md").read_text()
-    # same place as the briefing's learning: after What changed, not first
-    assert canvas.index("## What changed") < canvas.index(
-        "## LIMIT 1 bounds the answer, not the work"
+    # in the briefing's own place, under Learning, before CI; the draft is gone
+    assert (
+        canvas.index("## Learning")
+        < canvas.index("### LIMIT 1 bounds the answer, not the work")
+        < canvas.index("### A new primitive for retries")
+        < canvas.index("## CI")
     )
-    assert "What to fix once" not in canvas
+    assert "Catch slow polls" not in canvas and "Long review write-up" not in canvas
     assert "{{learning-video-1}}" in canvas and "**Root cause**" in canvas
     # the audit still checks the briefing's own citations
     assert OTHER in (tmp_path / "report.md").read_text()
@@ -178,25 +200,46 @@ def test_lesson_replaces_the_briefings_learning_where_it_was(tmp_path):
     assert daily.delivery_digest(tmp_path, messages) != digest
 
 
-def test_lesson_goes_under_the_learning_group_heading(tmp_path):
-    prompt = briefing(tmp_path)
+def test_a_lone_learning_section_keeps_its_heading_with_the_lesson_under_it(tmp_path):
+    report = "Window\n\n## Learning\n\nLong draft.\n\n## CI\n\nNamed checks.\n"
+    prompt = briefing(tmp_path, report=report)
     found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
-    report = (
-        "Window\n\n## What changed\n\nThings.\n\n## Learning\n\n"
-        f"### Catch slow polls\n\nLong text {COMMENT} {OTHER}\n\n"
-        "## CI\n\nGreen checks named.\n"
-    )
     out = lessons.replace_learning(tmp_path, report, found)
     assert "## Learning\n\n### LIMIT 1 bounds the answer, not the work" in out
-    assert "Catch slow polls" not in out and "Long text" not in out
+    assert "Long draft" not in out
     assert out.index("**Rule**") < out.index("## CI")
 
 
-def test_a_learning_the_briefing_never_wrote_is_not_added(tmp_path):
+def test_a_lesson_whose_section_is_gone_is_not_added(tmp_path):
     prompt = briefing(tmp_path)
     found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
-    report = "Window\n\n## What changed\n\nNo review citations here.\n"
+    report = "Window\n\n## What changed\n\nNothing about it here.\n"
     assert lessons.replace_learning(tmp_path, report, found) == report
+
+
+def test_taught_lessons_are_remembered_with_the_completed_cutoff():
+    found = [{"title": "T", "rule": "R", "sources": [COMMENT]}]
+    taught = lessons.remember([{"title": "old"}] * 70, found, "2026-10-05")
+    assert len(taught) == lessons.TAUGHT_KEPT
+    assert taught[-1] == {
+        "date": "2026-10-05",
+        "title": "T",
+        "rule": "R",
+        "sources": [COMMENT],
+    }
+
+    class Slack:
+        def post(self, *args):
+            return "1"
+
+        def find(self, key):
+            return None
+
+    state = {"messages": {}}
+    daily.publish(
+        [("01.md", "TLDR")], state, "c", Slack(), lambda s: None, taught=taught
+    )
+    assert state["taught_lessons"] == taught and state["last_cutoff"] == "c"
 
 
 def test_placeholders_become_embeds_or_disappear():
@@ -366,8 +409,6 @@ def test_a_render_the_agent_left_unfinished_is_completed(tmp_path, monkeypatch):
     renders = []
 
     def run(args, **kwargs):
-        if args[0] == "ffprobe":
-            return subprocess.CompletedProcess(args, 1, "", "")
         renders.append(args)
         mp4 = kwargs["cwd"] / "out" / "learnings" / "limit-one.mp4"
         mp4.parent.mkdir(parents=True)

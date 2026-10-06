@@ -1,10 +1,13 @@
-"""Daily learning lessons: one root-caused lesson and explainer video per review pattern.
+"""Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
-After the briefing is drafted, each review pattern it found (review-learning.json)
-can be handed to a separate agent (Claude Opus 5.5, medium effort). The agent
-digs into the cited comments and code for the real root cause, writes a short
-lesson, and renders a short explainer video with the caller's video kit
-(a checkout of a repository following promo-videos' ``src/learnings/AGENT.md``).
+After the briefing is drafted, each lesson in its Learning section can be handed to
+a separate agent (Claude Opus 5.5, medium effort). A lesson can be any kind of
+knowledge worth sharing: a repeated review problem, a new system or primitive, a
+CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
+the cited PRs, comments and code for what really happened and why, writes a short
+lesson that replaces the briefing's draft in place, and renders a short explainer
+video with the caller's video kit (a checkout of a repository following
+promo-videos' ``src/learnings/AGENT.md``).
 
 Everything here is optional and fail-soft. A lesson the agent didn't write is
 dropped, and a missing video leaves the lesson as text, so the briefing never waits
@@ -20,26 +23,59 @@ import subprocess
 MODEL = "claude-opus-5-5"
 EFFORT = "medium"
 AGENT_TIMEOUT = 45 * 60
+RENDER_TIMEOUT = 20 * 60
 PLACEHOLDER = "{{{{learning-video-{n}}}}}"
+HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 
 
 def placeholder(n):
     return PLACEHOLDER.format(n=n)
 
 
-def select_patterns(out, limit):
-    """The review patterns worth a lesson, in the briefing's own order."""
-    audit = json.loads((out / "review-learning.json").read_text())
-    return audit.get("patterns", [])[:limit]
+def sections(lines):
+    """(start, end, level, text) of every heading's section, end exclusive."""
+    found = []
+    heads = [(i, m) for i, line in enumerate(lines) if (m := HEADING.match(line))]
+    for k, (i, m) in enumerate(heads):
+        level = len(m[1])
+        end = next(
+            (j for j, n in heads[k + 1 :] if len(n[1]) <= level),
+            len(lines),
+        )
+        found.append((i, end, level, m[2]))
+    return found
 
 
-def write_inputs(out, directory, pattern):
-    """The agent's inputs: the pattern and the exact comment bodies it cites."""
+def is_learning_heading(text):
+    text = text.strip().casefold()
+    return text == "learning" or text.startswith("what to fix once")
+
+
+def select_topics(out, limit):
+    """The lessons the briefing wrote, in its order: each subsection of its
+    Learning section, or the section itself when it has none."""
+    path = out / "report.md"
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").split("\n")
+    found = sections(lines)
+    group = next((s for s in found if is_learning_heading(s[3])), None)
+    if group is None:
+        return []
+    start, end, level, _ = group
+    children = [s for s in found if start < s[0] < end and s[2] == level + 1]
+    return [
+        {"heading": s[3], "text": "\n".join(lines[s[0] : s[1]]).strip()}
+        for s in (children or [group])
+    ][:limit]
+
+
+def write_inputs(out, directory, topic):
+    """The agent's inputs: the briefing's draft and the review comments it cites."""
     evidence = json.loads((out / "review-learning-evidence.json").read_text())
-    cited = {row.get("url") for row in pattern.get("evidence", [])}
-    comments = [c for c in evidence["comments"] if c["url"] in cited]
+    comments = [c for c in evidence["comments"] if c["url"] in topic["text"]]
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "pattern.json").write_text(json.dumps(pattern, indent=2) + "\n")
+    (directory / "draft.md").write_text(topic["text"] + "\n", encoding="utf-8")
     (directory / "comments.json").write_text(json.dumps(comments, indent=2) + "\n")
 
 
@@ -74,16 +110,19 @@ def run_agent(prompt, directory, videos, env, instructions=""):
 
 
 def read_lesson(directory):
-    """The lesson's title and rule, for the Canvas heading and the Slack line."""
+    """The lesson's title, rule and sources, for the Canvas, Slack and memory."""
     meta = json.loads((directory / "learning.json").read_text())
     body = (directory / "learning.md").read_text(encoding="utf-8").strip()
     title, rule = meta.get("title", "").strip(), meta.get("rule", "").strip()
     if not body or not title or not rule:
         raise ValueError("the agent wrote no lesson")
-    return {"title": title, "rule": rule, "slug": meta.get("slug", "")}
-
-
-RENDER_TIMEOUT = 20 * 60
+    sources = [url for url in meta.get("sources", []) if isinstance(url, str)]
+    return {
+        "title": title,
+        "rule": rule,
+        "slug": meta.get("slug", ""),
+        "sources": sources,
+    }
 
 
 def finish_render(videos, slug, video, env):
@@ -117,10 +156,10 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
     if manifest.exists():
         return json.loads(manifest.read_text())
     lessons = []
-    for n, pattern in enumerate(select_patterns(out, limit), 1):
+    for n, topic in enumerate(select_topics(out, limit), 1):
         directory = out / "learnings" / str(n)
         try:
-            write_inputs(out, directory, pattern)
+            write_inputs(out, directory, topic)
             run(prompt, directory, videos, env, instructions)
             lesson = read_lesson(directory)
         except subprocess.CalledProcessError as error:
@@ -137,6 +176,7 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
         lesson["video"] = video.exists() and video.stat().st_size > 0
         lesson["n"] = n
         lesson["dir"] = f"learnings/{n}"
+        lesson["replaces"] = topic["heading"]
         lessons.append(lesson)
     manifest.write_text(json.dumps(lessons, indent=2) + "\n")
     return lessons
@@ -147,48 +187,23 @@ def lessons_of(out):
     return json.loads(path.read_text()) if path.exists() else []
 
 
-HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
-GROUP_HEADINGS = {"learning"}
-
-
-def sections(lines):
-    """(start, end, level, text) of every heading's section, end exclusive."""
-    found = []
-    heads = [(i, m) for i, line in enumerate(lines) if (m := HEADING.match(line))]
-    for k, (i, m) in enumerate(heads):
-        level = len(m[1])
-        end = next(
-            (j for j, n in heads[k + 1 :] if len(n[1]) <= level),
-            len(lines),
-        )
-        found.append((i, end, level, m[2]))
-    return found
-
-
 def replace_learning(out, report, lessons):
-    """Put each lesson where the briefing wrote that learning, replacing its text.
+    """Put each lesson where the briefing wrote it, replacing the briefing's draft.
 
-    The briefing's learning is the smallest section citing the pattern's review
-    comments. Its heading keeps its level and takes the lesson's title, unless it
-    is the "Learning" group heading itself, which stays with the lesson under it.
-    A learning the report never wrote up is not added.
+    The draft is the section whose heading the lesson came from. Its heading keeps
+    its level and takes the lesson's title, unless it is the Learning group heading
+    itself, which stays with the lesson under it.
     """
     for lesson in lessons:
-        pattern = json.loads((out / lesson["dir"] / "pattern.json").read_text())
-        urls = [row["url"] for row in pattern.get("evidence", [])]
         lines = report.split("\n")
-        citing = [
-            s
-            for s in sections(lines)
-            if urls and all(url in "\n".join(lines[s[0] : s[1]]) for url in urls)
-        ]
-        if not citing:
+        match = [s for s in sections(lines) if s[3] == lesson.get("replaces")]
+        if not match:
             continue
-        start, end, level, text = min(citing, key=lambda s: s[1] - s[0])
+        start, end, level, text = match[0]
         body = (out / lesson["dir"] / "learning.md").read_text(encoding="utf-8")
         body = body.strip().split("\n", 1)[-1].strip()
         video = placeholder(lesson["n"]) + "\n\n" if lesson["video"] else ""
-        if text.strip().casefold() in GROUP_HEADINGS:
+        if is_learning_heading(text):
             head = [lines[start], "", "#" * (level + 1) + " " + lesson["title"]]
         else:
             head = ["#" * level + " " + lesson["title"]]
@@ -221,3 +236,21 @@ def with_rules(text, lessons, *, before_last_line=False):
     if before_last_line and newline:
         return body + rules + "\n" + last
     return text + rules
+
+
+TAUGHT_KEPT = 60
+
+
+def remember(taught, lessons, date):
+    """The lessons already taught, newest last, so the briefing doesn't repeat one."""
+    taught = list(taught or [])
+    for lesson in lessons:
+        taught.append(
+            {
+                "date": date,
+                "title": lesson["title"],
+                "rule": lesson["rule"],
+                "sources": lesson.get("sources", []),
+            }
+        )
+    return taught[-TAUGHT_KEPT:]

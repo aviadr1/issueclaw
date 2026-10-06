@@ -167,7 +167,7 @@ Waiting items remain curated; this does not add the old open backlog to the Canv
 
 ## Learning lessons and videos
 
-The daily briefing can turn a review pattern into a short lesson with a video. The
+The daily briefing can turn each lesson it teaches into a short lesson with a video. The
 caller opts in by passing `learning-videos-repository` and a reviewed
 `learning-videos-ref` to the reusable workflow, plus `learning_videos.max` (default 1) in its config. Optional
 `learning_videos.instructions` holds the caller's own guidance for the lesson and
@@ -176,12 +176,26 @@ The kit is a repository following promo-videos' `src/learnings/AGENT.md`, such
 as `aviadr1/promo-videos`. `REPOS_READ_TOKEN` must read it, or the caller supplies
 `VIDEOS_READ_TOKEN`.
 
-After the briefing is drafted, the `learn` command gives each pattern in
-`review-learning.json` (up to the limit) to a separate agent: Claude Opus 5.5
-(`claude-opus-5-5`) at medium effort, with a 45-minute cap. Sonnet still writes
-the briefing itself. The agent reads the cited comments and the code with
-read-only GitHub access, then writes `learnings/<n>/learning.md` (a short
-Problem / Root cause / Fix / Rule) and `learning.json` (slug, title, rule, sources),
+The briefing's `## Learning` section holds one or two `###` lessons from recent
+work, of any kind worth sharing. Examples: a surprising root cause, a distributed
+failure mode, a concurrency guard, a new primitive or system, an algorithm or
+heuristic, a measured performance or scaling change, a CI fix, a restructuring,
+a convention turned into a check, a testing or observability technique. A problem
+repeated across reviews is one strong signal among these, not the only one. The
+prompt lists kinds to skip (releases, bump PRs, plumbing, series follow-ups) and
+how to rank candidates; this list came from sampling 65 merged PRs over 40 days.
+Published lessons are remembered on the state branch (`taught_lessons`, the
+last 60) and passed to the next briefing as `window.json` `previous_lessons`, so
+it doesn't teach the same lesson twice.
+
+After the briefing is drafted, the `learn` command gives each of those lessons (up
+to the limit) to a separate agent: Claude Opus 5.5 (`claude-opus-5-5`) at medium
+effort, with a 45-minute cap. Sonnet still writes the briefing itself. The agent
+gets the briefing's draft (`draft.md`) and any review comments it cites
+(`comments.json`), digs into the PRs and code with read-only GitHub access, then
+writes `learnings/<n>/learning.md` (three or four short paragraphs, e.g. Problem /
+Root cause / Fix / Rule, or Problem / Idea / How it works / Takeaway) and
+`learning.json` (slug, title, rule, sources),
 and renders `video.mp4` with the kit. Its output is used as written. A lesson is
 dropped only if the agent wrote no text, title or rule, and it is published without
 a video if no video was made. If the agent leaves before its render finishes, the
@@ -192,9 +206,9 @@ rerun, revision or evidence-reuse preview reuses it instead of running Opus agai
 Previews keep each video in the artifact for review.
 
 In the Canvas and its Slack topic list, each lesson replaces the learning the
-briefing wrote, in the same place. That learning is the smallest section citing the
-pattern's review comments: its heading takes the lesson's title at the same level,
-or, if it is the "Learning" group heading, the lesson goes under it. A video
+briefing wrote, in the same place: the section the lesson came from takes the
+lesson's title at the same level, or, if it is the "Learning" heading itself, the
+lesson goes under it. A video
 placeholder is filled at publication. A learning the briefing never wrote up is not
 added. `report.md` keeps the briefing's text, so the review-citation audit is
 unchanged. The lessons and the videos' hashes are part of the pending digest. At publication, each
