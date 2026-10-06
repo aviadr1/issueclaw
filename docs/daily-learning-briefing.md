@@ -20,7 +20,18 @@ named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
 The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions.
 The full Canvas report has no 550-word limit; only the TLDR is capped
-at 180 words. Keep company
+at 180 words in paragraph mode. Set `slack_summary_format: "titles"` for a contents
+message: one bullet per narrative topic heading, in Canvas order with lead names,
+plus a playful invitation of at most 25 words. Generic What changed/Learning labels
+are omitted when they have child topics. Waiting on people, Active work and CI
+require concrete child headings, shown as nested Slack bullets: people and their
+next actions/work, or repositories and observed check statuses. Learning titles
+describe the practical action or capability without a fixed slogan. Inventory appendices and headings inside
+code examples are excluded. Bullets are assembled from the report rather than
+rewritten by the model; their total is bounded by Slack message size rather than
+the paragraph word cap. The previous successful invitation is checkpointed, and
+repeating it blocks validation for a focused revision. Pending artifacts retain
+their original message and invitation. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
 the same reviewed issueclaw commit. Required secrets are `REPOS_READ_TOKEN`,
 `ANTHROPIC_API_KEY`, and `SLACK_BOT_TOKEN`. The caller's `GITHUB_TOKEN` needs

@@ -539,7 +539,7 @@ def learning_audit():
 def test_review_audit_blocks_unsupported_learning_claims(defect):
     evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
     audit = learning_audit()
-    top = "**What to fix once** " + " ".join(
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
         e["url"] for e in audit["patterns"][0]["evidence"]
     )
     if defect == "false_zero":
@@ -557,7 +557,7 @@ def test_review_audit_blocks_unsupported_learning_claims(defect):
 def test_review_audit_accepts_cited_independent_reviews_and_quiet_windows():
     evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
     audit = learning_audit()
-    top = "**What to fix once** " + " ".join(
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
         e["url"] for e in audit["patterns"][0]["evidence"]
     )
     daily.validate_review_learning(evidence, audit, top)
@@ -699,6 +699,133 @@ def test_canvas_full_report_exceeds_550_words_and_contains_complete_inventory(tm
     assert len((tmp_path / "report.md").read_text().split()) > 550
     assert "- Quiet inventory" in (tmp_path / "canvas.md").read_text()
     assert "Full report" in (tmp_path / "canvas.md").read_text()
+
+
+def test_title_summary_uses_canvas_topics_and_fresh_invitation_without_prose(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    report = """# Briefing date
+## What changed
+### Payments checks load only payments routes — Leads: Rae Chen
+Long explanation stays in the Canvas.
+```markdown
+## An example inside code is not a topic
+```
+## Waiting on people
+### Rae Chen: confirm the payment changes after review
+Work queue.
+## Active work
+### Max Lee: recover images after lost queue messages
+Recent progress.
+## CI
+### Backend: security scan failed; tests passed
+Observed checks.
+## Learning
+### Catch slow background queries with the due-work harness
+Practical advice.
+"""
+    (tmp_path / "report.md").write_text(report, encoding="utf-8")
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Today's rabbit hole has guardrails. Open the Canvas for the full story."
+    )
+    messages = daily.validate_output(tmp_path)
+    assert len(messages) == 1
+    assert [
+        line for line in messages[0][1].splitlines() if line.lstrip().startswith("- ")
+    ] == [
+        "- Payments checks load only payments routes — Leads: Rae Chen",
+        "- Waiting on people",
+        "  - Rae Chen: confirm the payment changes after review",
+        "- Active work",
+        "  - Max Lee: recover images after lost queue messages",
+        "- CI",
+        "  - Backend: security scan failed; tests passed",
+        "- Catch slow background queries with the due-work harness",
+    ]
+    assert "Long explanation" not in messages[0][1]
+    assert "inside code" not in messages[0][1]
+    assert messages[0][1].endswith("Open the Canvas for the full story.")
+    assert (tmp_path / "messages/01-toplevel.md").read_text(
+        encoding="utf-8"
+    ).strip() == messages[0][1]
+    assert daily.validate_output(tmp_path) == messages
+
+
+def test_title_summary_keeps_every_title_even_when_the_list_exceeds_180_words(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    titles = [f"Capability {i} " + "specific behavior " * 10 for i in range(10)]
+    (tmp_path / "report.md").write_text("\n".join("### " + title for title in titles))
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Open the Canvas. The plot has indexes."
+    )
+    text = daily.validate_output(tmp_path)[0][1]
+    assert len(text.split()) > 180
+    assert sum(line.startswith("- ") for line in text.splitlines()) == len(titles)
+
+
+@pytest.mark.parametrize("section", ["Waiting on people", "Active work", "CI"])
+def test_title_summary_rejects_section_labels_without_concrete_subitems(section):
+    with pytest.raises(RuntimeError, match="needs concrete subheadings"):
+        daily.canvas_title_summary(
+            f"## {section}\nProse details.\n## Learning\n### Catch slow queries",
+            "Briefing",
+            "Open the Canvas for the details.",
+        )
+
+
+@pytest.mark.parametrize(
+    "invitation",
+    ["", "First paragraph\nSecond paragraph", "word " * 26, " Same invitation. "],
+)
+def test_title_summary_rejects_missing_long_multiline_or_repeated_invitation(
+    tmp_path, invitation
+):
+    import json
+
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    info = json.loads((tmp_path / "window.json").read_text())
+    info["previous_canvas_invitation"] = "same invitation."
+    daily.write_json(tmp_path / "window.json", info)
+    (tmp_path / "report.md").write_text("## CI\nTests passed.")
+    (tmp_path / "canvas-invitation.md").write_text(invitation)
+    with pytest.raises(RuntimeError, match="Canvas invitation"):
+        daily.validate_output(tmp_path)
+
+
+def test_completed_delivery_records_invitation_for_the_next_briefing():
+    state = {"messages": {"cutoff/01.md": {"ts": "1"}}}
+    daily.publish(
+        [("01.md", "Previously delivered")],
+        state,
+        "cutoff",
+        None,
+        lambda _: None,
+        canvas_invitation="Read on. The plot has indexes.",
+    )
+    assert state["last_canvas_invitation"] == "Read on. The plot has indexes."
+
+
+def test_title_message_links_the_invitation_to_the_confirmed_canvas_url():
+    message = "**Briefing**\n\n- One topic\n\nOpen the Canvas. The plot has indexes."
+    linked = daily.canvas_message_link(
+        message, "https://slack.com/docs/F123", titles=True
+    )
+    assert (
+        linked
+        == "**Briefing**\n\n- One topic\n\n[Open the Canvas. The plot has indexes.](https://slack.com/docs/F123)"
+    )
+    assert (
+        daily.canvas_message_link("Short paragraph", "https://slack.com/docs/F123")
+        == "Short paragraph\n[Full report in Slack Canvas](https://slack.com/docs/F123)"
+    )
 
 
 def test_curated_canvas_keeps_full_evidence_but_appends_only_merges(tmp_path):

@@ -27,10 +27,25 @@ If window.delivery_format is "canvas":
   NO 550-word limit. Give each meaningful change enough explanation to teach its
   behavior, connection to other systems, people involved and remaining decisions.
   Roughly 700–1,400 words is a useful starting point, not a hard limit.
-- Write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR paragraph,
-  around 100–160 words, maximum 180 whitespace-separated words. Name the people
-  involved, the most useful changes, review decisions and CI blockers. The publisher
-  appends the confirmed Canvas link; do not invent a URL or post inventories here.
+- If window.slack_summary_format is "titles", write
+  /tmp/daily-briefing/canvas-invitation.md as ONE playful invitation to open the
+  Canvas, at most 25 words on one plain-text line without a URL. Make it different from
+  window.previous_canvas_invitation. Light humor about today's topics is welcome;
+  avoid personal jokes, unsupported claims or promises of a video. The validator
+  builds messages/01-toplevel.md directly from the Canvas topic headings, preserving
+  their order and lead names. Do not write a second prose summary or duplicate
+  generic section labels; do not write the generated message yourself. The title
+  list has no 180-word cap. Keep Canvas headings short, concrete and useful.
+  Use level-2 sections Waiting on people, Active work and CI, with level-3 titles
+  for each selected wait, effort or repository status. These become nested Slack
+  bullets. A wait title names the person and next action; active work names the
+  person and capability; CI titles name the repository and failed/pending/skipped
+  checks or verified success. On quiet days use a factual child title such as
+  "No verified review waits". Section labels without child titles are rejected.
+- Otherwise write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
+  paragraph, around 100–160 words, maximum 180 whitespace-separated words. Name
+  people, changes, review decisions and CI blockers. The publisher appends the
+  confirmed Canvas link in both formats; do not invent a URL or post inventories.
 - When window.canvas_inventory is "merged", the publisher appends only the complete
   merged-PR list. Keep open work in a prioritized "Waiting on people" section:
   usually 3–6 items, at most 8 distinct open/draft PRs anywhere in the report.
@@ -48,7 +63,7 @@ Otherwise write only messages/01-toplevel.md as a legacy 350–450-word briefing
 maximum 550 words; the complete inventory follows as replies.
 
 The report starts with its date and exact local merge window, including timezone.
-Use short sections: What changed; Waiting on people; CI; What to fix once. Cover
+Use short sections: What changed; Waiting on people; Active work; CI; Learning. Cover
 meaningful changes in ALL configured repos. Group mechanical dependency bumps into
 the originating capability. Quiet days can be short and cover actionable carry-over.
 Lead with behavior, not merge counts. Never rank people or give per-person PR totals.
@@ -101,15 +116,18 @@ Use clear, concrete language:
   production rollout. Require environment/commit-specific proof. Check rollout
   prerequisites, feature flags and unchecked ticket gates; state remaining limits.
 
-For 'What to fix once', cite actual reviewer comments from at least TWO independent
-PRs for a repeated concrete problem and propose one shared prevention. Prefer an
+In Learning, use a concrete title explaining the action or capability, such as
+"Catch slow background queries with the due-work harness". Do not use the phrase
+"What to fix once". For a recurring problem, cite actual reviewer comments from
+at least TWO independent PRs and propose one shared prevention. Prefer an
 existing shared contract/test/helper over another parallel mechanism. Label older
 review history explicitly. Reviewed hazards are findings in proposed code: do not
 say they shipped, remain unfixed or reached production without current proof.
 For query-plan lessons, test bounded rows/buffers inspected with a large rejected
 backlog; an Index Scan label alone does not prove bounded work. Related changes or
-incidents alone do not establish recurrence. Omit the section if unsupported and
-explain why in the audit, without falsely claiming no reviews exist.
+incidents alone do not establish recurrence. Omit unsupported recurrence claims and
+explain why in the audit, without falsely claiming no reviews exist. A concrete new
+technique or capability can still be taught without inventing a recurring problem.
 
 Write /tmp/daily-briefing/coverage.md with selected stories, inclusion/inventory-only
 reasons and limitations. Historical pattern sources outside inventory.json are
@@ -130,6 +148,6 @@ must match review-learning-evidence.json AND appear beside the pattern in the fu
 report (or legacy briefing). Provenance checks cannot establish a sound interpretation;
 keep the claimed repetition faithful to the comments and their later resolution.
 
-Before finishing, check output paths, exact coverage keys and TLDR word count in
-Python. Finish the report with one brief material freshness/uncertainty line. The
+Before finishing, check output paths and exact coverage keys in Python. Check the
+invitation length in titles mode; otherwise check the TLDR word count. Finish the report with one brief material freshness/uncertainty line. The
 full report may be long; the Slack message should be easy to read in a minute.
