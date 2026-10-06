@@ -27,10 +27,19 @@ If window.delivery_format is "canvas":
   NO 550-word limit. Give each meaningful change enough explanation to teach its
   behavior, connection to other systems, people involved and remaining decisions.
   Roughly 700–1,400 words is a useful starting point, not a hard limit.
-- Write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR paragraph,
-  around 100–160 words, maximum 180 whitespace-separated words. Name the people
-  involved, the most useful changes, review decisions and CI blockers. The publisher
-  appends the confirmed Canvas link; do not invent a URL or post inventories here.
+- If window.slack_summary_format is "titles", write
+  /tmp/daily-briefing/canvas-invitation.md as ONE playful invitation to open the
+  Canvas, at most 25 words on one plain-text line without a URL. Make it different from
+  window.previous_canvas_invitation. Light humor about today's topics is welcome;
+  avoid personal jokes, unsupported claims or promises of a video. The validator
+  builds messages/01-toplevel.md directly from the Canvas topic headings, preserving
+  their order and lead names. Do not write a second prose summary or duplicate
+  generic section labels; do not write the generated message yourself. The title
+  list has no 180-word cap. Keep Canvas headings short, concrete and useful.
+- Otherwise write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
+  paragraph, around 100–160 words, maximum 180 whitespace-separated words. Name
+  people, changes, review decisions and CI blockers. The publisher appends the
+  confirmed Canvas link in both formats; do not invent a URL or post inventories.
 - When window.canvas_inventory is "merged", the publisher appends only the complete
   merged-PR list. Keep open work in a prioritized "Waiting on people" section:
   usually 3–6 items, at most 8 distinct open/draft PRs anywhere in the report.
@@ -130,6 +139,6 @@ must match review-learning-evidence.json AND appear beside the pattern in the fu
 report (or legacy briefing). Provenance checks cannot establish a sound interpretation;
 keep the claimed repetition faithful to the comments and their later resolution.
 
-Before finishing, check output paths, exact coverage keys and TLDR word count in
-Python. Finish the report with one brief material freshness/uncertainty line. The
+Before finishing, check output paths and exact coverage keys in Python. Check the
+invitation length in titles mode; otherwise check the TLDR word count. Finish the report with one brief material freshness/uncertainty line. The
 full report may be long; the Slack message should be easy to read in a minute.

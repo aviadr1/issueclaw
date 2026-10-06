@@ -701,6 +701,113 @@ def test_canvas_full_report_exceeds_550_words_and_contains_complete_inventory(tm
     assert "Full report" in (tmp_path / "canvas.md").read_text()
 
 
+def test_title_summary_uses_canvas_topics_and_fresh_invitation_without_prose(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    report = """# Briefing date
+## What changed
+### Payments checks load only payments routes — Leads: Rae Chen
+Long explanation stays in the Canvas.
+```markdown
+## An example inside code is not a topic
+```
+## Waiting on people
+Work queue.
+### Active work
+Recent progress.
+## CI
+Observed checks.
+## Learning
+### What to fix once: reuse the due-work harness
+Practical advice.
+"""
+    (tmp_path / "report.md").write_text(report)
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Today's rabbit hole has guardrails. Open the Canvas for the full story."
+    )
+    messages = daily.validate_output(tmp_path)
+    assert len(messages) == 1
+    assert [line for line in messages[0][1].splitlines() if line.startswith("- ")] == [
+        "- Payments checks load only payments routes — Leads: Rae Chen",
+        "- Waiting on people",
+        "- Active work",
+        "- CI",
+        "- What to fix once: reuse the due-work harness",
+    ]
+    assert "Long explanation" not in messages[0][1]
+    assert "inside code" not in messages[0][1]
+    assert messages[0][1].endswith("Open the Canvas for the full story.")
+    assert (tmp_path / "messages/01-toplevel.md").read_text().strip() == messages[0][1]
+    assert daily.validate_output(tmp_path) == messages
+
+
+def test_title_summary_keeps_every_title_even_when_the_list_exceeds_180_words(tmp_path):
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    titles = [f"Capability {i} " + "specific behavior " * 10 for i in range(10)]
+    (tmp_path / "report.md").write_text("\n".join("### " + title for title in titles))
+    (tmp_path / "canvas-invitation.md").write_text(
+        "Open the Canvas. The plot has indexes."
+    )
+    text = daily.validate_output(tmp_path)[0][1]
+    assert len(text.split()) > 180
+    assert sum(line.startswith("- ") for line in text.splitlines()) == len(titles)
+
+
+@pytest.mark.parametrize(
+    "invitation",
+    ["", "First paragraph\nSecond paragraph", "word " * 26, " Same invitation. "],
+)
+def test_title_summary_rejects_missing_long_multiline_or_repeated_invitation(
+    tmp_path, invitation
+):
+    import json
+
+    canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "titles"}
+    )
+    info = json.loads((tmp_path / "window.json").read_text())
+    info["previous_canvas_invitation"] = "same invitation."
+    daily.write_json(tmp_path / "window.json", info)
+    (tmp_path / "report.md").write_text("## CI\nTests passed.")
+    (tmp_path / "canvas-invitation.md").write_text(invitation)
+    with pytest.raises(RuntimeError, match="Canvas invitation"):
+        daily.validate_output(tmp_path)
+
+
+def test_completed_delivery_records_invitation_for_the_next_briefing():
+    state = {"messages": {"cutoff/01.md": {"ts": "1"}}}
+    daily.publish(
+        [("01.md", "Previously delivered")],
+        state,
+        "cutoff",
+        None,
+        lambda _: None,
+        canvas_invitation="Read on. The plot has indexes.",
+    )
+    assert state["last_canvas_invitation"] == "Read on. The plot has indexes."
+
+
+def test_title_message_links_the_invitation_to_the_confirmed_canvas_url():
+    message = "**Briefing**\n\n- One topic\n\nOpen the Canvas. The plot has indexes."
+    linked = daily.canvas_message_link(
+        message, "https://slack.com/docs/F123", titles=True
+    )
+    assert (
+        linked
+        == "**Briefing**\n\n- One topic\n\n[Open the Canvas. The plot has indexes.](https://slack.com/docs/F123)"
+    )
+    assert (
+        daily.canvas_message_link("Short paragraph", "https://slack.com/docs/F123")
+        == "Short paragraph\n[Full report in Slack Canvas](https://slack.com/docs/F123)"
+    )
+
+
 def test_curated_canvas_keeps_full_evidence_but_appends_only_merges(tmp_path):
     import json
 
