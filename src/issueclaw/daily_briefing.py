@@ -325,6 +325,7 @@ def publish(
     videos=None,
     *,
     canvas_invitation=None,
+    finalize=None,
     taught=None,
 ):
     """Checkpoint every message; only a completely posted thread advances time.
@@ -385,6 +386,8 @@ def publish(
             save(state)
         if thread is None:
             thread = ledger[key]["ts"]
+    if finalize is not None:
+        finalize()
     state.pop("pending", None)
     state["last_cutoff"] = cutoff
     if canvas_invitation is not None:
@@ -392,6 +395,67 @@ def publish(
     if taught is not None:
         # recorded with the completed cutoff, so a retried publication can't double it
         state["taught_lessons"] = taught
+    save(state)
+
+
+def attach_message_files(slack, ts, file_ids):
+    """Share existing uploads on the bot's TLDR, preserving its current text."""
+    if not file_ids:
+        return
+    if any(not re.fullmatch(r"F[A-Z0-9]+", file) for file in file_ids):
+        raise ValueError("Invalid Slack file ID")
+
+    def read_message():
+        data = slack.api(
+            "conversations.history",
+            {
+                "channel": slack.channel,
+                "oldest": ts,
+                "latest": ts,
+                "inclusive": True,
+                "limit": 1,
+            },
+        )
+        message = next((m for m in data["messages"] if m["ts"] == ts), None)
+        if message is None:
+            raise RuntimeError("Briefing message is not visible; cannot attach video")
+        return message
+
+    message = read_message()
+    existing = {file["id"] for file in message.get("files", [])}
+    missing = list(dict.fromkeys(file for file in file_ids if file not in existing))
+    if not missing:
+        return
+    slack.api(
+        "chat.update",
+        {
+            "channel": slack.channel,
+            "ts": ts,
+            "text": message["text"],
+            "file_ids": missing,
+            "as_user": True,
+        },
+    )
+    for attempt in range(3):
+        attached = {file["id"] for file in read_message().get("files", [])}
+        if set(file_ids) <= attached:
+            return
+        if attempt < 2:
+            time.sleep(2)
+    raise RuntimeError("Video attachment is not visible; retry the prepared briefing")
+
+
+def repair_video_attachment(out, state, slack, save, file_ids):
+    """Attach a recovered clip without reposting or advancing the coverage window."""
+    delivery = json.loads((out / "delivery.json").read_text())
+    cutoff = delivery["cutoff"]
+    if state.get("last_cutoff") != cutoff or state.get("pending"):
+        raise RuntimeError("Video repair requires the latest completed briefing")
+    receipt = state.get("messages", {}).get(cutoff + "/" + delivery["files"][0], {})
+    if not receipt.get("ts"):
+        raise RuntimeError("Missing completed briefing message receipt")
+    attach_message_files(slack, receipt["ts"], file_ids)
+    state["video_repair"] = {"cutoff": cutoff, "ts": receipt["ts"], "files": file_ids}
     save(state)
 
 
@@ -1166,7 +1230,8 @@ def generate(out, prompt, revision_notes=""):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=["prepare", "generate", "learn", "validate", "publish"]
+        "command",
+        choices=["prepare", "generate", "learn", "validate", "publish", "attach-video"],
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--mirror", type=Path, default=Path("."))
@@ -1178,6 +1243,7 @@ def main():
     )
     parser.add_argument("--evidence-run-id")
     parser.add_argument("--revision-notes", default="")
+    parser.add_argument("--file-id", action="append", default=[])
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -1236,6 +1302,17 @@ def main():
         config["channel"],
     )
     state = {"messages": {}} if args.isolated else store.read()
+    if args.command == "attach-video":
+        if args.isolated or not args.file_id:
+            parser.error("attach-video requires --file-id and cannot be isolated")
+        repair_video_attachment(
+            args.out,
+            state,
+            Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"]),
+            store.save,
+            args.file_id,
+        )
+        return
     if args.command == "prepare":
         prepare(
             config,
@@ -1270,7 +1347,7 @@ def main():
             }
             store.save(state)
         slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
-        videos = {}
+        finalize = None
         info = json.loads((args.out / "window.json").read_text())
         titles = info.get("slack_summary_format") == "titles"
         found = []
@@ -1296,15 +1373,20 @@ def main():
                 )
                 for name, text in messages
             ]
-            # The TLDR carries the first lesson's video, shared as its own message.
-            shared = [lesson for lesson in found if lesson["video"]][:1]
-            videos = {
-                messages[0][0]: (
-                    args.out / lesson["dir"] / "video.mp4",
-                    lesson["title"],
-                )
-                for lesson in shared
-            }
+            files = [
+                receipt["file"]
+                for receipt in state["lesson_videos"]["files"].values()
+                if receipt.get("permalink")
+            ]
+
+            # The same files power the Canvas and TLDR. Attach before completing
+            # delivery so a failure retries this message instead of posting another.
+            def attach_videos():
+                key = delivery["cutoff"] + "/" + messages[0][0]
+                attach_message_files(slack, state["messages"][key]["ts"], files)
+
+            finalize = attach_videos
+
         invitation = (
             (args.out / "canvas-invitation.md").read_text(encoding="utf-8").strip()
             if titles
@@ -1316,8 +1398,8 @@ def main():
             delivery["cutoff"],
             slack,
             store.save,
-            videos,
             canvas_invitation=invitation,
+            finalize=finalize,
             taught=lessons.remember(
                 state.get("taught_lessons"), found, delivery["cutoff"][:10]
             ),
