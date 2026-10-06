@@ -122,6 +122,31 @@ def validate_video(path):
             raise ValueError(f"video.mp4 is {seconds:.0f} s; keep it to 10-75 s")
 
 
+RENDER_TIMEOUT = 20 * 60
+
+
+def finish_render(videos, slug, video, env):
+    """Render the agent's composition if it left without a video (e.g. a killed render)."""
+    if not (videos / "src" / "learnings" / slug).is_dir():
+        return
+    with (video.parent / "render.log").open("w") as log:
+        try:
+            subprocess.run(
+                ["sh", "scripts/render-learning.sh", slug],
+                cwd=videos,
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=RENDER_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return
+    rendered = videos / "out" / "learnings" / f"{slug}.mp4"
+    if rendered.exists():
+        shutil.copyfile(rendered, video)
+
+
 def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
     """Prepare up to `limit` lessons; record what succeeded in learnings.json."""
     info = json.loads((out / "window.json").read_text())
@@ -147,6 +172,8 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
             continue
         video = directory / "video.mp4"
         lesson["video"] = False
+        if not video.exists():
+            finish_render(videos, lesson["slug"], video, env)
         if video.exists():
             try:
                 validate_video(video)
