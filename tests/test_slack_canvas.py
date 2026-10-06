@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import json
 from unittest.mock import patch
 
@@ -136,3 +138,93 @@ def test_unknown_create_outcome_cannot_duplicate_on_retry(tmp_path):
     assert second.exit_code != 0
     assert "unknown" in second.output
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("thread", ["", "1790860328.061289"], ids=["channel", "thread"])
+def test_summary_destination_and_retry(tmp_path, thread):
+    source = tmp_path / "canvas.md"
+    source.write_text("# Design\n\nNative mobile tickets reached implementation.")
+    summary = tmp_path / "summary.md"
+    summary.write_text("Native mobile tickets reached implementation.\n")
+    state = tmp_path / "state.json"
+    messages = []
+
+    def handle(request):
+        method = request.url.path.split("/")[-1]
+        if method == "canvases.create":
+            return httpx.Response(200, json={"ok": True, "canvas_id": "F123"})
+        if method == "files.info":
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "file": {"permalink": "https://team.slack.com/docs/F123"},
+                },
+            )
+        assert method == "chat.postMessage"
+        payload = json.loads(request.content)
+        messages.append(payload)
+        assert payload["channel"] == "C123"
+        assert payload.get("thread_ts", "") == thread
+        assert not payload.get("reply_broadcast", False)
+        assert "text" not in payload
+        assert "\n\n" not in payload["markdown_text"]
+        assert payload["markdown_text"].startswith(
+            "[Full report in Slack Canvas](https://team.slack.com/docs/F123)"
+        )
+        return httpx.Response(200, json={"ok": True, "ts": "1790861000.123456"})
+
+    args = [
+        "slack-canvas",
+        "--source",
+        str(source),
+        "--title",
+        "Design",
+        "--channel",
+        "C123",
+        "--state",
+        str(state),
+        "--summary",
+        str(summary),
+        "--post-summary",
+    ]
+    if thread:
+        args += ["--thread-ts", thread]
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        side_effect=lambda token: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        for _ in range(2):
+            result = CliRunner().invoke(
+                cli, args, env={"SLACK_BOT_TOKEN": "secret-test"}
+            )
+            assert result.exit_code == 0, result.output
+    assert len(messages) == 1
+    assert json.loads(state.read_text())["message_ts"] == "1790861000.123456"
+
+
+def test_confirmed_legacy_summary_checkpoint_does_not_repost(tmp_path):
+    state = tmp_path / "state.json"
+    text = "Tickets are ready. [Full report in Slack Canvas](https://team.slack.com/docs/F123)"
+    legacy_text = "Tickets are ready. <https://team.slack.com/docs/F123|Full report in Slack Canvas>"
+    state.write_text(
+        json.dumps(
+            {
+                "message_fingerprint": hashlib.sha256(
+                    json.dumps([legacy_text, "C123", "1790860328.061289"]).encode()
+                ).hexdigest(),
+                "message_ts": "1790861000.123456",
+            }
+        )
+    )
+    with patch.object(
+        slack_canvas, "make_client", side_effect=AssertionError("Already published")
+    ):
+        asyncio.run(
+            slack_canvas.post_summary_message(
+                text, "C123", "1790860328.061289", state, "secret-test"
+            )
+        )
