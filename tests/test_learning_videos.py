@@ -75,7 +75,9 @@ def briefing(tmp_path, canvas=True):
         (tmp_path / name).write_text(json.dumps(value))
     (tmp_path / "coverage.md").write_text("coverage")
     (tmp_path / "messages/01-toplevel.md").write_text("A short TLDR.")
-    (tmp_path / "messages/02-inventory.md").write_text("MERGED\n• none")
+    (tmp_path / "messages/02-inventory.md").write_text(
+        "MERGED\n• none", encoding="utf-8"
+    )
     (tmp_path / "report.md").write_text(
         "Date and window\n\n## What changed\n\nThings.\n\n"
         f"## What to fix once\n\n{COMMENT} {OTHER}\n"
