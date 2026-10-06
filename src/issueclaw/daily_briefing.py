@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import yaml
 
+from issueclaw import learning_videos as lessons
 from issueclaw import report_evidence as report
 from issueclaw import slack_canvas
 
@@ -113,6 +114,12 @@ class SlackRejected(RuntimeError):
     """Slack explicitly rejected a message without accepting it."""
 
 
+def mrkdwn(text):
+    """Markdown links and bold as Slack mrkdwn."""
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)
+    return re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+
+
 class Slack:
     def __init__(self, channel, token):
         self.channel = channel
@@ -197,12 +204,63 @@ class Slack:
                     break
         return None
 
+    def call(self, method, data, get=False):
+        """File methods take form fields (or query parameters), not JSON."""
+        response = (
+            self.client.get(method, params=data)
+            if get
+            else self.client.post(method, data=data)
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not result.get("ok"):
+            raise SlackRejected(
+                f"Slack {method}: {result.get('error', 'unknown error')}"
+            )
+        return result
+
+    def start_upload(self, path):
+        """Send a file's bytes to Slack; it is discarded unless completed."""
+        size = path.stat().st_size
+        ticket = self.call(
+            "files.getUploadURLExternal", {"filename": path.name, "length": size}
+        )
+        response = httpx.post(
+            ticket["upload_url"], content=path.read_bytes(), timeout=300
+        )
+        response.raise_for_status()
+        return ticket["file_id"]
+
+    def complete_upload(self, file, title, comment=None, thread=None, share=True):
+        data = {"files": json.dumps([{"id": file, "title": title}])}
+        if share:
+            data["channel_id"] = self.channel
+        if comment is not None:
+            data["initial_comment"] = mrkdwn(comment)
+        if thread:
+            data["thread_ts"] = thread
+        self.call("files.completeUploadExternal", data)
+        self.history = None
+
+    def file_info(self, file):
+        return self.call("files.info", {"file": file}, get=True)["file"]
+
+    def shared_ts(self, file, attempts=5):
+        """The timestamp of the message sharing `file` in this channel, once Slack shows it."""
+        for attempt in range(attempts):
+            shares = self.file_info(file).get("shares", {})
+            for kind in ("public", "private"):
+                found = shares.get(kind, {}).get(self.channel)
+                if found:
+                    return found[0]["ts"]
+            if attempt < attempts - 1:
+                time.sleep(2)
+        return None
+
     def post(self, text, key, thread):
-        text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)
-        text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
         payload = {
             "channel": self.channel,
-            "text": text,
+            "text": mrkdwn(text),
             "unfurl_links": False,
             "unfurl_media": False,
             "reply_broadcast": False,
@@ -219,8 +277,40 @@ class Slack:
         return message["ts"]
 
 
-def publish(messages, state, cutoff, slack, save, *, canvas_invitation=None):
-    """Checkpoint every message; only a completely posted thread advances time."""
+def share_with_file(text, key, thread, video, state, slack, save):
+    """Post `text` as the comment of a shared video; None if Slack refuses the upload.
+
+    The file ID is known before the share, so an uncertain share is recovered
+    from the file's own shares rather than from message metadata.
+    """
+    ledger = state["messages"]
+    path, title = video
+    try:
+        file = slack.start_upload(path)
+    except SlackRejected:
+        return None
+    ledger[key] = {"intent": True, "file": file}
+    save(state)
+    try:
+        slack.complete_upload(file, title, comment=text, thread=thread)
+    except SlackRejected:
+        del ledger[key]
+        save(state)
+        return None
+    ts = slack.shared_ts(file)
+    if not ts:
+        raise RuntimeError("Shared video message not visible yet: rerun to recover it")
+    return ts
+
+
+def publish(
+    messages, state, cutoff, slack, save, videos=None, *, canvas_invitation=None
+):
+    """Checkpoint every message; only a completely posted thread advances time.
+
+    `videos` maps a message name to (path, title): that message is posted as
+    the comment on the shared video, or as plain text if Slack refuses the upload.
+    """
     if state.get("last_cutoff") and report.instant(
         state["last_cutoff"]
     ) >= report.instant(cutoff):
@@ -236,6 +326,15 @@ def publish(messages, state, cutoff, slack, save, *, canvas_invitation=None):
     thread = None
     for name, text in messages:
         key = cutoff + "/" + name
+        if key in ledger and "ts" not in ledger[key] and "file" in ledger[key]:
+            # A video share is found through its file. One that never became
+            # visible was not shared, and its unshared upload is discarded.
+            ts = slack.shared_ts(ledger[key]["file"])
+            if ts:
+                ledger[key] = {"ts": ts}
+            else:
+                del ledger[key]
+            save(state)
         if key in ledger and "ts" not in ledger[key]:
             # A request may have reached Slack before the job died. Never blindly
             # resend an uncertain message, even if recovery lacks history scopes.
@@ -246,6 +345,12 @@ def publish(messages, state, cutoff, slack, save, *, canvas_invitation=None):
                 )
             ledger[key] = {"ts": recovered["ts"]}
             save(state)
+        video = (videos or {}).get(name)
+        if key not in ledger and video:
+            ts = share_with_file(text, key, thread, video, state, slack, save)
+            if ts:
+                ledger[key] = {"ts": ts}
+                save(state)
         if key not in ledger:
             ledger[key] = {"intent": True}
             save(state)
@@ -620,10 +725,58 @@ def delivery_digest(out, messages):
             delivery["canvas_title"],
             (out / "canvas.md").read_text(encoding="utf-8"),
         ]
+    # A resumed publication must share the same lessons and videos it was built with.
+    for lesson in lessons.lessons_of(out):
+        video = out / lesson["dir"] / "video.mp4"
+        content.append(
+            [
+                lesson,
+                hashlib.sha256(video.read_bytes()).hexdigest()
+                if lesson["video"]
+                else None,
+            ]
+        )
     return hashlib.sha256(json.dumps(content).encode()).hexdigest()
 
 
-def publish_canvas(out, config, state, save, token):
+def upload_lesson_videos(out, state, save, slack):
+    """Upload each lesson's video privately for the Canvas; {n: permalink}.
+
+    An upload Slack refuses (e.g. a missing files:write scope) is recorded as
+    skipped, so a retried publication builds the identical Canvas without it.
+    """
+    cutoff = json.loads((out / "delivery.json").read_text())["cutoff"]
+    if state.get("lesson_videos", {}).get("cutoff") != cutoff:
+        state["lesson_videos"] = {"cutoff": cutoff, "files": {}}
+    receipts = state["lesson_videos"]["files"]
+    for lesson in lessons.lessons_of(out):
+        n = str(lesson["n"])
+        if (
+            not lesson["video"]
+            or receipts.get(n, {}).get("permalink")
+            or receipts.get(n, {}).get("skipped")
+        ):
+            continue
+        receipt = receipts.get(n, {})
+        try:
+            if receipt.get("file"):
+                # completed earlier; only the permalink lookup may be missing
+                receipt["permalink"] = slack.file_info(receipt["file"])["permalink"]
+            else:
+                file = slack.start_upload(out / lesson["dir"] / "video.mp4")
+                slack.complete_upload(file, lesson["title"], share=False)
+                receipt = {"file": file}
+                receipts[n] = receipt
+                save(state)
+                receipt["permalink"] = slack.file_info(file)["permalink"]
+        except SlackRejected as error:
+            receipt = {"skipped": str(error)}
+        receipts[n] = receipt
+        save(state)
+    return {n: r["permalink"] for n, r in receipts.items() if r.get("permalink")}
+
+
+def publish_canvas(out, config, state, save, token, permalinks=None):
     """Reuse the report Canvas publisher with receipts on the durable state branch."""
     delivery = json.loads((out / "delivery.json").read_text())
     cutoff = delivery["cutoff"]
@@ -638,7 +791,11 @@ def publish_canvas(out, config, state, save, token):
 
     return asyncio.run(
         slack_canvas.publish(
-            (out / "canvas.md").read_text(encoding="utf-8"),
+            lessons.fill_placeholders(
+                (out / "canvas.md").read_text(encoding="utf-8"),
+                lessons.lessons_of(out),
+                permalinks or {},
+            ),
             delivery["canvas_title"],
             config["channel"],
             path,
@@ -804,9 +961,18 @@ def validate_output(out):
         info.get("delivery_format") == "canvas"
         and info.get("slack_summary_format") == "titles"
     )
+    # Each Opus lesson replaces the learning the briefing wrote, where it wrote it.
+    report_path = out / "report.md"
+    narrative = (
+        lessons.replace_learning(
+            out, report_path.read_text(encoding="utf-8"), lessons.lessons_of(out)
+        )
+        if report_path.exists()
+        else ""
+    )
     if title_summary:
         text = canvas_title_summary(
-            (out / "report.md").read_text(encoding="utf-8"),
+            narrative,
             delivery["canvas_title"],
             (out / "canvas-invitation.md").read_text(encoding="utf-8"),
             info.get("previous_canvas_invitation"),
@@ -845,7 +1011,7 @@ def validate_output(out):
         else messages[0][1],
     )
     if canvas_mode:
-        content = (out / "report.md").read_text(encoding="utf-8").strip()
+        content = narrative.strip()
         if not content:
             raise RuntimeError("Missing full Canvas report")
         if info.get("canvas_inventory") == "merged":
@@ -983,13 +1149,16 @@ def generate(out, prompt, revision_notes=""):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=["prepare", "generate", "validate", "publish"]
+        "command", choices=["prepare", "generate", "learn", "validate", "publish"]
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--mirror", type=Path, default=Path("."))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cutoff")
     parser.add_argument("--prompt", type=Path)
+    parser.add_argument(
+        "--videos-dir", type=Path, help="Video kit checkout for the learn command"
+    )
     parser.add_argument("--evidence-run-id")
     parser.add_argument("--revision-notes", default="")
     parser.add_argument(
@@ -999,6 +1168,19 @@ def main():
     )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    if args.command == "learn":
+        if args.prompt is None or args.videos_dir is None:
+            parser.error("learn requires --prompt and --videos-dir")
+        options = config.get("learning_videos", {})
+        lessons.learn(
+            args.out,
+            args.prompt,
+            args.videos_dir,
+            options.get("max", 1),
+            dict(os.environ),
+            options.get("instructions", ""),
+        )
+        return
     if args.command == "generate":
         if args.prompt is None:
             parser.error("generate requires --prompt")
@@ -1070,24 +1252,44 @@ def main():
                 "cutoff": delivery["cutoff"],
             }
             store.save(state)
+        slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
+        videos = {}
         info = json.loads((args.out / "window.json").read_text())
+        titles = info.get("slack_summary_format") == "titles"
         if info.get("delivery_format") == "canvas":
+            found = lessons.lessons_of(args.out)
+            permalinks = upload_lesson_videos(args.out, state, store.save, slack)
             url = publish_canvas(
-                args.out, config, state, store.save, os.environ["SLACK_BOT_TOKEN"]
+                args.out,
+                config,
+                state,
+                store.save,
+                os.environ["SLACK_BOT_TOKEN"],
+                permalinks,
             )
             messages = [
                 (
                     name,
                     canvas_message_link(
-                        text, url, titles=info.get("slack_summary_format") == "titles"
+                        lessons.with_rules(text, found, before_last_line=titles),
+                        url,
+                        titles=titles,
                     ),
                 )
                 for name, text in messages
             ]
-        slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
+            # The TLDR carries the first lesson's video, shared as its own message.
+            shared = [lesson for lesson in found if lesson["video"]][:1]
+            videos = {
+                messages[0][0]: (
+                    args.out / lesson["dir"] / "video.mp4",
+                    lesson["title"],
+                )
+                for lesson in shared
+            }
         invitation = (
             (args.out / "canvas-invitation.md").read_text(encoding="utf-8").strip()
-            if info.get("slack_summary_format") == "titles"
+            if titles
             else None
         )
         publish(
@@ -1096,6 +1298,7 @@ def main():
             delivery["cutoff"],
             slack,
             store.save,
+            videos,
             canvas_invitation=invitation,
         )
 

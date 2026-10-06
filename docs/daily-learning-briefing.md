@@ -18,7 +18,8 @@ the default. Set `canvas_inventory: "merged"` to append only the window's merged
 PRs. Open/draft work is curated in the narrative (at most eight linked PRs), with
 named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
-The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions.
+The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions;
+optional learning lessons use Claude Opus 5.5 at medium effort (see below).
 The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words in paragraph mode. Set `slack_summary_format: "titles"` for a contents
 message: one bullet per narrative topic heading, in Canvas order with lead names,
@@ -152,3 +153,48 @@ not a claim that the author has done nothing. Head changes during paginated acti
 collection block publication for retry. Retained commit timestamps are not a complete
 push log, and deleted comments or commits removed from the branch are unavailable.
 Waiting items remain curated; this does not add the old open backlog to the Canvas.
+
+## Learning lessons and videos
+
+The daily briefing can turn a review pattern into a short lesson with a video. The
+caller opts in by passing `learning-videos-repository` and a reviewed
+`learning-videos-ref` to the reusable workflow, plus `learning_videos.max` (default 1) in its config. Optional
+`learning_videos.instructions` holds the caller's own guidance for the lesson and
+its video (style, sound, tone); it is appended to the agent's prompt.
+The kit is a repository following promo-videos' `src/learnings/AGENT.md`, such
+as `aviadr1/promo-videos`. `REPOS_READ_TOKEN` must read it, or the caller supplies
+`VIDEOS_READ_TOKEN`.
+
+After the briefing is drafted, the `learn` command gives each pattern in
+`review-learning.json` (up to the limit) to a separate agent: Claude Opus 5.5
+(`claude-opus-5-5`) at medium effort, with a 45-minute cap. Sonnet still writes
+the briefing itself. The agent reads the cited comments and the code with
+read-only GitHub access, then writes `learnings/<n>/learning.md`: a titled
+**Problem**, **Root cause**, **Fix** and **Rule** of 50–200 words that links the
+review comment. It also writes `learning.json` (slug, title, a rule of at most 30
+words, sources) and renders `video.mp4` with the kit. Validation drops a lesson
+without that structure or citation. A video outside 10 KB–60 MB or 10–75 s is
+dropped, but the lesson stays as text. Nothing here can block the briefing: agent,
+kit and render failures are recorded in `error.txt` or `video-error.txt`, and the
+briefing publishes without the lesson. `learnings.json` records the lessons; a
+rerun, revision or evidence-reuse preview reuses it instead of running Opus again.
+Previews keep each video in the artifact for review.
+
+In the Canvas and its Slack topic list, each lesson replaces the learning the
+briefing wrote, in the same place. That learning is the smallest section citing the
+pattern's review comments: its heading takes the lesson's title at the same level,
+or, if it is the "Learning" group heading, the lesson goes under it. A video
+placeholder is filled at publication. A learning the briefing never wrote up is not
+added. `report.md` keeps the briefing's text, so the review-citation audit is
+unchanged. The lessons and the videos' hashes are part of the pending digest. At publication, each
+video is uploaded privately and embedded in the Canvas through its Slack file link,
+and the TLDR gains a **Learning:** line with each lesson's rule. The TLDR itself is
+posted as the comment on the shared first video (`files.completeUploadExternal`).
+The file ID is checkpointed before the share, so an uncertain share is recovered
+from the file's own shares. One that never appeared is safely redone with a fresh
+upload. Uploading needs the bot's `files:write` scope. If Slack refuses an upload,
+the refusal is recorded for that cutoff: the Canvas has no embed (it stays identical
+on retry) and the TLDR is posted as plain text. Canvas embedding of video files
+follows Slack's file-embed syntax; if a workspace shows a link rather than a player,
+the video is still in the TLDR.
+
