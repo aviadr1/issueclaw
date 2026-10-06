@@ -180,8 +180,13 @@ briefing publishes without the lesson. `learnings.json` records the lessons; a
 rerun, revision or evidence-reuse preview reuses it instead of running Opus again.
 Previews keep each video in the artifact for review.
 
-Validation puts each lesson at the top of the Canvas with a video placeholder. The
-lessons and the videos' hashes are part of the pending digest. At publication, each
+In the Canvas and its Slack topic list, each lesson replaces the learning the
+briefing wrote, in the same place. That learning is the smallest section citing the
+pattern's review comments: its heading takes the lesson's title at the same level,
+or, if it is the "Learning" group heading, the lesson goes under it. A video
+placeholder is filled at publication. A learning the briefing never wrote up is not
+added. `report.md` keeps the briefing's text, so the review-citation audit is
+unchanged. The lessons and the videos' hashes are part of the pending digest. At publication, each
 video is uploaded privately and embedded in the Canvas through its Slack file link,
 and the TLDR gains a **Learning:** line with each lesson's rule. The TLDR itself is
 posted as the comment on the shared first video (`files.completeUploadExternal`).

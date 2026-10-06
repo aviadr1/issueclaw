@@ -961,9 +961,18 @@ def validate_output(out):
         info.get("delivery_format") == "canvas"
         and info.get("slack_summary_format") == "titles"
     )
+    # Each Opus lesson replaces the learning the briefing wrote, where it wrote it.
+    report_path = out / "report.md"
+    narrative = (
+        lessons.replace_learning(
+            out, report_path.read_text(encoding="utf-8"), lessons.lessons_of(out)
+        )
+        if report_path.exists()
+        else ""
+    )
     if title_summary:
         text = canvas_title_summary(
-            (out / "report.md").read_text(encoding="utf-8"),
+            narrative,
             delivery["canvas_title"],
             (out / "canvas-invitation.md").read_text(encoding="utf-8"),
             info.get("previous_canvas_invitation"),
@@ -1002,11 +1011,9 @@ def validate_output(out):
         else messages[0][1],
     )
     if canvas_mode:
-        content = (out / "report.md").read_text(encoding="utf-8").strip()
+        content = narrative.strip()
         if not content:
             raise RuntimeError("Missing full Canvas report")
-        found = lessons.lessons_of(out)
-        content = lessons.with_lessons(content, lessons.canvas_section(out, found))
         if info.get("canvas_inventory") == "merged":
             # Curate the reader's queue while retaining every source in artifacts.
             cited_urls = set(

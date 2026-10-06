@@ -184,16 +184,43 @@ def test_learn_skips_posted_and_resumed_publications(tmp_path):
     assert lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=pytest.fail) == []
 
 
-def test_canvas_puts_lessons_first_and_digest_covers_their_videos(tmp_path):
+def test_lesson_replaces_the_briefings_learning_where_it_was(tmp_path):
     prompt = briefing(tmp_path)
     lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
     messages = daily.validate_output(tmp_path)
     canvas = (tmp_path / "canvas.md").read_text()
-    assert canvas.index("## Learning: LIMIT 1") < canvas.index("## What changed")
+    # same place as the briefing's learning: after What changed, not first
+    assert canvas.index("## What changed") < canvas.index(
+        "## LIMIT 1 bounds the answer, not the work"
+    )
+    assert "What to fix once" not in canvas
     assert "{{learning-video-1}}" in canvas and "**Root cause**" in canvas
+    # the audit still checks the briefing's own citations
+    assert OTHER in (tmp_path / "report.md").read_text()
     digest = daily.delivery_digest(tmp_path, messages)
     (tmp_path / "learnings/1/video.mp4").write_bytes(b"\1" * 20_000)
     assert daily.delivery_digest(tmp_path, messages) != digest
+
+
+def test_lesson_goes_under_the_learning_group_heading(tmp_path):
+    prompt = briefing(tmp_path)
+    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
+    report = (
+        "Window\n\n## What changed\n\nThings.\n\n## Learning\n\n"
+        f"### Catch slow polls\n\nLong text {COMMENT} {OTHER}\n\n"
+        "## CI\n\nGreen checks named.\n"
+    )
+    out = lessons.replace_learning(tmp_path, report, found)
+    assert "## Learning\n\n### LIMIT 1 bounds the answer, not the work" in out
+    assert "Catch slow polls" not in out and "Long text" not in out
+    assert out.index("**Rule**") < out.index("## CI")
+
+
+def test_a_learning_the_briefing_never_wrote_is_not_added(tmp_path):
+    prompt = briefing(tmp_path)
+    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
+    report = "Window\n\n## What changed\n\nNo review citations here.\n"
+    assert lessons.replace_learning(tmp_path, report, found) == report
 
 
 def test_placeholders_become_embeds_or_disappear():

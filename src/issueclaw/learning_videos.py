@@ -164,25 +164,54 @@ def lessons_of(out):
     return json.loads(path.read_text()) if path.exists() else []
 
 
-def canvas_section(out, lessons):
-    """Each lesson as a Canvas section, its video as a placeholder filled at publish."""
-    parts = []
+HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
+GROUP_HEADINGS = {"learning"}
+
+
+def sections(lines):
+    """(start, end, level, text) of every heading's section, end exclusive."""
+    found = []
+    heads = [(i, m) for i, line in enumerate(lines) if (m := HEADING.match(line))]
+    for k, (i, m) in enumerate(heads):
+        level = len(m[1])
+        end = next(
+            (j for j, n in heads[k + 1 :] if len(n[1]) <= level),
+            len(lines),
+        )
+        found.append((i, end, level, m[2]))
+    return found
+
+
+def replace_learning(out, report, lessons):
+    """Put each lesson where the briefing wrote that learning, replacing its text.
+
+    The briefing's learning is the smallest section citing the pattern's review
+    comments. Its heading keeps its level and takes the lesson's title, unless it
+    is the "Learning" group heading itself, which stays with the lesson under it.
+    A learning the report never wrote up is not added.
+    """
     for lesson in lessons:
+        pattern = json.loads((out / lesson["dir"] / "pattern.json").read_text())
+        urls = [row["url"] for row in pattern.get("evidence", [])]
+        lines = report.split("\n")
+        citing = [
+            s
+            for s in sections(lines)
+            if urls and all(url in "\n".join(lines[s[0] : s[1]]) for url in urls)
+        ]
+        if not citing:
+            continue
+        start, end, level, text = min(citing, key=lambda s: s[1] - s[0])
         body = (out / lesson["dir"] / "learning.md").read_text(encoding="utf-8")
         body = body.strip().split("\n", 1)[-1].strip()
         video = placeholder(lesson["n"]) + "\n\n" if lesson["video"] else ""
-        parts.append(f"## Learning: {lesson['title']}\n\n{video}{body}\n")
-    return "\n".join(parts)
-
-
-def with_lessons(report, section):
-    """Put the lessons before the report's first section, where readers start."""
-    if not section:
-        return report
-    at = report.find("\n## ")
-    if at < 0:
-        return report.rstrip() + "\n\n" + section
-    return report[: at + 1] + section + "\n" + report[at + 1 :]
+        if text.strip().casefold() in GROUP_HEADINGS:
+            head = [lines[start], "", "#" * (level + 1) + " " + lesson["title"]]
+        else:
+            head = ["#" * level + " " + lesson["title"]]
+        lesson_lines = head + [""] + (video + body).split("\n") + [""]
+        report = "\n".join(lines[:start] + lesson_lines + lines[end:])
+    return report
 
 
 def fill_placeholders(content, lessons, permalinks):
