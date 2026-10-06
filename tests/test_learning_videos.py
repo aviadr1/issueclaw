@@ -88,7 +88,7 @@ def briefing(tmp_path, canvas=True):
 
 
 def agent(video=True, body=LESSON, slug="limit-one"):
-    def run(prompt, directory, videos, env):
+    def run(prompt, directory, videos, env, instructions=""):
         assert (
             json.loads((directory / "comments.json").read_text())[0]["url"] == COMMENT
         )
@@ -169,7 +169,7 @@ def test_a_failed_agent_or_bad_video_never_blocks_the_briefing(tmp_path):
 
     (tmp_path / "learnings.json").unlink()
 
-    def tiny_video(prompt, directory, videos, env):
+    def tiny_video(prompt, directory, videos, env, instructions=""):
         agent(video=False)(prompt, directory, videos, env)
         (directory / "video.mp4").write_bytes(b"\0")
 
@@ -330,3 +330,13 @@ def test_canvas_videos_upload_once_and_refusals_stay_skipped(tmp_path):
     assert (
         daily.upload_lesson_videos(tmp_path, refused, saved.append, FakeSlack()) == {}
     )
+
+
+def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
+    prompt = briefing(tmp_path)
+    seen = []
+    monkeypatch.setattr(
+        lessons.subprocess, "run", lambda args, **kw: seen.append(args[2])
+    )
+    lessons.run_agent(prompt, tmp_path, tmp_path, {}, "Use our house style.")
+    assert seen[0].endswith("Use our house style.")

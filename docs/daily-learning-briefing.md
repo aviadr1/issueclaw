@@ -147,7 +147,9 @@ Waiting items remain curated; this does not add the old open backlog to the Canv
 
 The daily briefing can turn a review pattern into a short lesson with a video. The
 caller opts in by passing `learning-videos-repository` and a reviewed
-`learning-videos-ref` to the reusable workflow, plus `learning_videos.max` (default 1) in its config.
+`learning-videos-ref` to the reusable workflow, plus `learning_videos.max` (default 1) in its config. Optional
+`learning_videos.instructions` holds the caller's own guidance for the lesson and
+its video (style, sound, tone); it is appended to the agent's prompt.
 The kit is a repository following promo-videos' `src/learnings/AGENT.md`, such
 as `aviadr1/promo-videos`. `REPOS_READ_TOKEN` must read it, or the caller supplies
 `VIDEOS_READ_TOKEN`.

@@ -1076,8 +1076,15 @@ def main():
     if args.command == "learn":
         if args.prompt is None or args.videos_dir is None:
             parser.error("learn requires --prompt and --videos-dir")
-        limit = config.get("learning_videos", {}).get("max", 1)
-        lessons.learn(args.out, args.prompt, args.videos_dir, limit, dict(os.environ))
+        options = config.get("learning_videos", {})
+        lessons.learn(
+            args.out,
+            args.prompt,
+            args.videos_dir,
+            options.get("max", 1),
+            dict(os.environ),
+            options.get("instructions", ""),
+        )
         return
     if args.command == "generate":
         if args.prompt is None:

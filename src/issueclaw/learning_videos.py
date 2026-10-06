@@ -45,10 +45,13 @@ def write_inputs(out, directory, pattern):
     return cited
 
 
-def run_agent(prompt, directory, videos, env):
+def run_agent(prompt, directory, videos, env, instructions=""):
     text = prompt.read_text().format(
         learning_dir=directory.resolve(), videos_dir=videos.resolve()
     )
+    if instructions:
+        text += "\n\nThe caller's instructions for this lesson and its video:\n"
+        text += instructions
     with (directory / "agent.log").open("w") as log:
         subprocess.run(
             [
@@ -118,7 +121,7 @@ def validate_video(path):
             raise ValueError(f"video.mp4 is {seconds:.0f} s; keep it to 10-75 s")
 
 
-def learn(out, prompt, videos, limit, env, run=run_agent):
+def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
     """Prepare up to `limit` lessons; record what succeeded in learnings.json."""
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted") or info.get("resume"):
@@ -131,7 +134,7 @@ def learn(out, prompt, videos, limit, env, run=run_agent):
         directory = out / "learnings" / str(n)
         try:
             cited = write_inputs(out, directory, pattern)
-            run(prompt, directory, videos, env)
+            run(prompt, directory, videos, env, instructions)
             lesson = validate_lesson(directory, cited)
         except subprocess.CalledProcessError as error:
             note = f"agent exited with {error.returncode}; see agent.log"
