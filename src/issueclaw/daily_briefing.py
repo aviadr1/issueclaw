@@ -48,6 +48,19 @@ def window(now, zone, hour, weekdays=None):
     )
 
 
+def coverage_window(config, now, last_cutoff=None, cutoff=None):
+    start, end = window(now, config["timezone"], config["hour"], config.get("weekdays"))
+    if cutoff:
+        end = report.instant(cutoff).astimezone(timezone.utc)
+        start = previous_cutoff(
+            end.astimezone(ZoneInfo(config["timezone"])),
+            config.get("weekdays", range(7)),
+        ).astimezone(timezone.utc)
+    if last_cutoff:
+        start = report.instant(last_cutoff)
+    return start, end
+
+
 class StateStore:
     def __init__(self, repo, branch, channel):
         self.repo, self.branch = repo, branch
@@ -411,15 +424,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
         info["resume"] = True
         write_json(out / "window.json", info)
         return
-    start, end = window(now, config["timezone"], config["hour"], config.get("weekdays"))
-    if cutoff:
-        end = report.instant(cutoff).astimezone(timezone.utc)
-        start = (
-            previous_cutoff(
-                end.astimezone(ZoneInfo(config["timezone"])),
-                config.get("weekdays", range(7)),
-            )
-        ).astimezone(timezone.utc)
+    start, end = coverage_window(config, now, state.get("last_cutoff"), cutoff)
     if state.get("last_cutoff"):
         previous = report.instant(state["last_cutoff"])
         if previous >= end:
@@ -428,7 +433,6 @@ def prepare(config, mirror, out, state, now, cutoff=None):
                 {"already_posted": True, "end_exclusive": end.isoformat()},
             )
             return
-        start = min(start, previous)
     history_start = min(start, end - timedelta(days=30))
     manifest = report.collect(
         config, history_start, end, out / "evidence", include_open=True, compact=True

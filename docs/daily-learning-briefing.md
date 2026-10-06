@@ -51,6 +51,17 @@ exact-minute delivery guarantee. Review evidence is freshly collected for 30 day
 open drafts and reviewers are collected even when their last update is older.
 Current metadata is clearly separate from cutoff-bounded merge/discussion evidence.
 
+To replace a morning briefing with an early manual publication, pass `run-early:
+true` to the reusable workflow and add that morning's local ISO date to the caller
+config's `skip_scheduled_dates`, for example `["2026-10-06"]`. The planning job skips
+generation and publication only for a scheduled run on that exact local date;
+manual runs and subsequent dates remain enabled. Early mode ends coverage at the
+planning job's actual UTC time, never at a future morning. It cannot be combined
+with historical cutoff/evidence reuse. Coverage starts at the last successfully
+published cutoff, and the next normal briefing starts at the early report's cutoff.
+The exclusion does not change delivery checkpoints; verify early publication
+succeeded before relying on the replaced morning's skip.
+
 The weekly collector remains unchanged by default. Daily collection opts into
 all open PRs and includes current head-SHA checks and requested reviewers. A query
 reaching GitHub's 1,000-result search limit blocks publication rather than silently
@@ -197,4 +208,3 @@ the refusal is recorded for that cutoff: the Canvas has no embed (it stays ident
 on retry) and the TLDR is posted as plain text. Canvas embedding of video files
 follows Slack's file-embed syntax; if a workspace shows a link rather than a player,
 the video is still in the TLDR.
-

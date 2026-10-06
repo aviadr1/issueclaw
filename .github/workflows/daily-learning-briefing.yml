@@ -15,6 +15,10 @@ on:
       cutoff:
         type: string
         default: ''
+      run-early:
+        description: 'Manual run through now; callers can exclude the replaced scheduled date'
+        type: boolean
+        default: false
       revision-notes:
         type: string
         default: ''
@@ -45,7 +49,45 @@ permissions:
   actions: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      cutoff: ${{ steps.plan.outputs.cutoff }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - id: plan
+        name: Resolve early cutoff or scheduled date exception
+        env:
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          BRIEFING_EARLY: ${{ inputs.run-early }}
+          BRIEFING_CUTOFF: ${{ inputs.cutoff }}
+          BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
+        run: |
+          args=()
+          if [ "$BRIEFING_EARLY" = 'true' ]; then
+            if [ -n "$BRIEFING_CUTOFF" ] || [ -n "$BRIEFING_EVIDENCE_RUN" ]; then
+              echo 'An early run cannot reuse historical evidence or a historical cutoff' >&2
+              exit 1
+            fi
+            args+=(--early)
+          fi
+          python .briefing-tools/src/issueclaw/briefing_schedule.py \
+            --config "$BRIEFING_CONFIG" --event "$GITHUB_EVENT_NAME" \
+            "${args[@]}" >> "$GITHUB_OUTPUT"
+
   generate:
+    needs: plan
+    if: ${{ needs.plan.outputs.enabled == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -76,7 +118,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           BRIEFING_CONFIG: ${{ inputs.config }}
-          BRIEFING_CUTOFF: ${{ inputs.cutoff }}
+          BRIEFING_CUTOFF: ${{ needs.plan.outputs.cutoff || inputs.cutoff }}
           BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
           BRIEFING_PUBLISH: ${{ inputs.post-to-slack }}
         run: |
@@ -140,7 +182,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: generate
+    needs: [plan, generate]
     if: ${{ inputs.post-to-slack }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
