@@ -539,7 +539,7 @@ def learning_audit():
 def test_review_audit_blocks_unsupported_learning_claims(defect):
     evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
     audit = learning_audit()
-    top = "**What to fix once** " + " ".join(
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
         e["url"] for e in audit["patterns"][0]["evidence"]
     )
     if defect == "false_zero":
@@ -557,7 +557,7 @@ def test_review_audit_blocks_unsupported_learning_claims(defect):
 def test_review_audit_accepts_cited_independent_reviews_and_quiet_windows():
     evidence = daily.review_learning_evidence([review_record(1), review_record(2)])
     audit = learning_audit()
-    top = "**What to fix once** " + " ".join(
+    top = "### Prevent duplicate side effects when jobs retry\n" + " ".join(
         e["url"] for e in audit["patterns"][0]["evidence"]
     )
     daily.validate_review_learning(evidence, audit, top)
@@ -714,32 +714,42 @@ Long explanation stays in the Canvas.
 ## An example inside code is not a topic
 ```
 ## Waiting on people
+### Rae Chen: confirm the payment changes after review
 Work queue.
-### Active work
+## Active work
+### Max Lee: recover images after lost queue messages
 Recent progress.
 ## CI
+### Backend: security scan failed; tests passed
 Observed checks.
 ## Learning
-### What to fix once: reuse the due-work harness
+### Catch slow background queries with the due-work harness
 Practical advice.
 """
-    (tmp_path / "report.md").write_text(report)
+    (tmp_path / "report.md").write_text(report, encoding="utf-8")
     (tmp_path / "canvas-invitation.md").write_text(
         "Today's rabbit hole has guardrails. Open the Canvas for the full story."
     )
     messages = daily.validate_output(tmp_path)
     assert len(messages) == 1
-    assert [line for line in messages[0][1].splitlines() if line.startswith("- ")] == [
+    assert [
+        line for line in messages[0][1].splitlines() if line.lstrip().startswith("- ")
+    ] == [
         "- Payments checks load only payments routes — Leads: Rae Chen",
         "- Waiting on people",
+        "  - Rae Chen: confirm the payment changes after review",
         "- Active work",
+        "  - Max Lee: recover images after lost queue messages",
         "- CI",
-        "- What to fix once: reuse the due-work harness",
+        "  - Backend: security scan failed; tests passed",
+        "- Catch slow background queries with the due-work harness",
     ]
     assert "Long explanation" not in messages[0][1]
     assert "inside code" not in messages[0][1]
     assert messages[0][1].endswith("Open the Canvas for the full story.")
-    assert (tmp_path / "messages/01-toplevel.md").read_text().strip() == messages[0][1]
+    assert (tmp_path / "messages/01-toplevel.md").read_text(
+        encoding="utf-8"
+    ).strip() == messages[0][1]
     assert daily.validate_output(tmp_path) == messages
 
 
@@ -756,6 +766,16 @@ def test_title_summary_keeps_every_title_even_when_the_list_exceeds_180_words(tm
     text = daily.validate_output(tmp_path)[0][1]
     assert len(text.split()) > 180
     assert sum(line.startswith("- ") for line in text.splitlines()) == len(titles)
+
+
+@pytest.mark.parametrize("section", ["Waiting on people", "Active work", "CI"])
+def test_title_summary_rejects_section_labels_without_concrete_subitems(section):
+    with pytest.raises(RuntimeError, match="needs concrete subheadings"):
+        daily.canvas_title_summary(
+            f"## {section}\nProse details.\n## Learning\n### Catch slow queries",
+            "Briefing",
+            "Open the Canvas for the details.",
+        )
 
 
 @pytest.mark.parametrize(

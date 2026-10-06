@@ -36,6 +36,12 @@ If window.delivery_format is "canvas":
   their order and lead names. Do not write a second prose summary or duplicate
   generic section labels; do not write the generated message yourself. The title
   list has no 180-word cap. Keep Canvas headings short, concrete and useful.
+  Use level-2 sections Waiting on people, Active work and CI, with level-3 titles
+  for each selected wait, effort or repository status. These become nested Slack
+  bullets. A wait title names the person and next action; active work names the
+  person and capability; CI titles name the repository and failed/pending/skipped
+  checks or verified success. On quiet days use a factual child title such as
+  "No verified review waits". Section labels without child titles are rejected.
 - Otherwise write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
   paragraph, around 100–160 words, maximum 180 whitespace-separated words. Name
   people, changes, review decisions and CI blockers. The publisher appends the
@@ -57,7 +63,7 @@ Otherwise write only messages/01-toplevel.md as a legacy 350–450-word briefing
 maximum 550 words; the complete inventory follows as replies.
 
 The report starts with its date and exact local merge window, including timezone.
-Use short sections: What changed; Waiting on people; CI; What to fix once. Cover
+Use short sections: What changed; Waiting on people; Active work; CI; Learning. Cover
 meaningful changes in ALL configured repos. Group mechanical dependency bumps into
 the originating capability. Quiet days can be short and cover actionable carry-over.
 Lead with behavior, not merge counts. Never rank people or give per-person PR totals.
@@ -110,15 +116,18 @@ Use clear, concrete language:
   production rollout. Require environment/commit-specific proof. Check rollout
   prerequisites, feature flags and unchecked ticket gates; state remaining limits.
 
-For 'What to fix once', cite actual reviewer comments from at least TWO independent
-PRs for a repeated concrete problem and propose one shared prevention. Prefer an
+In Learning, use a concrete title explaining the action or capability, such as
+"Catch slow background queries with the due-work harness". Do not use the phrase
+"What to fix once". For a recurring problem, cite actual reviewer comments from
+at least TWO independent PRs and propose one shared prevention. Prefer an
 existing shared contract/test/helper over another parallel mechanism. Label older
 review history explicitly. Reviewed hazards are findings in proposed code: do not
 say they shipped, remain unfixed or reached production without current proof.
 For query-plan lessons, test bounded rows/buffers inspected with a large rejected
 backlog; an Index Scan label alone does not prove bounded work. Related changes or
-incidents alone do not establish recurrence. Omit the section if unsupported and
-explain why in the audit, without falsely claiming no reviews exist.
+incidents alone do not establish recurrence. Omit unsupported recurrence claims and
+explain why in the audit, without falsely claiming no reviews exist. A concrete new
+technique or capability can still be taught without inventing a recurring problem.
 
 Write /tmp/daily-briefing/coverage.md with selected stories, inclusion/inventory-only
 reasons and limitations. Historical pattern sources outside inventory.json are

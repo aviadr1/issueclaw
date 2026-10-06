@@ -705,7 +705,7 @@ def validate_review_learning(evidence, audit, top):
             or not pattern.get("shared_solution", "").strip()
         ):
             reject("explain the repeated problem and shared solution")
-        if "What to fix once" not in top or any(url not in top for _, url in keys):
+        if any(url not in top for _, url in keys):
             reject("the briefing must cite its review pattern evidence")
     if not patterns and not audit.get("no_pattern_reason", "").strip():
         reject("explain why no recurring problem is supported")
@@ -764,22 +764,28 @@ def canvas_title_summary(content, title, invitation, previous=None):
         heading = re.match(r"^\s{0,3}(#{2,6})\s+(.+?)(?:\s+#+\s*)?$", line)
         if heading:
             headings.append((len(heading[1]), heading[2].strip()))
-    topics = []
+    topics, section_level = [], None
+    grouped_sections = {"waiting on people", "active work", "ci"}
     for index, (level, text) in enumerate(headings):
         # These two labels group effort/lesson titles; include them on quiet days
         # only when there are no child topics. Other headings remain visible.
         has_children = index + 1 < len(headings) and headings[index + 1][0] > level
+        if text.casefold() in grouped_sections:
+            if not has_children:
+                raise RuntimeError(
+                    f"Canvas section {text} needs concrete subheadings for Slack sub-items"
+                )
+            section_level = level
+            topics.append("- " + text)
+            continue
+        if section_level is not None and level <= section_level:
+            section_level = None
         if text.casefold() in {"what changed", "learning"} and has_children:
             continue
-        topics.append(text)
+        topics.append(("  - " if section_level is not None else "- ") + text)
     if not topics:
         raise RuntimeError("Canvas title summary needs narrative topic headings")
-    return (
-        f"**{title}**\n\n"
-        + "\n".join("- " + topic for topic in topics)
-        + "\n\n"
-        + invitation
-    )
+    return f"**{title}**\n\n" + "\n".join(topics) + "\n\n" + invitation
 
 
 def canvas_message_link(text, url, *, titles=False):
@@ -1080,7 +1086,7 @@ def main():
             ]
         slack = Slack(config["channel"], os.environ["SLACK_BOT_TOKEN"])
         invitation = (
-            (args.out / "canvas-invitation.md").read_text().strip()
+            (args.out / "canvas-invitation.md").read_text(encoding="utf-8").strip()
             if info.get("slack_summary_format") == "titles"
             else None
         )

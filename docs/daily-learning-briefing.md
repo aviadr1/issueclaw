@@ -23,7 +23,10 @@ The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words in paragraph mode. Set `slack_summary_format: "titles"` for a contents
 message: one bullet per narrative topic heading, in Canvas order with lead names,
 plus a playful invitation of at most 25 words. Generic What changed/Learning labels
-are omitted when they have child topics. Inventory appendices and headings inside
+are omitted when they have child topics. Waiting on people, Active work and CI
+require concrete child headings, shown as nested Slack bullets: people and their
+next actions/work, or repositories and observed check statuses. Learning titles
+describe the practical action or capability without a fixed slogan. Inventory appendices and headings inside
 code examples are excluded. Bullets are assembled from the report rather than
 rewritten by the model; their total is bounded by Slack message size rather than
 the paragraph word cap. The previous successful invitation is checkpointed, and
