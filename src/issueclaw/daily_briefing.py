@@ -399,7 +399,7 @@ def publish(
     save(state)
 
 
-def attach_message_files(slack, ts, file_ids, *, markdown=None):
+def attach_message_files(slack, ts, file_ids, *, markdown=None, expected_text=None):
     """Share existing uploads on the bot's TLDR, preserving its current text."""
     if not file_ids and markdown is None:
         return
@@ -425,7 +425,10 @@ def attach_message_files(slack, ts, file_ids, *, markdown=None):
     message = read_message()
     existing = {file["id"] for file in message.get("files", [])}
     missing = list(dict.fromkeys(file for file in file_ids if file not in existing))
-    if markdown is not None and mrkdwn(markdown) != message["text"]:
+    if markdown is not None and message["text"] not in {
+        mrkdwn(markdown),
+        expected_text,
+    }:
         raise RuntimeError(
             "Existing briefing text differs from the artifact; cannot reformat"
         )
@@ -477,6 +480,7 @@ def repair_video_attachment(out, state, slack, save, file_ids, *, format_message
     if not receipt.get("ts"):
         raise RuntimeError("Missing completed briefing message receipt")
     markdown = None
+    expected_text = None
     if format_message:
         info = json.loads((out / "window.json").read_text())
         if info.get("delivery_format") != "canvas":
@@ -486,16 +490,23 @@ def repair_video_attachment(out, state, slack, save, file_ids, *, format_message
             .read_text(encoding="utf-8")
             .strip()
         )
-        markdown = canvas_message_link(
-            lessons.with_rules(
-                markdown,
-                lessons.lessons_of(out),
-                before_last_line=info.get("slack_summary_format") == "titles",
-            ),
-            state["canvas"]["receipt"]["url"],
-            titles=info.get("slack_summary_format") == "titles",
+        titles = info.get("slack_summary_format") == "titles"
+        markdown = lessons.with_rules(
+            markdown,
+            lessons.lessons_of(out),
+            before_last_line=titles,
         )
-    attach_message_files(slack, receipt["ts"], file_ids, markdown=markdown)
+        url = state["canvas"]["receipt"]["url"]
+        # Accept only the exact original wording when moving its old footer link.
+        if titles:
+            body, _, invitation = markdown.rpartition("\n")
+            expected_text = mrkdwn(body + f"\n[{invitation}]({url})")
+        else:
+            expected_text = mrkdwn(markdown + f"\n[Full report in Slack Canvas]({url})")
+        markdown = canvas_message_link(markdown, url, titles=titles)
+    attach_message_files(
+        slack, receipt["ts"], file_ids, markdown=markdown, expected_text=expected_text
+    )
     state["video_repair"] = {"cutoff": cutoff, "ts": receipt["ts"], "files": file_ids}
     if format_message:
         state["video_repair"]["formatted"] = True
@@ -1070,10 +1081,7 @@ def canvas_title_summary(content, title, invitation, previous=None):
 
 
 def canvas_message_link(text, url, *, titles=False):
-    if titles:
-        body, _, invitation = text.rpartition("\n")
-        return body + f"\n[{invitation}]({url})"
-    return text + f"\n[Full report in Slack Canvas]({url})"
+    return f"[Your daily briefing canvas]({url})\n\n{text}"
 
 
 def validate_output(out):

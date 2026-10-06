@@ -157,7 +157,7 @@ def test_repair_only_attaches_to_the_latest_completed_briefing(tmp_path):
     )
     state["canvas"] = {"receipt": {"url": url}}
     slack.message["text"] = daily.mrkdwn(
-        daily.canvas_message_link(source, url, titles=True)
+        source.rsplit("\n", 1)[0] + f"\n[Read more]({url})"
     )
     daily.repair_video_attachment(
         tmp_path, state, slack, saved.append, ["F1"], format_message=True
@@ -165,6 +165,12 @@ def test_repair_only_attaches_to_the_latest_completed_briefing(tmp_path):
     assert state["last_cutoff"] == cutoff
     assert state["video_repair"]["formatted"] is True
     assert slack.message["files"] == [{"id": "F1"}]
+    formatted = [
+        payload for method, payload in slack.calls if "markdown_text" in payload
+    ][-1]
+    assert formatted["markdown_text"].startswith(
+        f"[Your daily briefing canvas]({url})\n\n"
+    )
     state["last_cutoff"] = "2026-10-07T05:00:00+00:00"
     with pytest.raises(RuntimeError, match="latest completed"):
         daily.repair_video_attachment(tmp_path, state, slack, saved.append, ["F1"])
