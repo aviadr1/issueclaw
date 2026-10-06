@@ -390,3 +390,25 @@ def test_labels_may_carry_their_colon_inside_the_bold(tmp_path):
         body = body.replace(f"**{label}**", f"**{label}:**")
     found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(body=body))
     assert found and found[0]["slug"] == "limit-one"
+
+
+def test_a_render_the_agent_left_unfinished_is_completed(tmp_path, monkeypatch):
+    # the second CI preview: the agent's background render died with its session
+    prompt = briefing(tmp_path)
+    videos = tmp_path / "kit"
+    (videos / "src" / "learnings" / "limit-one").mkdir(parents=True)
+    renders = []
+
+    def run(args, **kwargs):
+        if args[0] == "ffprobe":
+            return subprocess.CompletedProcess(args, 1, "", "")
+        renders.append(args)
+        mp4 = kwargs["cwd"] / "out" / "learnings" / "limit-one.mp4"
+        mp4.parent.mkdir(parents=True)
+        mp4.write_bytes(b"\0" * 20_000)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(lessons.subprocess, "run", run)
+    found = lessons.learn(tmp_path, prompt, videos, 1, {}, run=agent(video=False))
+    assert renders == [["sh", "scripts/render-learning.sh", "limit-one"]]
+    assert found[0]["video"] is True
