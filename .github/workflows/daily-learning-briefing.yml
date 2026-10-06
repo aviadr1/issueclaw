@@ -21,6 +21,14 @@ on:
       evidence-run-id:
         type: string
         default: ''
+      learning-videos-repository:
+        description: 'Video kit repository (src/learnings/AGENT.md); empty disables lessons'
+        type: string
+        default: ''
+      learning-videos-ref:
+        description: 'Reviewed commit of the video kit'
+        type: string
+        default: ''
     secrets:
       REPOS_READ_TOKEN:
         required: true
@@ -28,6 +36,9 @@ on:
         required: true
       SLACK_BOT_TOKEN:
         required: true
+      VIDEOS_READ_TOKEN:
+        description: 'Read access to the video kit when REPOS_READ_TOKEN lacks it'
+        required: false
 
 permissions:
   contents: write
@@ -36,7 +47,7 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v6
         with:
@@ -85,6 +96,29 @@ jobs:
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
             --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
             --revision-notes "$BRIEFING_REVISION_NOTES"
+      - name: Check out the learning video kit
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.learning-videos-repository }}
+          ref: ${{ inputs.learning-videos-ref }}
+          path: .learning-videos
+          token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
+          persist-credentials: false
+      - name: Root-cause each review pattern and make its video (Opus 5.5, medium)
+        # Optional and fail-soft: the briefing publishes without lessons on failure.
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+        run: |
+          test -f .learning-videos/src/learnings/AGENT.md
+          (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md             --videos-dir .learning-videos
       - name: Validate message and inventory coverage
         env:
           GITHUB_TOKEN: ${{ github.token }}
