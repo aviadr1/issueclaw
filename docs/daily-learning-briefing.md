@@ -198,13 +198,23 @@ or, if it is the "Learning" group heading, the lesson goes under it. A video
 placeholder is filled at publication. A learning the briefing never wrote up is not
 added. `report.md` keeps the briefing's text, so the review-citation audit is
 unchanged. The lessons and the videos' hashes are part of the pending digest. At publication, each
-video is uploaded privately and embedded in the Canvas through its Slack file link,
-and the TLDR gains a **Learning:** line with each lesson's rule. The TLDR itself is
-posted as the comment on the shared first video (`files.completeUploadExternal`).
-The file ID is checkpointed before the share, so an uncertain share is recovered
-from the file's own shares. One that never appeared is safely redone with a fresh
-upload. Uploading needs the bot's `files:write` scope. If Slack refuses an upload,
+video is uploaded once and embedded in the Canvas through its Slack file link,
+and the TLDR gains a **Learning:** line with each lesson's rule. After the TLDR is
+posted, `chat.update` attaches those same uploaded file IDs to it, sharing the files
+with the channel. This makes the Canvas references readable by channel members.
+Attachment is verified before the coverage cutoff advances. A failed attachment
+retries against the checkpointed TLDR timestamp without posting another message
+or uploading another copy. Uploading needs the bot's `files:write` scope. If Slack refuses an upload,
 the refusal is recorded for that cutoff: the Canvas has no embed (it stays identical
 on retry) and the TLDR is posted as plain text. Canvas embedding of video files
 follows Slack's file-embed syntax; if a workspace shows a link rather than a player,
 the video is still in the TLDR.
+
+For a clip recovered after a briefing completed, the reusable
+`attach-briefing-video.yml` workflow accepts the original artifact run and an
+already uploaded Slack file ID. It calls `daily_briefing attach-video --file-id F…`
+with the caller's bot credentials. Only the latest completed cutoff can be repaired,
+and a pending publication blocks the repair. It preserves the message text and
+coverage cutoff and records the attachment separately. The caller must serialize
+this workflow with publication. A separately repaired Canvas should reference
+the same file ID.
