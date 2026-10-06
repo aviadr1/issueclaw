@@ -125,13 +125,29 @@ async def publish(
         return state["url"]
 
 
+def markdown_message_payload(text: str, channel: str, thread_ts: str = "") -> dict:
+    """Keep native Markdown and Canvas rendering consistent across publishers."""
+    payload = {
+        "channel": channel,
+        "markdown_text": text,
+        "unfurl_links": False,
+        "unfurl_media": False,
+        "reply_broadcast": False,
+    }
+    if thread_ts:
+        payload["thread_ts"] = thread_ts
+    return payload
+
+
 async def post_summary_message(
     text: str, channel: str, thread_ts: str, path: Path, token: str
 ) -> None:
     state = json.loads(path.read_text())
-    text = re.sub(r"\[([^\]]+)\]\((https://[^)]+)\)", r"<\2|\1>", text.strip())
+    text = text.strip()
+    # Retain the original fingerprint encoding so pre-upgrade checkpoints resume.
+    fingerprint_text = re.sub(r"\[([^\]]+)\]\((https://[^)]+)\)", r"<\2|\1>", text)
     fingerprint = hashlib.sha256(
-        json.dumps([text, channel, thread_ts]).encode()
+        json.dumps([fingerprint_text, channel, thread_ts]).encode()
     ).hexdigest()
     if state.get("message_fingerprint") not in (None, fingerprint):
         raise click.ClickException(
@@ -145,15 +161,7 @@ async def post_summary_message(
         )
     state.update(message_fingerprint=fingerprint, message_pending=True)
     save_state(path, state)
-    payload = {
-        "channel": channel,
-        "text": text,
-        "unfurl_links": False,
-        "unfurl_media": False,
-    }
-    if thread_ts:
-        payload["thread_ts"] = thread_ts
-        payload["reply_broadcast"] = False
+    payload = markdown_message_payload(text, channel, thread_ts)
     async with make_client(token) as client:
         response = await client.post("chat.postMessage", json=payload)
         response.raise_for_status()
@@ -195,7 +203,7 @@ async def post_summary_message(
 @click.option(
     "--summary",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Append the confirmed Canvas link to a prepared message.",
+    help="Put the confirmed Canvas link first in a prepared message.",
 )
 @click.option(
     "--post-summary",
@@ -259,7 +267,7 @@ def slack_canvas_command(
         text = summary.read_text(encoding="utf-8")
         if url not in text:
             summary.write_text(
-                text.rstrip() + f" [Full report in Slack Canvas]({url})\n",
+                f"[Full report in Slack Canvas]({url}) " + text.strip() + "\n",
                 encoding="utf-8",
             )
     if post_summary and summary:

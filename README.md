@@ -167,8 +167,8 @@ issueclaw slack-canvas --source /tmp/report/canvas.md --title "Design weekly" \
 
 Set `SLACK_BOT_TOKEN` with `canvases:write` and `files:read`. The app must be able
 to add a Canvas tab to the destination channel. Slack channel-tabbed Canvases
-allow channel members to edit. This command creates the Canvas tab and appends
-its confirmed permalink to the prepared summary; it sends no message unless `--post-summary` is supplied. Add `--thread-ts 1790860328.061289` to reply inside an existing thread without broadcasting to the channel. Posting requires `chat:write`; the confirmed message timestamp and pending outcomes are persisted in the same state file to prevent duplicate replies.
+allow channel members to edit. This command creates the Canvas tab and puts
+its confirmed permalink first in the prepared summary; it sends no message unless `--post-summary` is supplied. Add `--thread-ts 1790860328.061289` to reply inside an existing thread without broadcasting to the channel. The summary uses native Slack Markdown, matching the daily briefing publisher and preserving Canvas rendering. Existing summary checkpoints still resume without reposting. Posting requires `chat:write`; the confirmed message timestamp and pending outcomes are persisted in the same state file to prevent duplicate replies.
 Use `--dry-run` to validate without credentials or network access.
 
 Keep the Canvas source outside any directory your message publisher scans.

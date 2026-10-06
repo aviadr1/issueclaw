@@ -271,21 +271,16 @@ class Slack:
         return None
 
     def post(self, text, key, thread):
-        payload = {
-            "channel": self.channel,
-            # Slack parses Markdown into native lists and rich-text blocks.
-            "markdown_text": text,
-            "unfurl_links": False,
-            "unfurl_media": False,
-            "reply_broadcast": False,
-            "metadata": {
+        payload = slack_canvas.markdown_message_payload(
+            text, self.channel, thread or ""
+        )
+        payload.update(
+            metadata={
                 "event_type": "daily_learning_briefing",
                 "event_payload": {"key": key},
             },
-            "client_msg_id": str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
-        }
-        if thread:
-            payload["thread_ts"] = thread
+            client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+        )
         message = self.api("chat.postMessage", payload)
         self.history = None
         return message["ts"]
