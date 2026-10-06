@@ -227,6 +227,8 @@ the video is still in the TLDR.
 Messages use Slack's `markdown_text` input so topic bullets and their nested items
 become native lists. Video attachment preserves the returned rich-text blocks;
 updating only `text` would discard their formatting.
+The confirmed Canvas link is the first line, labeled **Your daily briefing canvas**.
+The title and bullets follow it; the changing invitation stays at the bottom.
 
 For a clip recovered after a briefing completed, the reusable
 `attach-briefing-video.yml` workflow accepts the original artifact run and an

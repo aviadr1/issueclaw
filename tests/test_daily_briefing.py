@@ -813,18 +813,18 @@ def test_completed_delivery_records_invitation_for_the_next_briefing():
     assert state["last_canvas_invitation"] == "Read on. The plot has indexes."
 
 
-def test_title_message_links_the_invitation_to_the_confirmed_canvas_url():
+def test_canvas_link_is_first_and_keeps_the_closing_invitation():
     message = "**Briefing**\n\n- One topic\n\nOpen the Canvas. The plot has indexes."
     linked = daily.canvas_message_link(
         message, "https://slack.com/docs/F123", titles=True
     )
     assert (
         linked
-        == "**Briefing**\n\n- One topic\n\n[Open the Canvas. The plot has indexes.](https://slack.com/docs/F123)"
+        == "[Your daily briefing canvas](https://slack.com/docs/F123)\n\n" + message
     )
     assert (
         daily.canvas_message_link("Short paragraph", "https://slack.com/docs/F123")
-        == "Short paragraph\n[Full report in Slack Canvas](https://slack.com/docs/F123)"
+        == "[Your daily briefing canvas](https://slack.com/docs/F123)\n\nShort paragraph"
     )
 
 
