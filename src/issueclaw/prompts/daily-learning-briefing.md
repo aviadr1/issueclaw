@@ -116,18 +116,54 @@ Use clear, concrete language:
   production rollout. Require environment/commit-specific proof. Check rollout
   prerequisites, feature flags and unchecked ticket gates; state remaining limits.
 
-In Learning, use a concrete title explaining the action or capability, such as
-"Catch slow background queries with the due-work harness". Do not use the phrase
-"What to fix once". For a recurring problem, cite actual reviewer comments from
-at least TWO independent PRs and propose one shared prevention. Prefer an
-existing shared contract/test/helper over another parallel mechanism. Label older
-review history explicitly. Reviewed hazards are findings in proposed code: do not
-say they shipped, remain unfixed or reached production without current proof.
-For query-plan lessons, test bounded rows/buffers inspected with a large rejected
-backlog; an Index Scan label alone does not prove bounded work. Related changes or
-incidents alone do not establish recurrence. Omit unsupported recurrence claims and
-explain why in the audit, without falsely claiming no reviews exist. A concrete new
-technique or capability can still be taught without inventing a recurring problem.
+Learning shares knowledge: one or two lessons from recent work that a teammate who
+wasn't involved would benefit from. Each lesson is its own `###` subsection under
+`## Learning`, with a concrete title explaining the idea or action (for example
+"Catch slow background queries with the due-work harness"), and links to the PRs,
+comments or commits it rests on. A separate agent later deepens each subsection
+into a short lesson and video and replaces it in place, so keep each one
+self-contained and well sourced. Do not use the phrase "What to fix once".
+
+Look for a lesson in merged PRs from the window and, when the window is thin,
+from the 30-day evidence (label older work as earlier context). A repeated
+problem found in review is strong signal, but most lessons have no review behind
+them. Kinds worth teaching include:
+- a surprising root cause: a small bug whose cause is counterintuitive and
+  reusable (for example, `always()` jobs ignore cancellation);
+- a distributed failure mode: partial failure, a lost signal or an ambiguous
+  outcome, and the pattern that handles it;
+- a stale-write or concurrency guard: older work overwriting newer state;
+- a new primitive others should now use, or a new system or infrastructure
+  (its topology, trust model and fallback);
+- an algorithm or heuristic that replaces a fixed constant;
+- a measured performance gain, or an overload or scaling design (admission,
+  reserved capacity, shedding, probes);
+- a CI problem solved or a pipeline made faster or cheaper;
+- a restructuring that narrows dependencies or reorganises code or directories;
+- a convention turned into a derived list or an enforced check;
+- a testing technique, observability that pinpoints where time went, or a
+  contract made exact (what a response or an identifier really means).
+Skip releases and promotions, automated dependency-bump PRs (follow them to the
+source PR instead), configuration without a rationale, feature plumbing with no
+general insight, and later steps of a series already taught.
+
+Rank candidates by how well the takeaway transfers beyond this codebase, how
+surprising it is, measured impact (real before/after numbers beat estimates), how
+likely others are to repeat the mistake or reuse the tool, and whether it has a
+natural picture. window.json lists `previous_lessons` already taught (title, rule,
+sources, date): don't teach the same lesson or the same PR again unless there is a
+genuinely new twist, such as a regression of an earlier fix, and vary the kind
+from day to day.
+
+For a recurring review problem, cite actual reviewer comments from at least TWO
+independent PRs and propose one shared prevention. Prefer an existing shared
+contract/test/helper over another parallel mechanism. Reviewed hazards are
+findings in proposed code: do not say they shipped, remain unfixed or reached
+production without current proof. For query-plan lessons, test bounded
+rows/buffers inspected with a large rejected backlog; an Index Scan label alone
+does not prove bounded work. Related changes or incidents alone do not establish
+recurrence. Omit unsupported recurrence claims and explain why in the audit,
+without falsely claiming no reviews exist.
 
 Write /tmp/daily-briefing/coverage.md with selected stories, inclusion/inventory-only
 reasons and limitations. Historical pattern sources outside inventory.json are
