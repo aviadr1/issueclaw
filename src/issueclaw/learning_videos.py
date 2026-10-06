@@ -89,9 +89,10 @@ def validate_lesson(directory, cited):
     words = len(body.split("\n", 1)[-1].split())
     if not 50 <= words <= 200:
         raise ValueError(f"learning.md body has {words} words; keep it to 50-200")
-    for label in ("**Problem**", "**Root cause**", "**Fix**", "**Rule**"):
-        if label not in body:
-            raise ValueError(f"learning.md is missing {label}")
+    for label in ("Problem", "Root cause", "Fix", "Rule"):
+        # "**Problem**", "**Problem:**" and "**Problem**:" all label the paragraph
+        if not re.search(r"\*\*" + label + r":?\*\*", body):
+            raise ValueError(f"learning.md is missing **{label}**")
     if not any(url in body for url in cited):
         raise ValueError("learning.md must link the review comment it came from")
     return {"title": title, "rule": rule, "slug": meta["slug"]}

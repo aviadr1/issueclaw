@@ -380,3 +380,13 @@ def test_rules_go_before_the_closing_invitation_in_title_summaries():
         == "TLDR\n**Learning:** Index the filter you poll."
     )
     assert lessons.with_rules("TLDR", []) == "TLDR"
+
+
+def test_labels_may_carry_their_colon_inside_the_bold(tmp_path):
+    # the label style Opus wrote in the first real CI preview
+    prompt = briefing(tmp_path)
+    body = LESSON
+    for label in ("Problem", "Root cause", "Fix", "Rule"):
+        body = body.replace(f"**{label}**", f"**{label}:**")
+    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(body=body))
+    assert found and found[0]["slug"] == "limit-one"
