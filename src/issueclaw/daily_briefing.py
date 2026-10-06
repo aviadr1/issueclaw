@@ -317,7 +317,15 @@ def share_with_file(text, key, thread, video, state, slack, save):
 
 
 def publish(
-    messages, state, cutoff, slack, save, videos=None, *, canvas_invitation=None
+    messages,
+    state,
+    cutoff,
+    slack,
+    save,
+    videos=None,
+    *,
+    canvas_invitation=None,
+    taught=None,
 ):
     """Checkpoint every message; only a completely posted thread advances time.
 
@@ -381,6 +389,9 @@ def publish(
     state["last_cutoff"] = cutoff
     if canvas_invitation is not None:
         state["last_canvas_invitation"] = canvas_invitation
+    if taught is not None:
+        # recorded with the completed cutoff, so a retried publication can't double it
+        state["taught_lessons"] = taught
     save(state)
 
 
@@ -637,6 +648,8 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             "mirror_commit": freshness,
             "already_posted": False,
             "previous_canvas_invitation": state.get("last_canvas_invitation"),
+            # lessons already taught, so the briefing picks something new
+            "previous_lessons": state.get("taught_lessons", []),
         },
     )
     write_json(out / "inventory.json", inventory)
@@ -1260,6 +1273,7 @@ def main():
         videos = {}
         info = json.loads((args.out / "window.json").read_text())
         titles = info.get("slack_summary_format") == "titles"
+        found = []
         if info.get("delivery_format") == "canvas":
             found = lessons.lessons_of(args.out)
             permalinks = upload_lesson_videos(args.out, state, store.save, slack)
@@ -1304,6 +1318,9 @@ def main():
             store.save,
             videos,
             canvas_invitation=invitation,
+            taught=lessons.remember(
+                state.get("taught_lessons"), found, delivery["cutoff"][:10]
+            ),
         )
 
 
