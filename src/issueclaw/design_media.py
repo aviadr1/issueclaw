@@ -278,11 +278,18 @@ async def capture(config, out, browser):
                     )
                 if urlsplit(page.url).hostname not in config["preview_hosts"]:
                     raise ValueError("Preview redirected outside configured hosts")
+                evidence["status"] = "unsupported"
+                evidence["error"] = (
+                    "Preview page loaded; collector did not find a supported numbered "
+                    "handoff screen picker. This is not evidence of an unavailable deployment."
+                )
                 await page.wait_for_function(
                     """() => [...document.querySelectorAll('button')].some(b=>/^\\d{2}\\s/.test(b.innerText.trim()))""",
                     timeout=12000,
                 )
                 states = await page.evaluate(SCREEN_ROWS)
+                evidence["status"] = "capture_failed"
+                evidence.pop("error", None)
                 evidence["screens"] = states
                 for state in select_states(states, config.get("states_per_preview", 6)):
                     # Click the screen list: changing location.hash alone leaves some React previews stale.
@@ -334,7 +341,9 @@ async def capture(config, out, browser):
                     save()
                 evidence["status"] = "captured"
             except Exception as exc:
-                evidence["error"] = str(exc)[:1500]
+                evidence["error"] = (
+                    evidence.get("error", "") + " " + str(exc)
+                ).strip()[:1500]
             finally:
                 video = page.video
                 video_path = Path(await video.path()) if video else None

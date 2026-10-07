@@ -30,7 +30,11 @@ async def test_handoff_clicks_render_distinct_states_and_description_is_not_a_ca
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(html)
+            self.wfile.write(
+                b"<h1>Legacy handoff</h1><button>Feed</button>"
+                if self.path == "/legacy"
+                else html
+            )
 
         def log_message(self, format, *args):
             pass
@@ -48,7 +52,7 @@ async def test_handoff_clicks_render_distinct_states_and_description_is_not_a_ca
                 "number": 42,
                 "repository": "acme/app",
                 "head_sha": "head",
-                "routes": [url],
+                "routes": [url, url + "legacy"],
             }
         ],
     )
@@ -74,6 +78,8 @@ async def test_handoff_clicks_render_distinct_states_and_description_is_not_a_ca
         server.server_close()
         thread.join()
     assert manifest["previews"][0]["status"] == "captured"
+    assert manifest["previews"][1]["status"] == "unsupported"
+    assert "page loaded" in manifest["previews"][1]["error"].lower()
     assert len(manifest["previews"][0]["screens"]) == 3
     images = [c for c in manifest["captures"] if c["kind"] != "video"]
     assert [c["state_url"].split("#/")[-1] for c in images] == [
