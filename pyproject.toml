@@ -60,6 +60,11 @@ issueclaw = "issueclaw.main:cli"
 issueclaw-inbox-replay = "issueclaw.inbox_replay:main"
 issueclaw-inbox-reconcile = "issueclaw.inbox_reconcile:main"
 
+[project.optional-dependencies]
+media = [
+    "playwright==1.58.0",
+]
+
 [build-system]
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
@@ -79,10 +84,11 @@ include = [
 
 [tool.pytest.ini_options]
 markers = [
+    "browser: real Chromium handoff capture tests (media extra)",
     "slow: marks tests as slow (integration tests with real API calls)",
     "integration: marks tests as integration tests",
 ]
-addopts = "--strict-markers -n auto"
+addopts = "--strict-markers -n auto -m 'not browser'"
 
 [tool.basedpyright]
 include = ["src", "tests"]
