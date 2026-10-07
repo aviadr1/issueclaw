@@ -79,3 +79,40 @@ def test_exclusion_needs_visible_reason_and_unknown_media_is_rejected():
         validate_report(
             manifest, {"sources": [{"pr_url": url, "media_ids": ["fake"]}]}, ""
         )
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4])
+def test_gallery_requires_three_distinct_images_or_visible_limitation(count):
+    pr = "https://github.com/acme/app/pull/42"
+    captures = [
+        dict(
+            id=f"s{i}",
+            pr_url=pr,
+            kind="prototype",
+            state_url=f"https://preview.example.test/pr-42/#/s{i}",
+            hosted_url=f"https://media.example.test/s{i}.png",
+        )
+        for i in range(4)
+    ]
+    manifest = dict(prs=[dict(url=pr)], captures=captures)
+    source = dict(pr_url=pr, media_ids=[c["id"] for c in captures[:count]])
+    report = f"[Source PR]({pr})\n" + "\n".join(
+        f"![State]({c['hosted_url']}) [Explore state]({c['state_url']})"
+        for c in captures[:count]
+    )
+    if count < 3:
+        with pytest.raises(ValueError, match="Three distinct"):
+            validate_report(manifest, dict(sources=[source]), report)
+        source["visual_limitation"] = (
+            "Only these states show the feature; other captures are inherited fixtures."
+        )
+        report += "\n" + source["visual_limitation"]
+    validate_report(manifest, dict(sources=[source]), report)
+    with pytest.raises(ValueError, match="prototype link"):
+        validate_report(
+            manifest,
+            dict(sources=[source]),
+            report.replace(
+                "https://preview.example.test/", "https://wrong.example.test/"
+            ),
+        )

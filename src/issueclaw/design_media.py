@@ -53,6 +53,7 @@ def validate_report(manifest, plan, markdown):
         if not source:
             raise ValueError(f"PR not accounted for: {pr['url']}")
         ids = source.get("media_ids", [])
+        source_images = []
         if not ids:
             reason = source.get("exclusion_reason", "").strip()
             if not reason or reason not in markdown or pr["url"] not in markdown:
@@ -76,6 +77,30 @@ def validate_report(manifest, plan, markdown):
                 raise ValueError(f"Selected media must be embedded: {media_id}")
             if media.get("kind") != "video":
                 selected_images += 1
+                source_images.append(media)
+        if ids:
+            distinct = {
+                m.get("sha256") or m.get("state_url") or m["id"] for m in source_images
+            }
+            available = {
+                m.get("sha256") or m.get("state_url") or m["id"]
+                for m in captures.values()
+                if m["pr_url"] == pr["url"] and m.get("kind") != "video"
+            }
+            if len(distinct) < min(3, len(available)):
+                reason = source.get("visual_limitation", "").strip()
+                if not reason or reason not in markdown or pr["url"] not in markdown:
+                    raise ValueError(
+                        f"Three distinct images or a visible limitation required: {pr['url']}"
+                    )
+            for media in source_images:
+                state_url = media.get("state_url")
+                if state_url and not re.search(
+                    r"(?<!!)\[[^\]]+\]\(" + re.escape(state_url) + r"\)", markdown
+                ):
+                    raise ValueError(
+                        f"Selected state needs a prototype link: {media['id']}"
+                    )
     if manifest["captures"] and not selected_images:
         raise ValueError("A visual report cannot exclude every captured image")
 

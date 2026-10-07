@@ -80,3 +80,5 @@ tests/test_design_media_browser.py -m browser -n 0` exercises real Chromium agai
 a local handoff fixture. CI installs Chromium for that dedicated job; the default
 unit suite does not require a browser. `DESIGN_BROWSER_EXECUTABLE` can select an
 already-installed local Chromium when testing.
+
+Reports should select 3–4 distinct screens per prototype/design and place prominent prototype and PR links directly beneath each gallery. Validation requires at least three distinct captures when available and a clickable exact state link for every selected screenshot. A smaller selection needs a `visual_limitation` repeated visibly in the report beside the source PR link. Duplicate capture IDs or identical digests do not satisfy the minimum. Presentation uses the destination’s supported gallery layout; the validator checks evidence and links, not rendered geometry.
