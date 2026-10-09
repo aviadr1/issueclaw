@@ -265,7 +265,7 @@ evidence, tradeoffs and why each candidate won or lost across the merged work.
 Optional caller settings under `learning_videos`:
 
 - `playback_speed: 0.5` delivers the rendered clip at half speed with pitch-preserving
-  audio. Today's observed 42.5-second clip becomes about 85 seconds. Conversion is
+  audio. The inspected 42.5-second clip becomes about 85 seconds. Conversion is
   applied once before publication; failed conversion suppresses the video, retaining
   the lesson text and error. The prompt targets 75–120 final seconds for a lesson.
 - `review: true` adds one substantial open PR walkthrough without consuming `max`
@@ -296,6 +296,8 @@ per-target receipts, while the already delivered Slack briefing is preserved.
 Rerun the publish job to recover: comments are found by authenticated author and
 video-hash marker, so even an accepted write with a lost response is not duplicated.
 
+Start artifact review at `TRACE-INDEX.md`, which links each completed or failed video
+attempt to its questions, evidence, QA, timing and source.
 The `daily-learning-briefing` artifact retains selection audits, frozen evidence,
 exact model prompts and requested models, structured tool transcripts, runner and
 pinned tooling/kit versions, source/captured assets, questions, research, storyboard,

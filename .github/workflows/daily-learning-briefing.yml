@@ -203,8 +203,9 @@ jobs:
           import sys
           from pathlib import Path
           sys.path.insert(0, '.briefing-tools/src')
-          from issueclaw.briefing_trace import preserve_source
+          from issueclaw.briefing_trace import preserve_source, write_index
           preserve_source(Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
+          write_index(Path('/tmp/daily-briefing'))
           PY
       - name: Validate message and inventory coverage
         env:

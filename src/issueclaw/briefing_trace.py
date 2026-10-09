@@ -134,3 +134,65 @@ def validate_quality(directory, duration):
         # One image per scene, named by its storyboard ID, enables a human audit.
         if not (directory / "qa" / f"{scene['id']}.png").is_file():
             raise ValueError(f"missing QA frame for scene {scene['id']}")
+
+
+def write_index(out):
+    """Give reviewers a readable entry point, including incomplete attempts."""
+    lines = [
+        "# Briefing review index",
+        "",
+        "Start with selection, then watch each clip alongside its questions and QA.",
+        "A successful workflow can still contain a text-only or failed video attempt.",
+        "",
+    ]
+    for name in (
+        "report.md",
+        "selection-audit.json",
+        "review-selection.json",
+        "learnings.json",
+    ):
+        if (out / name).exists():
+            lines.append(f"- [{name}]({name})")
+    for directory in sorted((out / "learnings").glob("*")):
+        if not directory.is_dir():
+            continue
+        prefix = directory.relative_to(out).as_posix()
+        lines += ["", f"## Video attempt {directory.name}", ""]
+        for name in (
+            "topic.json",
+            "outcome.json",
+            "video.mp4",
+            "learning.md",
+            "questions.md",
+            "research.md",
+            "storyboard.json",
+            "qa.md",
+            "quality.json",
+            "pacing.json",
+            "agent.request.json",
+            "agent.prompt.md",
+            "agent.log",
+            "error.txt",
+            "video-error.txt",
+            "pacing-error.txt",
+            "render.log",
+            "pacing.log",
+            "qa",
+            "evidence",
+            "source",
+        ):
+            if (directory / name).exists():
+                lines.append(f"- [{name}]({prefix}/{name})")
+    lines += [
+        "",
+        "## Reproduction and delivery",
+        "",
+        "Runner/config JSON files record the run, model CLI version and pinned tooling/video-kit refs.",
+        "Generation and revision logs/prompts contain the report's model/tool trace.",
+        "The video-kit/source directory also preserves work interrupted before an attempt finished.",
+        "After publication, the separate daily-learning-briefing-delivery artifact contains",
+        "publication-state.json and pr-video-delivery.json with per-PR delivery receipts.",
+        "Artifacts are retained for 90 days; private source material requires repository access.",
+        "",
+    ]
+    (out / "TRACE-INDEX.md").write_text("\n".join(lines), encoding="utf-8")
