@@ -319,3 +319,7 @@ state and PR-comment receipts after publication, including partial failures. Nei
 artifact serializes credential environments. The rendered video's SHA-256 links its
 pacing record to the PR-comment receipt. Source inspection/QA transcripts may contain
 private repository material; artifacts stay in the caller repository.
+
+Evidence-reuse previews archive earlier learning outputs under
+`previous-videos/<source-run>/` before generating replacements. Frozen evidence
+stays unchanged; the previous video manifest cannot silently skip a rewrite.

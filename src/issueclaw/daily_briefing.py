@@ -1398,8 +1398,10 @@ def main():
             timeout=180,
             capture_output=True,
         )
+        lessons.archive_preview_videos(args.out, args.evidence_run_id)
         info = json.loads((args.out / "window.json").read_text())
         info.pop("resume", None)
+        info.pop("already_posted", None)
         write_json(args.out / "window.json", info)
         configure_delivery(args.out, config)
         return

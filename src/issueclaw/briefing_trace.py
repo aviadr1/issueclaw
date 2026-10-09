@@ -228,6 +228,7 @@ def write_index(out):
         "selection-audit.json",
         "review-selection.json",
         "learnings.json",
+        "previous-videos",
     ):
         if (out / name).exists():
             lines.append(f"- [{name}]({name})")

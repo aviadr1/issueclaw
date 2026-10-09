@@ -480,3 +480,21 @@ def test_sources_survive_a_failed_video_agent(tmp_path):
         trace / "source/src/learnings/example/scene.tsx"
     ).read_text() == "const scene = 1;"
     assert json.loads((trace / "outcome.json").read_text())["status"] == "failed"
+
+
+def test_reused_preview_preserves_old_video_but_generates_a_replacement(tmp_path):
+    prompt = briefing(tmp_path)
+    lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent())
+    old_manifest = (tmp_path / "learnings.json").read_bytes()
+    evidence = (tmp_path / "review-learning-evidence.json").read_bytes()
+    lessons.archive_preview_videos(tmp_path, "123")
+    assert (
+        tmp_path / "previous-videos/123/learnings.json"
+    ).read_bytes() == old_manifest
+    assert (
+        tmp_path / "previous-videos/123/learnings/1/video.mp4"
+    ).read_bytes() == b"\0" * 20_000
+    assert (tmp_path / "review-learning-evidence.json").read_bytes() == evidence
+    revised = "# Context first\n\nA job calls another job; its logs must follow the active job."
+    lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(body=revised))
+    assert (tmp_path / "learnings/1/learning.md").read_text() == revised
