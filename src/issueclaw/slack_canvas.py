@@ -123,7 +123,7 @@ async def publish(
             except click.ClickException as exc:
                 # These responses explicitly reject creation, so a corrected retry is safe.
                 if any(
-                    code in str(exc)
+                    str(exc).split(" — ", 1)[0] == f"Slack canvases.create: {code}"
                     for code in (
                         "missing_scope",
                         "invalid_auth",

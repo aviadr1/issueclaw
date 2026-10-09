@@ -231,15 +231,16 @@ def test_confirmed_legacy_summary_checkpoint_does_not_repost(tmp_path):
         )
 
 
-def test_canvas_rejection_preserves_actionable_detail_and_allows_corrected_retry(
-    tmp_path,
+@pytest.mark.parametrize(
+    "error,pending", [("canvas_creation_failed", False), ("internal_error", True)]
+)
+def test_canvas_error_preserves_detail_and_only_clears_confirmed_rejections(
+    tmp_path, error, pending
 ):
-    detail = "'content' error: line 28: Unsupported block type"
+    detail = "'content' error: line 28: Unsupported block type canvas_creation_failed secret-test"
 
     def handle(request):
-        return httpx.Response(
-            200, json={"ok": False, "error": "canvas_creation_failed", "detail": detail}
-        )
+        return httpx.Response(200, json={"ok": False, "error": error, "detail": detail})
 
     state = tmp_path / "state.json"
     with patch.object(
@@ -251,11 +252,12 @@ def test_canvas_rejection_preserves_actionable_detail_and_allows_corrected_retry
     ):
         with pytest.raises(
             click.ClickException, match="line 28: Unsupported block type"
-        ):
+        ) as exc:
             asyncio.run(
                 slack_canvas.publish("# Report", "Report", "C123", state, "secret-test")
             )
-    assert not state.exists()
+    assert "secret-test" not in str(exc.value)
+    assert state.exists() == pending
 
 
 @pytest.mark.parametrize("depth", [4, 5, 6])
