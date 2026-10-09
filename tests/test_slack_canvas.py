@@ -256,3 +256,50 @@ def test_canvas_rejection_preserves_actionable_detail_and_allows_corrected_retry
                 slack_canvas.publish("# Report", "Report", "C123", state, "secret-test")
             )
     assert not state.exists()
+
+
+@pytest.mark.parametrize("depth", [4, 5, 6])
+def test_publish_adapts_deep_headings_without_changing_media_or_code(tmp_path, depth):
+    heading = "#" * depth + " Gallery"
+    source = (
+        f"# Report\n\n{heading}\n\n"
+        "![State](https://example.com/state.png)\n"
+        "[Explore](https://example.com/#/feed)\n\n"
+        f"```markdown\n{heading}\n```\n\n"
+        f"~~~~\n{heading}\n~~~\n~~~~\n"
+    )
+    expected = source.replace(heading, "### Gallery", 1)
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("canvases.create"):
+            assert (
+                json.loads(request.content)["document_content"]["markdown"] == expected
+            )
+            return httpx.Response(200, json={"ok": True, "canvas_id": "F123"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/F123"},
+            },
+        )
+
+    def client(_token):
+        return httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        )
+
+    state = tmp_path / "state.json"
+    with patch.object(slack_canvas, "make_client", side_effect=client):
+        first = asyncio.run(
+            slack_canvas.publish(source, "Report", "C123", state, "secret-test")
+        )
+        assert (
+            asyncio.run(
+                slack_canvas.publish(source, "Report", "C123", state, "secret-test")
+            )
+            == first
+        )
+    assert len(calls) == 2

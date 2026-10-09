@@ -324,6 +324,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "httpx" },
+    { name = "markdown-it-py" },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -351,6 +352,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.3.2" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "markdown-it-py", specifier = ">=3.0.0" },
     { name = "playwright", marker = "extra == 'media'", specifier = "==1.58.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-dotenv", specifier = ">=1.2.2" },

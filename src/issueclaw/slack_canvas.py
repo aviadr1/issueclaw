@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 import httpx
+from markdown_it import MarkdownIt
 
 
 def make_client(token: str) -> httpx.AsyncClient:
@@ -29,6 +30,24 @@ def validate_content(content: str) -> None:
         raise click.ClickException(
             "Replace Mermaid with prose and use HTTPS image URLs accessible to Slack."
         )
+
+
+def canvas_markdown(source: str) -> str:
+    """Adapt real Markdown headings to Canvas's h1–h3 limit, preserving code.
+
+    Parse block structure rather than replacing hash marks inside code fences,
+    images or links. Keep the original source for the durable retry fingerprint.
+    """
+    lines = source.splitlines(keepends=True)
+    for block in MarkdownIt().parse(source):
+        if (
+            block.type == "heading_open"
+            and block.tag in {"h4", "h5", "h6"}
+            and block.map
+        ):
+            index = block.map[0]
+            lines[index] = re.sub(r"#{4,6}(?=[ \t]|$)", "###", lines[index], count=1)
+    return "".join(lines)
 
 
 def save_state(path: Path, state: dict) -> None:
@@ -95,7 +114,10 @@ async def publish(
                     {
                         "title": title,
                         "channel_id": channel,
-                        "document_content": {"type": "markdown", "markdown": source},
+                        "document_content": {
+                            "type": "markdown",
+                            "markdown": canvas_markdown(source),
+                        },
                     },
                 )
             except click.ClickException as exc:
