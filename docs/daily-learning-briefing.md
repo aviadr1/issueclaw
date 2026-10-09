@@ -280,16 +280,19 @@ Optional caller settings under `learning_videos`:
   an explicit reason. Review videos target 2–3 minutes, inspect source and tests at
   the recorded head, and explain purpose, mechanism, review difficulty and specific
   questions with evidence and unknowns. Previously covered PR/heads are remembered.
-- `quality_checks: true` requires research, question/answer notes, a storyboard,
-  per-scene QA stills and QA notes. The gate checks the recorded final timing against
-  the actual video duration and requires reading time after the final reveal. Word
-  counts ignore punctuation-only separators. The video agent must run this same
-  validator before finishing and fix failures. Holds allow at least three seconds
-  or visible words / 3 + one second, with two extra seconds for code/diagrams and
-  a four-second end-card minimum. These
-  checks cannot prove the agent's timing claims match every rendered frame; still
-  inspection and human viewing remain necessary. A failed gate retains text and
-  the failed video in the private artifact but does not upload the clip to Slack.
+- `quality_checks: true` requires research, questions, a standalone narrative with
+  advisor critique, per-caption reading windows, scene QA stills and a cold-viewer
+  content audit. A caption remains legible while meaningful diagram actions continue;
+  the gate no longer requires all reading time after the entire scene stops moving.
+  Persistent chrome does not repeatedly consume caption time. The legacy whole-scene
+  format is still readable. Each caption gets at least three seconds or words / 3 +
+  one second, with two extra seconds for code/diagram interpretation.
+  The same CLI/publisher check runs ffmpeg freeze detection and preserves motion.json
+  and motion.log. Near-identical frames for at least 4.5 seconds reject the video,
+  including frozen tails. This is a heuristic: QA must reject decorative motion and
+  captions that fail to explain the context, problem, change, engineering tradeoff
+  and reusable lesson. A failed gate retains text and failed media in the artifact,
+  but does not upload that clip to Slack.
 - `attach_to_prs: true` posts one comment per video/source PR, containing the team
   Slack video permalink and a link to the generation run/artifacts. This is a video
   link, not a native GitHub video upload; viewers need team Slack access. Review

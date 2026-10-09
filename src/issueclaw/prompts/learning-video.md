@@ -15,6 +15,35 @@ solved, an algorithm or heuristic, a large measured performance gain or tuning, 
 restructuring of code or directories, a technique worth copying. Keep its kind;
 don't force it into a "bug" story.
 
+The video must stand alone for a senior engineer who has not read the PR or Canvas.
+Do not start with an unexplained puzzle, repository vocabulary or a component name.
+A technically accurate animation of a local mechanism is not yet a useful lesson.
+
+Before storyboarding, write narrative.md and have the Opus advisor critique it as
+an unfamiliar viewer. It must contain:
+- A plain-language story: which real workflow this is, what it is supposed to do,
+  the concrete failure/opportunity and why anyone cares, what changed and why it works.
+- The non-obvious engineering tension: competing lifetimes, ownership, concurrency,
+  failure semantics, data invariants or a design tradeoff. Explain why a tempting
+  simpler fix misses the problem. Do not manufacture complexity or production harm.
+- A reusable decision rule, a specific future situation where it applies, its limits,
+  and a distinguishing test/counterexample. Separate inspected examples from analogy.
+- A scene map giving the EXACT on-screen captions that establish context, define
+  the problem, explain the change, and teach the takeaway. Critical explanations
+  belong in the video, not only in research.md, a source comment or the Canvas.
+- The advisor's cold-viewer objections and the concrete script changes they caused.
+
+Within the first 10 seconds, establish the workflow, intended behavior and a concrete
+problem or tension. Introduce plain labels before internal names: for example,
+"a background job calls another job" before "parent flow / child flow", and
+"shared logging adapter" before "sink". Define why correct attribution matters
+before showing pointer movement. Keep captions brief by revealing the story in
+beats, not by deleting its premise. Do not invent incident impact, savings or a
+second inspected system. A senior takeaway must be more specific than "be careful"
+or "store the lookup, not the answer": state WHEN the rule applies and where it fails.
+If the evidence cannot support a useful story, record that and return text-only;
+do not disguise a weak topic with animation, test counts or a generic slogan.
+
 1. Dig in. Use read-only `gh` (`gh api`, `gh pr view`, `gh pr diff`) to read the
    linked PRs, their descriptions, diffs, review threads and later commits, and the
    code at the merge commit. Establish what the reader must understand:
@@ -89,30 +118,36 @@ of findings, counterexamples, alternatives and unresolved questions. Preserve fe
 source excerpts and useful command results in evidence/; never save tokens or dump
 process environments. Do not ask for or expose hidden chain-of-thought.
 
-Write storyboard.json: an array of scenes with id, question, visible_text (one string),
-visual_description, source_urls, start_seconds, end_seconds, fully_visible_seconds,
-reading_hold_seconds, and interpretation (true for code/diagrams). Times refer to
-the FINAL video; fully_visible_seconds is the absolute time the last reveal ends.
-Render and deliver at 1x: keep animation, transitions, music and sound effects at
-native speed. Create reading time by extending a scene's stable state AFTER the
-caption/diagram has appeared. Do not slow the composition clock, lower the frame
-rate, stretch audio, or add long typing/reveal animations to meet a reading budget.
-Recompute soundtrack cue positions when scene boundaries change; keep the music's
-original tempo. Do not hold or repeat audio samples during a caption pause.
-For a lesson aim for 60–90 seconds; for a review aim for 2–3 minutes. These are
-content budgets, not minimum runtimes: do not pad a concise explanation. The kit's
-under-45-seconds cap does not apply. Shorten captions or split ideas when needed.
-Use one idea per scene, one short caption at a time, legible labels and minimal
-code excerpts. After the last reveal, allow at least
-max(3 seconds, visible word count / 3 + 1 second), plus 2 seconds for code/diagrams.
-Count whitespace-separated tokens containing at least one letter or digit;
-separator marks such as | and · are not words. Include all visible text. Avoid
-repeating verbose labels or permanent chrome that makes every scene unnecessarily
-slow. A short end card needs at least 4 seconds after its last reveal (longer only
-if its text needs it). Keep holds close to the reading budget, rather than doubling
-it. Do not count transitions or text-write animations as stable reading time.
-Use the kit's existing audio at its original tempo. Never retime video.mp4 in the
-agent; the caller's playback_speed must be 1 for this native-speed pacing approach.
+Write storyboard.json: an array of scenes with id, question, visible_text (all
+visible text, for audit), visual_description, source_urls, start_seconds, end_seconds,
+and reading_windows. Each reading window contains text, fully_visible_seconds,
+end_seconds, and interpretation (true when reading code/diagram labels). Times
+are absolute seconds in the final video. A window starts when its caption has fully
+appeared and ends when it changes or disappears. Give EACH meaningful caption and
+new diagram label a window; unchanged labels stay readable across multiple actions.
+Do not repeatedly charge reading time for a persistent PR badge, QR code, decorative
+chrome or labels the viewer has already read. Keep those in visible_text for audit.
+
+Render/deliver at 1x and native frame rate. Captions stay still and legible while
+RELEVANT diagram actions continue: trace a request, advance a call/return, route a
+record, compare before/after, or highlight the evidence currently being explained.
+Stagger those causal steps across the scene at normal movement speed. Do not play
+all action in the first two seconds and then park the picture for ten seconds.
+Avoid unchanged screens longer than about 4 seconds. If a beat has nothing left
+to explain, move on or shorten its text. No idle bouncing, spinners, camera drift,
+looping particles or decorative progress bars to fake activity. Semantic progress
+must be visible. Do not make the reader chase moving text.
+
+For each reading window allow max(3 seconds, word count / 3 + 1 second), plus
+2 seconds when interpreting code/diagram labels. Reading and explanatory motion
+can overlap; do not append the entire reading budget AFTER all action has finished.
+Count tokens containing letters/digits, not standalone punctuation. Split dense
+captions into beats rather than padding a still frame. End with a concise, readable
+rule and stop promptly. The usual 60–90-second lesson / 2–3-minute review budgets
+are guides, not mandatory lengths; clarity and useful engineering content come first.
+Keep original musical tempo and sound-effect speed; recompute cue positions after
+editing the timeline. Never time-stretch the finished video/audio or slow reveals.
+The caller's playback_speed must be 1 for this approach.
 
 For review topics, learning.md may be 250–450 words with Purpose / Mechanism /
 Why review is hard / Questions and evidence / Review route. learning.json retains
@@ -121,8 +156,14 @@ PR in sources. Keep the caption title visibly marked "Review walkthrough" and
 show the reviewed short SHA. Do not imply that an open PR is shipped.
 
 Render and inspect the busiest frame of EVERY scene and save the PNGs as qa/<scene-id>.png (one for every storyboard scene).
-Write qa.md with the frames checked, fixes made, remaining limitations, and whether
-text, transitions and the planned final reading holds are adequate. Save the
+Also inspect motion across the full timeline, especially 0–15 seconds, at 1x.
+Write qa.md with frame/time samples checked, fixes and remaining limitations.
+Answer as a cold viewer: By 10 seconds, what system and problem do I understand?
+What changed, why does it work, what should a senior engineer reuse, and when not?
+Can EACH answer be found in actual on-screen captions/diagrams? Quote the captions
+and scene timestamps. Reject a beautiful clip that requires prior PR knowledge.
+Check that caption windows match the render and no dead hold feels like a stall.
+Ask the Opus advisor to challenge this content audit before calling it complete. Save the
 storyboard, research and questions even if rendering fails. These are deliverables,
 not just a final chat response. Your structured tool transcript and generated
 composition source are preserved automatically in the run artifact.
@@ -130,7 +171,8 @@ composition source are preserved automatically in the run artifact.
 Before finishing, run the exact publisher check against your raw video:
 `python "{quality_validator}" "{learning_dir}" --playback-speed 1`
 This is trusted tooling supplied by
-the job, not code from a source PR. If it fails, fix scene durations/content and
-storyboard, rerender the affected QA stills and raw video, then run it again.
+the job, not code from a source PR. The check includes ffmpeg freeze detection (motion.json / motion.log). If it fails,
+fix the content/timeline and storyboard, rerender QA frames and video, and rerun it.
+Do not satisfy the freeze check with meaningless cosmetic movement.
 Do not shorten recorded word counts or invent timing to pass. A final response
 claiming the clip is complete is insufficient: this check must pass.

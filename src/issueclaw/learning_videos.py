@@ -257,6 +257,7 @@ def learn(
             try:
                 duration = float(trace.probe(video)["format"]["duration"])
                 trace.validate_quality(directory, duration)
+                trace.validate_motion(directory)
                 trace.write_json(
                     directory / "quality.json", {"passed": True, "duration": duration}
                 )
