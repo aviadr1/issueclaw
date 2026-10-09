@@ -147,6 +147,15 @@ Skip releases and promotions, automated dependency-bump PRs (follow them to the
 source PR instead), configuration without a rationale, feature plumbing with no
 general insight, and later steps of a series already taught.
 
+For each shortlisted lesson, first write a plain-language context -> problem ->
+mechanism -> change -> reusable decision rule. Explain why this is worth a senior
+engineer's attention: name the non-obvious constraint/tradeoff, a tempting wrong
+approach, and a test or counterexample that discriminates the solution. A local bug,
+generic slogan or large test count alone is not an interesting lesson. Reject a
+candidate whose value only makes sense after reading the PR or knowing private
+vocabulary. Preserve this context and problem statement in the lesson draft so the
+video author can teach a standalone story rather than animate unexplained internals.
+
 Rank candidates first by a concrete second use for the team, the importance of the
 invariant or mental model, and how many kinds of work benefit; then by the insight
 in the mechanism. Measurements substantiate performance claims; they are NOT a

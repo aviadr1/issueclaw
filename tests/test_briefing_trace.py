@@ -40,7 +40,7 @@ def test_real_video_doubles_duration_and_keeps_streams(tmp_path, audio):
 def test_readability_gate_allows_caption_budget_but_rejects_short_holds(
     tmp_path, text, interpretation, hold
 ):
-    for name in ("questions.md", "research.md", "qa.md"):
+    for name in ("questions.md", "research.md", "narrative.md", "qa.md"):
         (tmp_path / name).write_text("Reviewed source evidence.")
     (tmp_path / "qa").mkdir()
     (tmp_path / "qa/scene.png").write_bytes(b"png")
@@ -101,7 +101,7 @@ def test_workflow_preserves_traces_without_installed_package(tmp_path):
 
 
 def test_storyboard_separators_do_not_consume_reading_time(tmp_path):
-    for name in ("questions.md", "research.md", "qa.md"):
+    for name in ("questions.md", "research.md", "narrative.md", "qa.md"):
         (tmp_path / name).write_text("Reviewed source evidence.")
     (tmp_path / "qa").mkdir()
     (tmp_path / "qa/scene.png").write_bytes(b"png")
@@ -116,3 +116,78 @@ def test_storyboard_separators_do_not_consume_reading_time(tmp_path):
     }
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
     trace.validate_quality(tmp_path, 10)
+
+
+def test_reading_windows_allow_diagram_motion_without_hiding_captions(tmp_path):
+    for name in ("questions.md", "research.md", "narrative.md", "qa.md"):
+        (tmp_path / name).write_text("Reviewed source evidence.")
+    (tmp_path / "qa").mkdir()
+    (tmp_path / "qa/scene.png").write_bytes(b"png")
+    scene = {
+        "id": "scene",
+        "visible_text": "Parent job starts a child job. Logs belong to the active job.",
+        "start_seconds": 0,
+        "end_seconds": 10,
+        "reading_windows": [
+            {
+                "text": "Parent job starts a child job.",
+                "fully_visible_seconds": 1,
+                "end_seconds": 6,
+                "interpretation": False,
+            },
+            {
+                "text": "Logs belong to the active job.",
+                "fully_visible_seconds": 5,
+                "end_seconds": 10,
+                "interpretation": False,
+            },
+        ],
+    }
+    path = tmp_path / "storyboard.json"
+    path.write_text(json.dumps([scene]))
+    trace.validate_quality(tmp_path, 10)
+    scene["reading_windows"][1]["end_seconds"] = 7
+    path.write_text(json.dumps([scene]))
+    with pytest.raises(ValueError, match="reading"):
+        trace.validate_quality(tmp_path, 10)
+    scene["reading_windows"] = []
+    path.write_text(json.dumps([scene]))
+    with pytest.raises(ValueError, match="reading"):
+        trace.validate_quality(tmp_path, 10)
+
+
+@pytest.mark.parametrize("moving", [False, True])
+def test_motion_gate_measures_the_rendered_clip(tmp_path, moving):
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg required")
+    video = tmp_path / "video.mp4"
+    source = (
+        "testsrc2=size=160x90:rate=10:duration=6"
+        if moving
+        else "color=c=blue:s=160x90:r=10:d=6"
+    )
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            source,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            str(video),
+        ],
+        check=True,
+    )
+    if moving:
+        trace.validate_motion(tmp_path)
+    else:
+        with pytest.raises(ValueError, match="frozen"):
+            trace.validate_motion(tmp_path)
+    report = json.loads((tmp_path / "motion.json").read_text())
+    assert report["passed"] is moving
+    assert bool(report["freeze_starts_seconds"]) is (not moving)

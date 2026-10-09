@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -110,9 +111,14 @@ def retime(video, speed):
     )
 
 
+def reading_budget(text, interpretation=False):
+    words = sum(any(c.isalnum() for c in token) for token in text.split())
+    return max(3, words / 3 + 1) + (2 if interpretation else 0)
+
+
 def validate_quality(directory, duration):
-    """Enforce the recorded reading budget; visual inspection is still essential."""
-    for name in ("questions.md", "research.md", "qa.md"):
+    """Check caption exposure; a readable caption need not freeze its diagram."""
+    for name in ("questions.md", "research.md", "narrative.md", "qa.md"):
         if not (directory / name).read_text().strip():
             raise ValueError(f"missing review trace: {name}")
     scenes = json.loads((directory / "storyboard.json").read_text())
@@ -120,29 +126,89 @@ def validate_quality(directory, duration):
         raise ValueError("storyboard has no scenes")
     for index, scene in enumerate(scenes):
         start, end = scene["start_seconds"], scene["end_seconds"]
-        fully_visible, hold = (
-            scene["fully_visible_seconds"],
-            scene["reading_hold_seconds"],
-        )
-        words = sum(
-            any(character.isalnum() for character in token)
-            for token in scene["visible_text"].split()
-        )
-        minimum = max(3, words / 3 + 1)
-        if scene.get("interpretation", True):
-            minimum += 2
-        if index == len(scenes) - 1:
-            minimum = max(minimum, 4)
-        if not (0 <= start <= fully_visible < end <= duration + 0.1):
+        if not (0 <= start < end <= duration + 0.1):
             raise ValueError(f"invalid final timing for scene {scene['id']}")
-        if hold < minimum or hold > end - fully_visible + 0.1:
-            raise ValueError(
-                f"insufficient reading hold for scene {scene['id']}: "
-                f"recorded {hold}s, needs {minimum}s, available {end - fully_visible}s"
+        if "reading_windows" in scene:
+            windows = scene["reading_windows"]
+            if not windows:
+                raise ValueError(f"missing reading windows for scene {scene['id']}")
+            for window in windows:
+                visible, until = window["fully_visible_seconds"], window["end_seconds"]
+                minimum = reading_budget(
+                    window["text"], window.get("interpretation", False)
+                )
+                if not window["text"].strip() or not (start <= visible < until <= end):
+                    raise ValueError(f"invalid reading window for scene {scene['id']}")
+                if until - visible + 0.01 < minimum:
+                    raise ValueError(
+                        f"insufficient reading time for scene {scene['id']}: needs {minimum}s"
+                    )
+        else:
+            # Existing artifacts use one conservative whole-scene reading hold.
+            visible, hold = (
+                scene["fully_visible_seconds"],
+                scene["reading_hold_seconds"],
             )
-        # One image per scene, named by its storyboard ID, enables a human audit.
+            minimum = reading_budget(
+                scene["visible_text"], scene.get("interpretation", True)
+            )
+            if index == len(scenes) - 1:
+                minimum = max(minimum, 4)
+            if not (start <= visible < end):
+                raise ValueError(f"invalid final timing for scene {scene['id']}")
+            if hold < minimum or hold > end - visible + 0.1:
+                raise ValueError(
+                    f"insufficient reading hold for scene {scene['id']}: needs {minimum}s"
+                )
         if not (directory / "qa" / f"{scene['id']}.png").is_file():
             raise ValueError(f"missing QA frame for scene {scene['id']}")
+
+
+def validate_motion(directory, playback_speed=1):
+    """Measure near-identical frames, including a frozen tail; preserve the evidence.
+
+    This is a freeze heuristic, not proof that movement teaches anything. QA must
+    still reject decorative motion or obscured captions used to evade it.
+    """
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            str(directory / "video.mp4"),
+            "-vf",
+            f"freezedetect=n=-80dB:d={4.5 * playback_speed}",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    (directory / "motion.log").write_text(result.stderr, encoding="utf-8")
+    starts = [
+        float(value) / playback_speed
+        for value in re.findall(
+            r"lavfi\.freezedetect\.freeze_start: ([0-9.]+)", result.stderr
+        )
+    ]
+    write_json(
+        directory / "motion.json",
+        {
+            "passed": not starts,
+            "max_static_seconds": 4.5,
+            "noise_threshold_db": -80,
+            "freeze_starts_seconds": starts,
+        },
+    )
+    if starts:
+        raise ValueError(
+            f"video looks frozen for at least 4.5s near {starts}; see motion.log"
+        )
 
 
 def write_index(out):
@@ -162,6 +228,7 @@ def write_index(out):
         "selection-audit.json",
         "review-selection.json",
         "learnings.json",
+        "previous-videos",
     ):
         if (out / name).exists():
             lines.append(f"- [{name}]({name})")
@@ -176,6 +243,9 @@ def write_index(out):
             "video.mp4",
             "learning.md",
             "questions.md",
+            "narrative.md",
+            "motion.json",
+            "motion.log",
             "research.md",
             "storyboard.json",
             "qa.md",
@@ -221,7 +291,8 @@ def main():
         parser.error("playback speed must be between 0.5 and 1")
     duration = float(probe(args.directory / "video.mp4")["format"]["duration"])
     validate_quality(args.directory, duration / args.playback_speed)
-    print("All scene reading holds and required QA files pass.")
+    validate_motion(args.directory, args.playback_speed)
+    print("Caption reading windows, motion check and required QA files pass.")
 
 
 if __name__ == "__main__":

@@ -200,6 +200,25 @@ def finish_render(videos, slug, video, env):
         shutil.copyfile(rendered, video)
 
 
+def archive_preview_videos(out, source_run):
+    """A new evidence-reuse preview must not silently replay the old video manifest."""
+    if not str(source_run).isdecimal():
+        raise ValueError("source run must be a numeric GitHub run ID")
+    previous = out / "previous-videos" / str(source_run)
+    sources = [
+        out / name
+        for name in ("learnings.json", "learnings", "video-kit")
+        if (out / name).exists()
+    ]
+    if any((previous / source.name).exists() for source in sources):
+        raise ValueError(
+            "previous video archive already exists; refusing to overwrite traces"
+        )
+    previous.mkdir(parents=True, exist_ok=True)
+    for source in sources:
+        shutil.move(str(source), previous / source.name)
+
+
 def learn(
     out,
     prompt,
@@ -257,6 +276,7 @@ def learn(
             try:
                 duration = float(trace.probe(video)["format"]["duration"])
                 trace.validate_quality(directory, duration)
+                trace.validate_motion(directory)
                 trace.write_json(
                     directory / "quality.json", {"passed": True, "duration": duration}
                 )
