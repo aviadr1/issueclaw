@@ -3,12 +3,14 @@ import hashlib
 import json
 from unittest.mock import patch
 
+import click
 import httpx
 import pytest
 from click.testing import CliRunner
+from markdown_it import MarkdownIt
 
 from issueclaw.main import cli
-from issueclaw import slack_canvas
+from issueclaw import slack_canvas, slack_canvas_images
 
 
 @pytest.mark.parametrize("fail_info", [False, True])
@@ -228,3 +230,416 @@ def test_confirmed_legacy_summary_checkpoint_does_not_repost(tmp_path):
                 text, "C123", "1790860328.061289", state, "secret-test"
             )
         )
+
+
+@pytest.mark.parametrize(
+    "error,pending", [("canvas_creation_failed", False), ("internal_error", True)]
+)
+def test_canvas_error_preserves_detail_and_only_clears_confirmed_rejections(
+    tmp_path, error, pending
+):
+    detail = "'content' error: line 28: Unsupported block type canvas_creation_failed secret-test"
+
+    def handle(request):
+        return httpx.Response(200, json={"ok": False, "error": error, "detail": detail})
+
+    state = tmp_path / "state.json"
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        return_value=httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        with pytest.raises(
+            click.ClickException, match="line 28: Unsupported block type"
+        ) as exc:
+            asyncio.run(
+                slack_canvas.publish("# Report", "Report", "C123", state, "secret-test")
+            )
+    assert "secret-test" not in str(exc.value)
+    assert state.exists() == pending
+
+
+@pytest.mark.parametrize("depth", [4, 5, 6])
+def test_publish_adapts_deep_headings_without_changing_media_or_code(tmp_path, depth):
+    heading = "#" * depth + " Gallery"
+    source = (
+        f"# Report\n\n{heading}\n\n"
+        "![State](https://example.com/state.png)\n"
+        "[Explore](https://example.com/#/feed)\n\n"
+        f"```markdown\n{heading}\n```\n\n"
+        f"~~~~\n{heading}\n~~~\n~~~~\n"
+    )
+    expected = source.replace(heading, "### Gallery", 1)
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.path)
+        if request.url.path.endswith("canvases.create"):
+            assert (
+                json.loads(request.content)["document_content"]["markdown"] == expected
+            )
+            return httpx.Response(200, json={"ok": True, "canvas_id": "F123"})
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/F123"},
+            },
+        )
+
+    def client(_token):
+        return httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        )
+
+    state = tmp_path / "state.json"
+    with patch.object(slack_canvas, "make_client", side_effect=client):
+        first = asyncio.run(
+            slack_canvas.publish(source, "Report", "C123", state, "secret-test")
+        )
+        assert (
+            asyncio.run(
+                slack_canvas.publish(source, "Report", "C123", state, "secret-test")
+            )
+            == first
+        )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("lost_completion", [False, True])
+def test_manifest_images_upload_once_and_repair_existing_canvas_without_reposting(
+    tmp_path,
+    lost_completion,
+):
+    image_url = "https://example.com/capture.png"
+    permalink = "https://team.slack.com/files/U123/FIMAGE/capture.png"
+    image = tmp_path / "capture.png"
+    image.write_bytes(b"PNG capture bytes")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "captures": [
+                    {
+                        "hosted_url": image_url,
+                        "file": image.name,
+                        "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+                    }
+                ]
+            }
+        )
+    )
+    source = f"# Report\n\n![Feed]({image_url})\n\n[Full size]({image_url})"
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "fingerprint": hashlib.sha256(
+                    json.dumps([source, "Report", "C123"]).encode()
+                ).hexdigest(),
+                "canvas_id": "FCANVAS",
+                "url": "https://team.slack.com/docs/FCANVAS",
+                "message_ts": "123.456789",
+            }
+        )
+    )
+    calls = []
+
+    def handle(request):
+        method = request.url.path.split("/")[-1]
+        calls.append(method)
+        if method == "files.getUploadURLExternal":
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "file_id": "FIMAGE",
+                    "upload_url": "https://files.slack.com/upload",
+                },
+            )
+        if method == "files.completeUploadExternal":
+            assert b"channel_id" not in request.content
+            if lost_completion:
+                raise httpx.ReadTimeout("completion response lost")
+            return httpx.Response(200, json={"ok": True})
+        if method == "files.info":
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "file": {
+                        "permalink": permalink,
+                        "mimetype": "image/png",
+                        "original_w": 100,
+                        "original_h": 100,
+                    },
+                },
+            )
+        assert method == "canvases.edit"
+        payload = json.loads(request.content)
+        assert payload["canvas_id"] == "FCANVAS"
+        markdown = payload["changes"][0]["document_content"]["markdown"]
+        assert f"![Feed]({permalink})" in markdown
+        assert f"[Full size]({image_url})" in markdown
+        return httpx.Response(200, json={"ok": True})
+
+    def client(_token):
+        return httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        )
+
+    # Patch external transport only; exercise real file hashing/upload/rewrite/state.
+    real_client = httpx.Client
+
+    def sync_client(*args, **kwargs):
+        return real_client(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        )
+
+    with (
+        patch.object(slack_canvas, "make_client", side_effect=client),
+        patch.object(httpx, "Client", side_effect=sync_client),
+        patch.object(
+            httpx,
+            "post",
+            return_value=httpx.Response(
+                200, request=httpx.Request("POST", "https://files.slack.com/upload")
+            ),
+        ) as upload,
+    ):
+        if lost_completion:
+            with pytest.raises(httpx.ReadTimeout):
+                asyncio.run(
+                    slack_canvas.publish(
+                        source,
+                        "Report",
+                        "C123",
+                        state_path,
+                        "secret-test",
+                        image_manifest=manifest,
+                        refresh_media=True,
+                    )
+                )
+        for _ in range(2):
+            asyncio.run(
+                slack_canvas.publish(
+                    source,
+                    "Report",
+                    "C123",
+                    state_path,
+                    "secret-test",
+                    image_manifest=manifest,
+                    refresh_media=True,
+                )
+            )
+    assert calls.count("files.getUploadURLExternal") == 1
+    assert calls.count("canvases.edit") == 1
+    assert upload.call_args.kwargs["content"] == image.read_bytes()
+    assert "Authorization" not in upload.call_args.kwargs.get("headers", {})
+    assert json.loads(state_path.read_text())["message_ts"] == "123.456789"
+
+
+@pytest.mark.parametrize("failure", ["missing", "changed", "escape"])
+def test_invalid_capture_cannot_trigger_upload(tmp_path, failure):
+    url = "https://example.com/image.png"
+    image = tmp_path / "image.png"
+    image.write_bytes(b"capture")
+    row = {
+        "hosted_url": url,
+        "file": image.name,
+        "sha256": hashlib.sha256(image.read_bytes()).hexdigest(),
+    }
+    if failure == "changed":
+        image.write_bytes(b"changed")
+    if failure == "escape":
+        row["file"] = "../image.png"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"captures": [] if failure == "missing" else [row]}))
+    with patch.object(
+        httpx, "Client", side_effect=AssertionError("must validate before upload")
+    ):
+        with pytest.raises(click.ClickException):
+            asyncio.run(
+                slack_canvas.publish(
+                    f"![Image]({url})",
+                    "Report",
+                    "C123",
+                    tmp_path / "state.json",
+                    "secret-test",
+                    image_manifest=manifest,
+                )
+            )
+
+
+def test_native_image_waits_for_processing_before_embedding():
+    responses = iter(
+        [
+            {"permalink": "https://team.slack.com/files/U123/FIMAGE", "mimetype": ""},
+            {
+                "permalink": "https://team.slack.com/files/U123/FIMAGE",
+                "mimetype": "image/png",
+            },
+        ]
+    )
+
+    class Files:
+        def file_info(self, file_id):
+            assert file_id == "FIMAGE"
+            return next(responses)
+
+    with patch.object(slack_canvas_images.time, "sleep"):
+        assert (
+            slack_canvas_images.image_info(Files(), "FIMAGE")["mimetype"] == "image/png"
+        )
+
+
+def test_gallery_layout_repair_preserves_evidence_and_does_not_republish(tmp_path):
+    screenshots = [
+        f"![State {i}](https://team.slack.com/files/U/F{i}/state.png)" for i in range(4)
+    ]
+    captions = [
+        f"**State {i}** — phone prototype. [Explore](https://example.com/#/{i})"
+        for i in range(4)
+    ]
+    gallery = "\n\n".join(part for pair in zip(screenshots, captions) for part in pair)
+    code = "```markdown\n![Example](https://example.com/code.png)\n```"
+    source = (
+        "# Feature\n\n"
+        + gallery
+        + "\n\n"
+        + code
+        + "\n\n## Next feature\n\n![Separate](https://example.com/separate.png)"
+    )
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": hashlib.sha256(
+                    json.dumps([source, "Report", "C123"]).encode()
+                ).hexdigest(),
+                "canvas_id": "FCANVAS",
+                "url": "https://team.slack.com/docs/FCANVAS",
+                "message_ts": "123.456789",
+                "rendered_sha256": "old-layout",
+            }
+        )
+    )
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.path.endswith("/canvases.edit")
+        rendered = json.loads(request.content)["changes"][0]["document_content"][
+            "markdown"
+        ]
+        blocks = MarkdownIt().enable("table").parse(rendered)
+        image_row = next(
+            i for i, block in enumerate(blocks) if block.type == "tbody_open"
+        )
+        row_end = next(
+            i for i in range(image_row, len(blocks)) if blocks[i].type == "tr_close"
+        )
+        images = [
+            child
+            for block in blocks[image_row:row_end]
+            for child in block.children or []
+            if child.type == "image"
+        ]
+        assert len(images) == 4
+        for text in screenshots + captions + [code]:
+            assert text in rendered
+        assert rendered.count("https://example.com/separate.png") == 1
+        return httpx.Response(200, json={"ok": True})
+
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        side_effect=lambda _: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        for _ in range(2):
+            asyncio.run(
+                slack_canvas.publish(
+                    source,
+                    "Report",
+                    "C123",
+                    path,
+                    "test-token",
+                    refresh_media=True,
+                    gallery_columns=4,
+                )
+            )
+    assert len(requests) == 1
+    assert json.loads(path.read_text())["message_ts"] == "123.456789"
+
+
+@pytest.mark.parametrize("columns", [2, 3, 4])
+def test_gallery_tables_preserve_boundaries_and_existing_layouts(columns):
+    source = "\n\n".join(
+        f"![Image {i}](https://example.com/{i}.png)\n\nCaption **{i}** | detail"
+        for i in range(7)
+    )
+    unchanged = "\n\n## Separate\n\n![Single](https://example.com/single.png)\n\nText\n\n> ![Quoted](https://example.com/quote.png)\n\n| Existing | Table |\n| --- | --- |\n| ![In table](https://example.com/table.png) | Preserve |\n"
+    result = slack_canvas.gallery_tables(source + unchanged, columns)
+    assert unchanged.strip() in result
+    assert slack_canvas.gallery_tables(result, columns) == result
+    for i in range(7):
+        assert result.count(f"https://example.com/{i}.png") == 1
+        assert f"Caption **{i}** &#124; detail" in result
+    for line in result.splitlines():
+        if line.startswith("| ![Image"):
+            assert 1 <= line.count("![") <= columns
+
+
+def test_gallery_cli_passes_layout_to_slack(tmp_path):
+    source = tmp_path / "report.md"
+    source.write_text(
+        "![One](https://team.slack.com/files/U/F1/one.png)\n\n![Two](https://team.slack.com/files/U/F2/two.png)"
+    )
+    published = []
+
+    def handle(request):
+        if request.url.path.endswith("/canvases.create"):
+            published.append(
+                json.loads(request.content)["document_content"]["markdown"]
+            )
+            return httpx.Response(200, json={"ok": True, "canvas_id": "FCANVAS"})
+        assert request.url.path.endswith("/files.info")
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/FCANVAS"},
+            },
+        )
+
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        side_effect=lambda _: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "slack-canvas",
+                "--source",
+                str(source),
+                "--title",
+                "Report",
+                "--channel",
+                "C123",
+                "--state",
+                str(tmp_path / "state.json"),
+                "--gallery-columns",
+                "4",
+            ],
+            env={"SLACK_BOT_TOKEN": "test-token"},
+        )
+    assert result.exit_code == 0, result.output
+    assert "| ![One]" in published[0]
+    assert ") | ![Two]" in published[0]

@@ -10,6 +10,10 @@ from pathlib import Path
 
 import click
 import httpx
+from markdown_it import MarkdownIt
+
+from issueclaw.slack_canvas_images import prepare_images
+from issueclaw.slack_canvas_layout import gallery_tables
 
 
 def make_client(token: str) -> httpx.AsyncClient:
@@ -31,6 +35,24 @@ def validate_content(content: str) -> None:
         )
 
 
+def canvas_markdown(source: str) -> str:
+    """Adapt real Markdown headings to Canvas's h1–h3 limit, preserving code.
+
+    Parse block structure rather than replacing hash marks inside code fences,
+    images or links. Keep the original source for the durable retry fingerprint.
+    """
+    lines = source.splitlines(keepends=True)
+    for block in MarkdownIt().parse(source):
+        if (
+            block.type == "heading_open"
+            and block.tag in {"h4", "h5", "h6"}
+            and block.map
+        ):
+            index = block.map[0]
+            lines[index] = re.sub(r"#{4,6}(?=[ \t]|$)", "###", lines[index], count=1)
+    return "".join(lines)
+
+
 def save_state(path: Path, state: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -46,6 +68,9 @@ async def publish(
     token: str,
     *,
     on_save: Callable[[dict], None] | None = None,
+    image_manifest: Path | None = None,
+    refresh_media: bool = False,
+    gallery_columns: int | None = None,
 ) -> str:
     fingerprint = hashlib.sha256(
         json.dumps([source, title, channel]).encode()
@@ -66,6 +91,16 @@ async def publish(
         if on_save:
             on_save(state)
 
+    rendered = canvas_markdown(source)
+    if image_manifest:
+        state.setdefault("fingerprint", fingerprint)
+        rendered = prepare_images(
+            rendered, image_manifest, state.setdefault("images", {}), checkpoint, token
+        )
+    if gallery_columns is not None:
+        rendered = gallery_tables(rendered, gallery_columns)
+    rendered_sha = hashlib.sha256(rendered.encode()).hexdigest()
+
     async with make_client(token) as client:
 
         async def api(method: str, payload: dict) -> dict:
@@ -77,13 +112,17 @@ async def publish(
             response.raise_for_status()
             result = response.json()
             if not result.get("ok"):
+                # Slack returns the rejected Markdown node/line in `detail`.
+                # Preserve that diagnostic, without dumping the response or token.
+                detail = str(result.get("detail") or "").replace(token, "[redacted]")
                 raise click.ClickException(
                     f"Slack {method}: {result.get('error', 'unknown_error')}"
+                    + (f" — {detail}" if detail else "")
                 )
             return result
 
         if not state.get("canvas_id"):
-            state = {"fingerprint": fingerprint, "pending": True}
+            state.update(fingerprint=fingerprint, pending=True)
             checkpoint()
             try:
                 result = await api(
@@ -91,13 +130,16 @@ async def publish(
                     {
                         "title": title,
                         "channel_id": channel,
-                        "document_content": {"type": "markdown", "markdown": source},
+                        "document_content": {
+                            "type": "markdown",
+                            "markdown": rendered,
+                        },
                     },
                 )
             except click.ClickException as exc:
                 # These responses explicitly reject creation, so a corrected retry is safe.
                 if any(
-                    code in str(exc)
+                    str(exc).split(" — ", 1)[0] == f"Slack canvases.create: {code}"
                     for code in (
                         "missing_scope",
                         "invalid_auth",
@@ -106,12 +148,41 @@ async def publish(
                         "free_team_canvas_tab_already_exists",
                     )
                 ):
-                    path.unlink()
-                    if on_save:
+                    state.pop("pending", None)
+                    if state.get("images"):
+                        checkpoint()
+                    else:
+                        path.unlink()
+                    if on_save and not state.get("images"):
                         on_save({})
                 raise
             state.pop("pending")
             state["canvas_id"] = result["canvas_id"]
+            state["rendered_sha256"] = rendered_sha
+            checkpoint()
+        elif (image_manifest or gallery_columns) and state.get(
+            "rendered_sha256"
+        ) != rendered_sha:
+            if not refresh_media:
+                raise click.ClickException(
+                    "Existing Canvas needs media/layout repair; use --refresh-media to update it in place."
+                )
+            await api(
+                "canvases.edit",
+                {
+                    "canvas_id": state["canvas_id"],
+                    "changes": [
+                        {
+                            "operation": "replace",
+                            "document_content": {
+                                "type": "markdown",
+                                "markdown": rendered,
+                            },
+                        }
+                    ],
+                },
+            )
+            state["rendered_sha256"] = rendered_sha
             checkpoint()
         if not state.get("url"):
             info = await api("files.info", {"file": state["canvas_id"]})
@@ -184,6 +255,21 @@ async def post_summary_message(
 
 @click.command("slack-canvas")
 @click.option(
+    "--gallery-columns",
+    type=click.IntRange(2, 4),
+    help="Group adjacent screenshots and captions into tables with 2–4 columns.",
+)
+@click.option(
+    "--image-manifest",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Upload selected local captures to Slack (files:write); preserve public full-size links.",
+)
+@click.option(
+    "--refresh-media",
+    is_flag=True,
+    help="Repair the saved Canvas in place; do not create another Canvas or repost its summary.",
+)
+@click.option(
     "--source",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     required=True,
@@ -227,6 +313,9 @@ def slack_canvas_command(
     dry_run: bool,
     post_summary: bool,
     thread_ts: str,
+    image_manifest: Path | None,
+    refresh_media: bool,
+    gallery_columns: int | None,
 ) -> None:
     """Create a report Canvas; optionally post its TLDR to a channel or thread.
 
@@ -258,7 +347,18 @@ def slack_canvas_command(
             "Set SLACK_BOT_TOKEN (canvases:write and files:read)."
         )
     try:
-        url = asyncio.run(publish(content, title, channel, state, token))
+        url = asyncio.run(
+            publish(
+                content,
+                title,
+                channel,
+                state,
+                token,
+                image_manifest=image_manifest,
+                refresh_media=refresh_media,
+                gallery_columns=gallery_columns,
+            )
+        )
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         raise click.ClickException(
             f"Slack Canvas publishing failed ({type(exc).__name__}); inspect saved state before retrying."

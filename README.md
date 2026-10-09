@@ -171,6 +171,35 @@ allow channel members to edit. This command creates the Canvas tab and puts
 its confirmed permalink first in the prepared summary; it sends no message unless `--post-summary` is supplied. Add `--thread-ts 1790860328.061289` to reply inside an existing thread without broadcasting to the channel. The summary uses native Slack Markdown, matching the daily briefing publisher and preserving Canvas rendering. Existing summary checkpoints still resume without reposting. Posting requires `chat:write`; the confirmed message timestamp and pending outcomes are persisted in the same state file to prevent duplicate replies.
 Use `--dry-run` to validate without credentials or network access.
 
+Canvas accepts headings only through h3. The publisher adapts h4–h6 without
+changing fenced code and retains Slack's detailed parser errors in CI logs.
+For captured images, add `--image-manifest /tmp/report/media/manifest.json`
+and grant the bot `files:write`. The manifest uses the collector's `captures`
+records (`hosted_url`, relative `file`, `sha256`). Only images selected in the
+report are uploaded, after verifying every local file against its digest.
+Native Slack image permalinks replace image embeds; public full-size links,
+prototype links, captions and recording links stay intact. External image URLs
+can otherwise become blank previews even when their HTTP requests succeed.
+Uploads use the same file transport as daily briefing videos and send no
+individual channel messages. Slack copies follow the workspace's retention,
+independently of any public bucket lifecycle.
+
+Add `--gallery-columns 4` for compact side-by-side screenshot galleries. Adjacent
+top-level image/caption paragraphs become Markdown tables, with each caption and
+its links under its image. Choose 2–4 columns; headings and other block structures
+separate galleries. Existing tables, code and isolated images remain unchanged.
+This uses Canvas's supported table layout; a plain sequence of image paragraphs
+otherwise expands each capture to the full document width. To update an existing
+Canvas's layout, restore its receipt and use `--gallery-columns 4 --refresh-media`.
+
+Image receipts live in the Canvas state file alongside the Canvas ID and summary
+timestamp. To repair images in an already published report, restore that receipt
+and pass `--image-manifest ... --refresh-media`. This replaces the saved Canvas's
+body with the same source plus native images, keeping its URL and previously
+posted summary. Preserve the original source and use a receipt belonging to
+that exact source and destination; do not regenerate the report for a retry.
+
+
 Keep the Canvas source outside any directory your message publisher scans.
 Use accessible hosted images or Slack file permalinks; private GitHub artifact
 URLs and recordings belong in source links, with clear captions and access
