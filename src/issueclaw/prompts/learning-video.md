@@ -41,6 +41,10 @@ before showing pointer movement. Keep captions brief by revealing the story in
 beats, not by deleting its premise. Do not invent incident impact, savings or a
 second inspected system. A senior takeaway must be more specific than "be careful"
 or "store the lookup, not the answer": state WHEN the rule applies and where it fails.
+Verify the actual API defaults and a common counterexample before asserting a
+failure boundary. State the triggering condition on screen, not an entire category:
+for example, a handoff without propagated context loses it, while a context-copying
+handoff can preserve it. Ask the advisor to challenge these generalizations too.
 If the evidence cannot support a useful story, record that and return text-only;
 do not disguise a weak topic with animation, test counts or a generic slogan.
 
