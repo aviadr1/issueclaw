@@ -497,11 +497,7 @@ def learning_video_summary(found, file_ids):
     if not found:
         raise ValueError("Video delivery needs a learning summary")
     # One short line below the Canvas post; the video and full Canvas hold detail.
-    return (
-        "**Learning:** "
-        + " ".join(" ".join(lesson["rule"].split()) for lesson in found),
-        file_ids,
-    )
+    return (lessons.tldr_line(found).strip(), file_ids)
 
 
 def repair_video_attachment(
@@ -1474,6 +1470,8 @@ def main():
     )
     state = {"messages": {}} if args.isolated else store.read()
     if args.command == "attach-pr-videos":
+        if json.loads((args.out / "window.json").read_text()).get("already_posted"):
+            return
         if args.isolated:
             parser.error("isolated previews cannot attach videos to PRs")
         if config.get("learning_videos", {}).get("attach_to_prs", False):
