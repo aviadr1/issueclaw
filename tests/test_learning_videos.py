@@ -382,10 +382,17 @@ def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
     prompt = briefing(tmp_path)
     seen = []
     monkeypatch.setattr(
-        lessons.subprocess, "run", lambda args, **kw: seen.append(args[2])
+        lessons.subprocess, "run", lambda args, **kw: seen.append((args, kw))
     )
     lessons.run_agent(prompt, tmp_path, tmp_path, {}, "Use our house style.")
-    assert seen[0].endswith("Use our house style.")
+    args, options = seen[0]
+    assert args[2].endswith("Use our house style.")
+    assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
+    assert args[args.index("--advisor") + 1] == "claude-opus-5-5"
+    assert options["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku"
+    request = json.loads((tmp_path / "agent.request.json").read_text())
+    assert request["model"] == "claude-sonnet-5-5"
+    assert request["advisor"] == "claude-opus-5-5"
 
 
 def test_rules_go_before_the_closing_invitation_in_title_summaries():
@@ -419,3 +426,57 @@ def test_a_render_the_agent_left_unfinished_is_completed(tmp_path, monkeypatch):
     found = lessons.learn(tmp_path, prompt, videos, 1, {}, run=agent(video=False))
     assert renders == [["sh", "scripts/render-learning.sh", "limit-one"]]
     assert found[0]["video"] is True
+
+
+def test_review_walkthrough_is_additional_and_pinned_to_collected_head(tmp_path):
+    briefing(
+        tmp_path,
+        report=REPORT
+        + "\n## Review walkthrough\n\n### Review the retry system\n\nWhy it needs review.\n",
+    )
+    row = {
+        "repo": "org/repo",
+        "number": 3,
+        "url": PRIMITIVE,
+        "state": "open",
+        "headRefOid": "a" * 40,
+        "waiting": {"kind": "reviewer"},
+    }
+    (tmp_path / "inventory.json").write_text(json.dumps([row]))
+    (tmp_path / "review-selection.json").write_text(
+        json.dumps(
+            {
+                "pr": "org/repo#3",
+                "head_sha": "a" * 40,
+                "reason": "Cross-system retry ownership",
+                "heading": "Review the retry system",
+            }
+        )
+    )
+    selected = lessons.select_topics(tmp_path, 1, review=True)
+    assert len(selected) == 2
+    assert selected[0]["heading"] == "Catch slow polls"
+    assert selected[1]["kind"] == "review"
+    assert selected[1]["head_sha"] == "a" * 40
+    row["state"] = "merged"
+    (tmp_path / "inventory.json").write_text(json.dumps([row]))
+    with pytest.raises(ValueError, match="open"):
+        lessons.select_topics(tmp_path, 1, review=True)
+
+
+def test_sources_survive_a_failed_video_agent(tmp_path):
+    prompt = briefing(tmp_path)
+    videos = tmp_path / "kit"
+    source = videos / "src/learnings/example"
+    source.mkdir(parents=True)
+    (source / "scene.tsx").write_text("const scene = 1;")
+
+    def crash(*args):
+        raise subprocess.TimeoutExpired("claude", 1)
+
+    lessons.learn(tmp_path, prompt, videos, 1, {}, run=crash)
+    trace = tmp_path / "learnings/1"
+    assert (
+        trace / "source/src/learnings/example/scene.tsx"
+    ).read_text() == "const scene = 1;"
+    assert json.loads((trace / "outcome.json").read_text())["status"] == "failed"

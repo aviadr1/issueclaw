@@ -9,6 +9,10 @@ on:
       tooling-ref:
         type: string
         required: true
+      generation-runner:
+        description: 'Runner label for report research and video rendering'
+        type: string
+        default: ubuntu-latest
       post-to-slack:
         type: boolean
         default: false
@@ -40,6 +44,9 @@ on:
         required: true
       SLACK_BOT_TOKEN:
         required: true
+      PR_COMMENT_TOKEN:
+        description: 'PR-comment write access to configured source repos; falls back to REPOS_READ_TOKEN'
+        required: false
       VIDEOS_READ_TOKEN:
         description: 'Read access to the video kit when REPOS_READ_TOKEN lacks it'
         required: false
@@ -88,8 +95,8 @@ jobs:
   generate:
     needs: plan
     if: ${{ needs.plan.outputs.enabled == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
+    runs-on: ${{ inputs.generation-runner }}
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v6
         with:
@@ -113,6 +120,8 @@ jobs:
           uv venv /tmp/briefing-venv
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           npm install -g @anthropic-ai/claude-code
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
       - name: Collect daily, review-history, ticket and CI evidence
         env:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
@@ -128,6 +137,25 @@ jobs:
           if [ -n "$BRIEFING_EVIDENCE_RUN" ]; then args+=(--evidence-run-id "$BRIEFING_EVIDENCE_RUN"); fi
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing prepare \
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing "${args[@]}"
+      - name: Record reproducible runner and source versions
+        env:
+          TOOLING_REF: ${{ inputs.tooling-ref }}
+          VIDEO_KIT_REF: ${{ inputs.learning-videos-ref }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence-run-id }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          out = pathlib.Path('/tmp/daily-briefing')
+          versions = {key: os.environ[key] for key in ('TOOLING_REF', 'VIDEO_KIT_REF', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA', 'EVIDENCE_RUN_ID')}
+          versions['claude'] = subprocess.check_output(['claude', '--version'], text=True).strip()
+          versions['node'] = subprocess.check_output(['node', '--version'], text=True).strip()
+          versions['cpu_count'] = os.cpu_count()
+          versions['runner_name'] = os.environ.get('RUNNER_NAME')
+          attempt = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          (out / f'runner-{attempt}.json').write_text(json.dumps(versions, indent=2))
+          (out / f'config-{attempt}.json').write_text(pathlib.Path(os.environ['BRIEFING_CONFIG']).read_text())
+          PY
       - name: Write and revise learning briefing
         env:
           BRIEFING_REVISION_NOTES: ${{ inputs.revision-notes }}
@@ -138,6 +166,19 @@ jobs:
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
             --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
             --revision-notes "$BRIEFING_REVISION_NOTES"
+      - name: Preserve selection and model trace before rendering
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: daily-learning-selection
+          path: |
+            /tmp/daily-briefing/report.md
+            /tmp/daily-briefing/*selection*.json
+            /tmp/daily-briefing/generation*
+            /tmp/daily-briefing/revision*
+            /tmp/daily-briefing/runner-*.json
+          retention-days: 90
+          if-no-files-found: warn
       - name: Check out the learning video kit
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
         continue-on-error: true
@@ -148,11 +189,11 @@ jobs:
           path: .learning-videos
           token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
           persist-credentials: false
-      - name: Root-cause each review pattern and make its video (Opus 5.5, medium)
+      - name: Research and render the lesson plus PR review walkthrough (Sonnet with Opus advisor)
         # Optional and fail-soft: the briefing publishes without lessons on failure.
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
         continue-on-error: true
-        timeout-minutes: 60
+        timeout-minutes: 150
         env:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -161,6 +202,16 @@ jobs:
           test -f .learning-videos/src/learnings/AGENT.md
           (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md             --videos-dir .learning-videos
+      - name: Preserve work-in-progress video source after interruption
+        if: always()
+        run: |
+          python - <<'PY'
+          import runpy
+          from pathlib import Path
+          trace = runpy.run_path('.briefing-tools/src/issueclaw/briefing_trace.py')
+          trace['preserve_source'](Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
+          trace['write_index'](Path('/tmp/daily-briefing'))
+          PY
       - name: Validate message and inventory coverage
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -178,7 +229,7 @@ jobs:
         with:
           name: daily-learning-briefing
           path: /tmp/daily-briefing/
-          retention-days: 45
+          retention-days: 90
           if-no-files-found: error
 
   publish:
@@ -214,3 +265,21 @@ jobs:
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing publish \
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing
+      - name: Attach published videos to their source PRs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PR_COMMENT_TOKEN || secrets.REPOS_READ_TOKEN }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+        run: |
+          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing attach-pr-videos \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing
+      - name: Preserve publication and PR attachment receipts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: daily-learning-briefing-delivery
+          path: |
+            /tmp/daily-briefing/*state.json
+            /tmp/daily-briefing/pr-video-delivery.json
+          retention-days: 90
+          if-no-files-found: warn

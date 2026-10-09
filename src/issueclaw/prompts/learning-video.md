@@ -1,6 +1,6 @@
 You prepare one engineering lesson for the backend team's daily learning briefing:
 understand what really happened and why, write it briefly, and make a short
-explainer video of it. The goal is sharing knowledge: after a minute, a teammate
+explainer video of it. The goal is sharing knowledge: at a comfortable reading pace, a teammate
 who wasn't involved should understand the idea and be able to use it.
 
 Inputs, in {learning_dir}:
@@ -21,7 +21,14 @@ don't force it into a "bug" story.
    - for a problem: what went wrong concretely, the mechanism behind it, the fix;
    - for something built or improved: the problem it answers, the core idea or
      mechanism that makes it work, and what changed as a result.
-   Then name the one transferable takeaway. Check every number against a source and
+   Then name the one transferable takeaway. If the draft includes a concrete second
+   use outside the original subsystem, have a Haiku helper inspect that source too.
+   Preserve the transferable mechanism and a brief second-use example in both
+   the lesson and video, plus where the analogy stops. Do not narrow a cross-system
+   lesson into a local CI trick simply to avoid reading another PR or to fit the
+   kit's duration. Reject the analogy only on inspected evidence and record why;
+   never present two different mechanisms as identical.
+   Check every number against a source and
    keep its setting (local fixture, dev, production). Don't claim production
    impact, shipped defects or unfixed hazards without current proof.
 
@@ -47,3 +54,76 @@ Write only inside {learning_dir}, {videos_dir}/src/learnings/<slug>/,
 {videos_dir}/src/learnings/registry.ts, {videos_dir}/public/learnings/ and
 {videos_dir}/out/. Don't commit, push, publish, install packages, call Slack,
 or change GitHub, Linear or anything else.
+
+Quality, pacing and trace requirements (override conflicting kit duration guidance):
+Read topic.json first. If kind is "review", this is a walkthrough of the selected
+OPEN PR at head_sha, not a lesson about merged code. Verify the current head with
+read-only gh, and read the exact base/head diff, surrounding callers, tests and
+review discussion. If the head moved, record the mismatch and stop rather than
+silently explaining a different version. Do not execute scripts from the PR.
+
+Before writing scenes, write questions.md. Ask 6–10 genuinely discriminating
+questions, then investigate and append answers with commit-pinned file/line links,
+review/test evidence, and explicit unknowns. Start with questions, not a script
+looking for confirmation. Useful questions include: What user/system invariant
+must survive? Trace one happy path and one failure/retry through the components.
+Who owns state, and when can it be stale, duplicated or lost? Why this design over
+the simpler alternative? What compatibility, rollout or migration assumptions
+matter? What tests would distinguish a correct implementation from a plausible
+but wrong one? Which claim in the PR is still unproven? What should a reviewer
+read first, then next, and what specific counterexample should they try?
+Use only applicable questions; replace generic ones with this PR's concrete risk.
+For a review, answer what it does, why, how, why reviewing it is difficult, and
+where human attention matters most. Separate established facts, tentative concerns
+and unanswered questions. Do not manufacture findings, or approve/request changes.
+Delegate at least one bounded source/test extraction to a Haiku subagent before
+settling on the questions. This is required for each video, including short lessons.
+Verify its conclusions and record what it checked in research.md.
+Use the Opus advisor enabled for this session before settling on your questions
+and again before rendering. Ask it to challenge the mechanism, counterexamples,
+evidence gaps, review route and storyboard readability. Record the critique's
+practical effect in research.md (decisions and changes, not hidden reasoning).
+
+Write research.md with the sources and pinned commits inspected, a concise account
+of findings, counterexamples, alternatives and unresolved questions. Preserve fetched
+source excerpts and useful command results in evidence/; never save tokens or dump
+process environments. Do not ask for or expose hidden chain-of-thought.
+
+Write storyboard.json: an array of scenes with id, question, visible_text (one string),
+visual_description, source_urls, start_seconds, end_seconds, fully_visible_seconds,
+reading_hold_seconds, and interpretation (true for code/diagrams). Times refer to
+the FINAL video; fully_visible_seconds is the absolute time the last reveal ends. The pipeline plays the
+render at the speed in the caller instructions (0.5 means twice as long).
+For a lesson aim for 75–120 final seconds; for a review aim for 3–5 minutes.
+The kit's under-45-seconds cap DOES NOT apply to review walkthroughs. Shorten the
+content rather than speeding it up. One idea per scene, one short caption at a
+time, legible labels, minimal code excerpts. Allocate final stable reading time
+AFTER the last reveal: at least max(4 seconds, visible word count / 2.5 + 2 seconds),
+and 3 more seconds for a code/diagram interpretation. Count whitespace-separated
+tokens containing at least one letter or digit; separator marks such as | and ·
+are not words. Include all visible text, not only newly introduced captions. Do not count a text-write
+animation or transition as reading time. The final scene/end card needs at least 8 seconds after its last reveal, even
+when an earlier takeaway scene already had 8 seconds.
+Keep sounds pitch-correct; use the kit's existing audio. Do not retime video.mp4
+in the agent; the publisher's deterministic pacing step does that once.
+
+For review topics, learning.md may be 250–450 words with Purpose / Mechanism /
+Why review is hard / Questions and evidence / Review route. learning.json retains
+slug/title/rule/sources; rule is the one-sentence review focus. Include the selected
+PR in sources. Keep the caption title visibly marked "Review walkthrough" and
+show the reviewed short SHA. Do not imply that an open PR is shipped.
+
+Render and inspect the busiest frame of EVERY scene and save the PNGs as qa/<scene-id>.png (one for every storyboard scene).
+Write qa.md with the frames checked, fixes made, remaining limitations, and whether
+text, transitions and the planned final reading holds are adequate. Save the
+storyboard, research and questions even if rendering fails. These are deliverables,
+not just a final chat response. Your structured tool transcript and generated
+composition source are preserved automatically in the run artifact.
+
+Before finishing, run the exact publisher check against your raw video:
+`python "{quality_validator}" "{learning_dir}" --playback-speed 0.5`
+(use the caller's actual speed if it differs). This is trusted tooling supplied by
+the job, not code from a source PR. If it fails, fix scene durations/content and
+storyboard, rerender the affected QA stills and raw video, then run it again.
+Do not shorten recorded word counts or invent timing to pass. A final response
+claiming the clip is complete is insufficient: this check must pass.

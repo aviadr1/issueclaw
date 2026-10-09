@@ -1,7 +1,7 @@
 """Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
 After the briefing is drafted, each lesson in its Learning section can be handed to
-a separate agent (Claude Opus 5.5, medium effort). A lesson can be any kind of
+a separate agent (Sonnet 5.5, medium effort, with an Opus advisor). A lesson can be any kind of
 knowledge worth sharing: a repeated review problem, a new system or primitive, a
 CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
 the cited PRs, comments and code for what really happened and why, writes a short
@@ -20,7 +20,10 @@ import re
 import shutil
 import subprocess
 
-MODEL = "claude-opus-5-5"
+from issueclaw import briefing_trace as trace
+
+MODEL = "claude-sonnet-5-5"
+ADVISOR = "claude-opus-5-5"
 EFFORT = "medium"
 AGENT_TIMEOUT = 45 * 60
 RENDER_TIMEOUT = 20 * 60
@@ -51,7 +54,7 @@ def is_learning_heading(text):
     return text == "learning" or text.startswith("what to fix once")
 
 
-def select_topics(out, limit):
+def select_topics(out, limit, review=False):
     """The lessons the briefing wrote, in its order: each subsection of its
     Learning section, or the section itself when it has none."""
     path = out / "report.md"
@@ -60,14 +63,55 @@ def select_topics(out, limit):
     lines = path.read_text(encoding="utf-8").split("\n")
     found = sections(lines)
     group = next((s for s in found if is_learning_heading(s[3])), None)
-    if group is None:
-        return []
-    start, end, level, _ = group
-    children = [s for s in found if start < s[0] < end and s[2] == level + 1]
-    return [
-        {"heading": s[3], "text": "\n".join(lines[s[0] : s[1]]).strip()}
-        for s in (children or [group])
-    ][:limit]
+    topics = []
+    if group is not None:
+        start, end, level, _ = group
+        children = [s for s in found if start < s[0] < end and s[2] == level + 1]
+        topics = [
+            {"heading": s[3], "text": "\n".join(lines[s[0] : s[1]]).strip()}
+            for s in (children or [group])
+        ][:limit]
+    if review:
+        choice = json.loads((out / "review-selection.json").read_text())
+        if choice.get("pr") is None:
+            if not choice.get("reason"):
+                raise ValueError("review selection needs a no-candidate reason")
+            return topics
+        inventory = json.loads((out / "inventory.json").read_text())
+        row = next(
+            (r for r in inventory if f"{r['repo']}#{r['number']}" == choice["pr"]), None
+        )
+        if row is None or row["state"] != "open":
+            raise ValueError("review walkthrough must select an open non-draft PR")
+        if (
+            row.get("reviewDecision") == "APPROVED"
+            or row.get("waiting", {}).get("kind") != "reviewer"
+        ):
+            raise ValueError("review walkthrough must be waiting for a reviewer")
+        if not row.get("headRefOid") or row["headRefOid"] != choice.get("head_sha"):
+            raise ValueError("review walkthrough head differs from collected evidence")
+        review_group = next(
+            (s for s in found if s[3] == "Review walkthrough" and s[2] == 2), None
+        )
+        section = next((s for s in found if s[3] == choice.get("heading")), None)
+        if (
+            section is None
+            or review_group is None
+            or not (review_group[0] < section[0] < review_group[1])
+            or section[2] != 3
+        ):
+            raise ValueError("review walkthrough heading missing from report")
+        topics.append(
+            {
+                "heading": section[3],
+                "text": "\n".join(lines[section[0] : section[1]]).strip(),
+                "kind": "review",
+                "pr": choice["pr"],
+                "head_sha": choice["head_sha"],
+                "url": row["url"],
+            }
+        )
+    return topics
 
 
 def write_inputs(out, directory, topic):
@@ -75,17 +119,23 @@ def write_inputs(out, directory, topic):
     evidence = json.loads((out / "review-learning-evidence.json").read_text())
     comments = [c for c in evidence["comments"] if c["url"] in topic["text"]]
     directory.mkdir(parents=True, exist_ok=True)
+    trace.write_json(directory / "topic.json", topic)
     (directory / "draft.md").write_text(topic["text"] + "\n", encoding="utf-8")
     (directory / "comments.json").write_text(json.dumps(comments, indent=2) + "\n")
 
 
 def run_agent(prompt, directory, videos, env, instructions=""):
     text = prompt.read_text().format(
-        learning_dir=directory.resolve(), videos_dir=videos.resolve()
+        learning_dir=directory.resolve(),
+        videos_dir=videos.resolve(),
+        quality_validator=trace.__file__,
     )
     if instructions:
         text += "\n\nThe caller's instructions for this lesson and its video:\n"
         text += instructions
+    trace.model_trace(
+        directory, "agent", text, MODEL, advisor=ADVISOR, subagents="haiku"
+    )
     with (directory / "agent.log").open("w") as log:
         subprocess.run(
             [
@@ -95,13 +145,16 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                 "--dangerously-skip-permissions",
                 "--model",
                 MODEL,
+                "--advisor",
+                ADVISOR,
                 "--effort",
                 EFFORT,
                 "--output-format",
-                "text",
+                "stream-json",
+                "--verbose",
             ],
             cwd=videos,
-            env=env,
+            env=dict(env, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
             stdout=log,
             stderr=subprocess.STDOUT,
             check=True,
@@ -147,7 +200,19 @@ def finish_render(videos, slug, video, env):
         shutil.copyfile(rendered, video)
 
 
-def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
+def learn(
+    out,
+    prompt,
+    videos,
+    limit,
+    env,
+    instructions="",
+    run=run_agent,
+    *,
+    review=False,
+    playback_speed=1,
+    quality_checks=False,
+):
     """Prepare up to `limit` lessons; record what succeeded in learnings.json."""
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted") or info.get("resume"):
@@ -156,12 +221,15 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
     if manifest.exists():
         return json.loads(manifest.read_text())
     lessons = []
-    for n, topic in enumerate(select_topics(out, limit), 1):
+    for n, topic in enumerate(select_topics(out, limit, review=review), 1):
         directory = out / "learnings" / str(n)
+        directory.mkdir(parents=True, exist_ok=True)
+        status = "failed"
         try:
             write_inputs(out, directory, topic)
             run(prompt, directory, videos, env, instructions)
             lesson = read_lesson(directory)
+            status = "written"
         except subprocess.CalledProcessError as error:
             note = f"agent exited with {error.returncode}; see agent.log"
             (directory / "error.txt").write_text(note + "\n")
@@ -170,14 +238,53 @@ def learn(out, prompt, videos, limit, env, instructions="", run=run_agent):
             note = f"{type(error).__name__}: {str(error)[:500]}"
             (directory / "error.txt").write_text(note + "\n")
             continue
+        finally:
+            trace.preserve_source(videos, directory)
+            trace.write_json(directory / "outcome.json", {"status": status})
         video = directory / "video.mp4"
         if not video.exists() and lesson["slug"]:
             finish_render(videos, lesson["slug"], video, env)
         lesson["video"] = video.exists() and video.stat().st_size > 0
+        if lesson["video"] and playback_speed != 1:
+            try:
+                trace.retime(video, playback_speed)
+            except (OSError, ValueError, subprocess.SubprocessError) as error:
+                lesson["video"] = False
+                (directory / "pacing-error.txt").write_text(
+                    f"{type(error).__name__}: pacing failed; see pacing.log\n"
+                )
+        if lesson["video"] and quality_checks:
+            try:
+                duration = float(trace.probe(video)["format"]["duration"])
+                trace.validate_quality(directory, duration)
+                trace.write_json(
+                    directory / "quality.json", {"passed": True, "duration": duration}
+                )
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                TypeError,
+                subprocess.SubprocessError,
+            ) as error:
+                lesson["video"] = False
+                trace.write_json(
+                    directory / "quality.json",
+                    {"passed": False, "error": str(error)[:500]},
+                )
+        if topic.get("kind") == "review":
+            lesson.update(kind="review", pr=topic["pr"], head_sha=topic["head_sha"])
+            if topic["url"] not in lesson["sources"]:
+                lesson["sources"].append(topic["url"])
+        trace.write_json(
+            directory / "outcome.json",
+            {"status": "video" if lesson["video"] else "text_only"},
+        )
         lesson["n"] = n
         lesson["dir"] = f"learnings/{n}"
         lesson["replaces"] = topic["heading"]
         lessons.append(lesson)
+        manifest.write_text(json.dumps(lessons, indent=2) + "\n")
     manifest.write_text(json.dumps(lessons, indent=2) + "\n")
     return lessons
 
@@ -224,7 +331,10 @@ def fill_placeholders(content, lessons, permalinks):
 
 
 def tldr_line(lessons):
-    return "".join(f"\n**Learning:** {lesson['rule']}" for lesson in lessons)
+    return "".join(
+        f"\n**{'Review walkthrough' if lesson.get('kind') == 'review' else 'Learning'}:** {lesson['rule']}"
+        for lesson in lessons
+    )
 
 
 def with_rules(text, lessons, *, before_last_line=False):
@@ -245,6 +355,8 @@ def remember(taught, lessons, date):
     """The lessons already taught, newest last, so the briefing doesn't repeat one."""
     taught = list(taught or [])
     for lesson in lessons:
+        if lesson.get("kind") == "review":
+            continue
         taught.append(
             {
                 "date": date,

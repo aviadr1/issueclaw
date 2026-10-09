@@ -270,3 +270,20 @@ def test_repair_only_attaches_to_the_latest_completed_briefing(tmp_path):
     state["last_cutoff"] = "2026-10-07T05:00:00+00:00"
     with pytest.raises(RuntimeError, match="latest completed"):
         daily.repair_video_attachment(tmp_path, state, slack, saved.append, ["F1"])
+
+
+def test_video_post_distinguishes_the_review_from_the_merged_lesson():
+    result = daily.learning_video_summary(
+        [
+            {"rule": "Index eligible work."},
+            {"kind": "review", "rule": "Check retry ownership at the handoff."},
+        ],
+        ["F1", "F2"],
+    )
+    assert result is not None
+    text, files = result
+    assert (
+        text
+        == "**Learning:** Index eligible work.\n**Review walkthrough:** Check retry ownership at the handoff."
+    )
+    assert files == ["F1", "F2"]
