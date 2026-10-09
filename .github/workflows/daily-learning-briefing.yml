@@ -138,15 +138,17 @@ jobs:
           TOOLING_REF: ${{ inputs.tooling-ref }}
           VIDEO_KIT_REF: ${{ inputs.learning-videos-ref }}
           BRIEFING_CONFIG: ${{ inputs.config }}
+          EVIDENCE_RUN_ID: ${{ inputs.evidence-run-id }}
         run: |
           python - <<'PY'
           import json, os, pathlib, subprocess
           out = pathlib.Path('/tmp/daily-briefing')
-          versions = {key: os.environ[key] for key in ('TOOLING_REF', 'VIDEO_KIT_REF', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA')}
+          versions = {key: os.environ[key] for key in ('TOOLING_REF', 'VIDEO_KIT_REF', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA', 'EVIDENCE_RUN_ID')}
           versions['claude'] = subprocess.check_output(['claude', '--version'], text=True).strip()
           versions['node'] = subprocess.check_output(['node', '--version'], text=True).strip()
-          (out / 'runner.json').write_text(json.dumps(versions, indent=2))
-          (out / 'config.json').write_text(pathlib.Path(os.environ['BRIEFING_CONFIG']).read_text())
+          attempt = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          (out / f'runner-{attempt}.json').write_text(json.dumps(versions, indent=2))
+          (out / f'config-{attempt}.json').write_text(pathlib.Path(os.environ['BRIEFING_CONFIG']).read_text())
           PY
       - name: Write and revise learning briefing
         env:
