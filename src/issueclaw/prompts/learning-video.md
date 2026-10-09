@@ -69,7 +69,9 @@ Use only applicable questions; replace generic ones with this PR's concrete risk
 For a review, answer what it does, why, how, why reviewing it is difficult, and
 where human attention matters most. Separate established facts, tentative concerns
 and unanswered questions. Do not manufacture findings, or approve/request changes.
-Use Haiku helpers for bounded source/test extraction; you verify their conclusions.
+Delegate at least one bounded source/test extraction to a Haiku subagent before
+settling on the questions. This is required for each video, including short lessons.
+Verify its conclusions and record what it checked in research.md.
 Use the Opus advisor enabled for this session before settling on your questions
 and again before rendering. Ask it to challenge the mechanism, counterexamples,
 evidence gaps, review route and storyboard readability. Record the critique's
@@ -80,7 +82,7 @@ of findings, counterexamples, alternatives and unresolved questions. Preserve fe
 source excerpts and useful command results in evidence/; never save tokens or dump
 process environments. Do not ask for or expose hidden chain-of-thought.
 
-Write storyboard.json: an array of scenes with id, question, visible_text,
+Write storyboard.json: an array of scenes with id, question, visible_text (one string),
 visual_description, source_urls, start_seconds, end_seconds, fully_visible_seconds,
 reading_hold_seconds, and interpretation (true for code/diagrams). Times refer to
 the FINAL video; fully_visible_seconds is the absolute time the last reveal ends. The pipeline plays the
@@ -90,8 +92,11 @@ The kit's under-45-seconds cap DOES NOT apply to review walkthroughs. Shorten th
 content rather than speeding it up. One idea per scene, one short caption at a
 time, legible labels, minimal code excerpts. Allocate final stable reading time
 AFTER the last reveal: at least max(4 seconds, visible word count / 2.5 + 2 seconds),
-and 3 more seconds for a code/diagram interpretation. Do not count a text-write
-animation or transition as reading time. The final takeaway needs at least 8 seconds.
+and 3 more seconds for a code/diagram interpretation. Count whitespace-separated
+tokens containing at least one letter or digit; separator marks such as | and ·
+are not words. Include all visible text, not only newly introduced captions. Do not count a text-write
+animation or transition as reading time. The final scene/end card needs at least 8 seconds after its last reveal, even
+when an earlier takeaway scene already had 8 seconds.
 Keep sounds pitch-correct; use the kit's existing audio. Do not retime video.mp4
 in the agent; the publisher's deterministic pacing step does that once.
 
@@ -107,3 +112,11 @@ text, transitions and the planned final reading holds are adequate. Save the
 storyboard, research and questions even if rendering fails. These are deliverables,
 not just a final chat response. Your structured tool transcript and generated
 composition source are preserved automatically in the run artifact.
+
+Before finishing, run the exact publisher check against your raw video:
+`python "{quality_validator}" "{learning_dir}" --playback-speed 0.5`
+(use the caller's actual speed if it differs). This is trusted tooling supplied by
+the job, not code from a source PR. If it fails, fix scene durations/content and
+storyboard, rerender the affected QA stills and raw video, then run it again.
+Do not shorten recorded word counts or invent timing to pass. A final response
+claiming the clip is complete is insufficient: this check must pass.

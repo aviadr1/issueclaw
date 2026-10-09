@@ -1,9 +1,11 @@
 """Reproducible briefing inputs and video assets, without serializing credentials."""
 
+import argparse
 import hashlib
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 
 def write_json(path, value):
@@ -122,7 +124,11 @@ def validate_quality(directory, duration):
             scene["fully_visible_seconds"],
             scene["reading_hold_seconds"],
         )
-        minimum = max(4, len(scene["visible_text"].split()) / 2.5 + 2)
+        words = sum(
+            any(character.isalnum() for character in token)
+            for token in scene["visible_text"].split()
+        )
+        minimum = max(4, words / 2.5 + 2)
         if scene.get("interpretation", True):
             minimum += 3
         if index == len(scenes) - 1:
@@ -130,7 +136,10 @@ def validate_quality(directory, duration):
         if not (0 <= start <= fully_visible < end <= duration + 0.1):
             raise ValueError(f"invalid final timing for scene {scene['id']}")
         if hold < minimum or hold > end - fully_visible + 0.1:
-            raise ValueError(f"insufficient reading hold for scene {scene['id']}")
+            raise ValueError(
+                f"insufficient reading hold for scene {scene['id']}: "
+                f"recorded {hold}s, needs {minimum}s, available {end - fully_visible}s"
+            )
         # One image per scene, named by its storyboard ID, enables a human audit.
         if not (directory / "qa" / f"{scene['id']}.png").is_file():
             raise ValueError(f"missing QA frame for scene {scene['id']}")
@@ -196,3 +205,21 @@ def write_index(out):
         "",
     ]
     (out / "TRACE-INDEX.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Check video reading holds before delivery"
+    )
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--playback-speed", type=float, default=1)
+    args = parser.parse_args()
+    if not 0.5 <= args.playback_speed <= 1:
+        parser.error("playback speed must be between 0.5 and 1")
+    duration = float(probe(args.directory / "video.mp4")["format"]["duration"])
+    validate_quality(args.directory, duration / args.playback_speed)
+    print("All scene reading holds and required QA files pass.")
+
+
+if __name__ == "__main__":
+    main()

@@ -53,3 +53,54 @@ def test_readability_gate_rejects_insufficient_final_hold(tmp_path):
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
     with pytest.raises(ValueError, match="hold"):
         trace.validate_quality(tmp_path, 10)
+
+
+def test_workflow_preserves_traces_without_installed_package(tmp_path):
+    """The always-run cleanup must also work outside the reporting virtualenv."""
+    import sys
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).parents[1]
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/daily-learning-briefing.yml").read_text()
+    )
+    step = next(
+        s
+        for s in workflow["jobs"]["generate"]["steps"]
+        if s.get("name") == "Preserve work-in-progress video source after interruption"
+    )
+    script = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    out = tmp_path / "artifact"
+    out.mkdir()
+    script = script.replace("/tmp/daily-briefing", out.as_posix())
+    tools = tmp_path / ".briefing-tools/src"
+    tools.mkdir(parents=True)
+    shutil.copytree(root / "src/issueclaw", tools / "issueclaw")
+    source = tmp_path / ".learning-videos/src/learnings/lesson.tsx"
+    source.parent.mkdir(parents=True)
+    source.write_text("const unfinishedScene = true;")
+    subprocess.run([sys.executable, "-S", "-c", script], cwd=tmp_path, check=True)
+    assert (
+        out / "video-kit/source/src/learnings/lesson.tsx"
+    ).read_text() == source.read_text()
+    assert (out / "TRACE-INDEX.md").is_file()
+
+
+def test_storyboard_separators_do_not_consume_reading_time(tmp_path):
+    for name in ("questions.md", "research.md", "qa.md"):
+        (tmp_path / name).write_text("Reviewed source evidence.")
+    (tmp_path / "qa").mkdir()
+    (tmp_path / "qa/scene.png").write_bytes(b"png")
+    scene = {
+        "id": "scene",
+        "visible_text": " | ".join(["word"] * 12),
+        "start_seconds": 0,
+        "end_seconds": 10,
+        "fully_visible_seconds": 2,
+        "reading_hold_seconds": 8,
+        "interpretation": False,
+    }
+    (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
+    trace.validate_quality(tmp_path, 10)

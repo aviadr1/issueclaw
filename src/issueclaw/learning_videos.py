@@ -126,7 +126,9 @@ def write_inputs(out, directory, topic):
 
 def run_agent(prompt, directory, videos, env, instructions=""):
     text = prompt.read_text().format(
-        learning_dir=directory.resolve(), videos_dir=videos.resolve()
+        learning_dir=directory.resolve(),
+        videos_dir=videos.resolve(),
+        quality_validator=trace.__file__,
     )
     if instructions:
         text += "\n\nThe caller's instructions for this lesson and its video:\n"

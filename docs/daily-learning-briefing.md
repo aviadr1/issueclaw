@@ -262,6 +262,10 @@ conclusions are concise decision records; they do not claim to expose hidden
 model reasoning. The generator writes `selection-audit.json` comparing reuse,
 evidence, tradeoffs and why each candidate won or lost across the merged work.
 
+The reusable workflow accepts `generation-runner` (default `ubuntu-latest`) so
+consumers can select a larger existing runner for research/rendering. Planning and
+publishing keep standard runners. Runner traces include CPU count and runner name.
+
 Optional caller settings under `learning_videos`:
 
 - `playback_speed: 0.5` delivers the rendered clip at half speed with pitch-preserving
@@ -277,7 +281,9 @@ Optional caller settings under `learning_videos`:
   questions with evidence and unknowns. Previously covered PR/heads are remembered.
 - `quality_checks: true` requires research, question/answer notes, a storyboard,
   per-scene QA stills and QA notes. The gate checks the recorded final timing against
-  the actual video duration and requires reading time after the final reveal. These
+  the actual video duration and requires reading time after the final reveal. Word
+  counts ignore punctuation-only separators. The video agent must run this same
+  validator before finishing and fix failures, including an 8-second final end card. These
   checks cannot prove the agent's timing claims match every rendered frame; still
   inspection and human viewing remain necessary. A failed gate retains text and
   the failed video in the private artifact but does not upload the clip to Slack.

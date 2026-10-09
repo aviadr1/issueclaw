@@ -9,6 +9,10 @@ on:
       tooling-ref:
         type: string
         required: true
+      generation-runner:
+        description: 'Runner label for report research and video rendering'
+        type: string
+        default: ubuntu-latest
       post-to-slack:
         type: boolean
         default: false
@@ -91,7 +95,7 @@ jobs:
   generate:
     needs: plan
     if: ${{ needs.plan.outputs.enabled == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.generation-runner }}
     timeout-minutes: 210
     steps:
       - uses: actions/checkout@v6
@@ -146,6 +150,8 @@ jobs:
           versions = {key: os.environ[key] for key in ('TOOLING_REF', 'VIDEO_KIT_REF', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'GITHUB_SHA', 'EVIDENCE_RUN_ID')}
           versions['claude'] = subprocess.check_output(['claude', '--version'], text=True).strip()
           versions['node'] = subprocess.check_output(['node', '--version'], text=True).strip()
+          versions['cpu_count'] = os.cpu_count()
+          versions['runner_name'] = os.environ.get('RUNNER_NAME')
           attempt = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
           (out / f'runner-{attempt}.json').write_text(json.dumps(versions, indent=2))
           (out / f'config-{attempt}.json').write_text(pathlib.Path(os.environ['BRIEFING_CONFIG']).read_text())
@@ -200,12 +206,11 @@ jobs:
         if: always()
         run: |
           python - <<'PY'
-          import sys
+          import runpy
           from pathlib import Path
-          sys.path.insert(0, '.briefing-tools/src')
-          from issueclaw.briefing_trace import preserve_source, write_index
-          preserve_source(Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
-          write_index(Path('/tmp/daily-briefing'))
+          trace = runpy.run_path('.briefing-tools/src/issueclaw/briefing_trace.py')
+          trace['preserve_source'](Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
+          trace['write_index'](Path('/tmp/daily-briefing'))
           PY
       - name: Validate message and inventory coverage
         env:
