@@ -307,8 +307,10 @@ def test_publish_adapts_deep_headings_without_changing_media_or_code(tmp_path, d
     assert len(calls) == 2
 
 
+@pytest.mark.parametrize("lost_completion", [False, True])
 def test_manifest_images_upload_once_and_repair_existing_canvas_without_reposting(
     tmp_path,
+    lost_completion,
 ):
     image_url = "https://example.com/capture.png"
     permalink = "https://team.slack.com/files/U123/FIMAGE/capture.png"
@@ -358,6 +360,8 @@ def test_manifest_images_upload_once_and_repair_existing_canvas_without_repostin
             )
         if method == "files.completeUploadExternal":
             assert b"channel_id" not in request.content
+            if lost_completion:
+                raise httpx.ReadTimeout("completion response lost")
             return httpx.Response(200, json={"ok": True})
         if method == "files.info":
             return httpx.Response(
@@ -386,12 +390,16 @@ def test_manifest_images_upload_once_and_repair_existing_canvas_without_repostin
         )
 
     # Patch external transport only; exercise real file hashing/upload/rewrite/state.
-    sync_client = httpx.Client(
-        base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
-    )
+    real_client = httpx.Client
+
+    def sync_client(*args, **kwargs):
+        return real_client(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        )
+
     with (
         patch.object(slack_canvas, "make_client", side_effect=client),
-        patch.object(httpx, "Client", return_value=sync_client),
+        patch.object(httpx, "Client", side_effect=sync_client),
         patch.object(
             httpx,
             "post",
@@ -400,6 +408,19 @@ def test_manifest_images_upload_once_and_repair_existing_canvas_without_repostin
             ),
         ) as upload,
     ):
+        if lost_completion:
+            with pytest.raises(httpx.ReadTimeout):
+                asyncio.run(
+                    slack_canvas.publish(
+                        source,
+                        "Report",
+                        "C123",
+                        state_path,
+                        "secret-test",
+                        image_manifest=manifest,
+                        refresh_media=True,
+                    )
+                )
         for _ in range(2):
             asyncio.run(
                 slack_canvas.publish(

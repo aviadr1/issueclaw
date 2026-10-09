@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -66,22 +67,14 @@ def prepare_images(source, manifest_path, receipts, save, token):
             if receipt.get("complete_pending"):
                 # Completion can succeed even when its HTTP response is lost.
                 # files.info distinguishes a completed file from a pending upload.
-                info = slack.file_info(receipt["file"])
-                if not info.get("permalink"):
-                    raise click.ClickException(
-                        "Image completion is unresolved; retry after Slack finishes processing."
-                    )
+                info = image_info(slack, receipt["file"])
             else:
                 receipt["complete_pending"] = True
                 save()
                 slack.complete_upload(
                     receipt["file"], images[url] or path.name, share=False
                 )
-                info = slack.file_info(receipt["file"])
-            if not str(info.get("mimetype", "")).startswith("image/"):
-                raise click.ClickException(
-                    "Slack did not recognize the uploaded capture as an image."
-                )
+                info = image_info(slack, receipt["file"])
             permalink = info.get("permalink", "")
             if not permalink.startswith("https://"):
                 raise click.ClickException("Slack image has no usable permalink.")
@@ -114,3 +107,19 @@ def prepare_images(source, manifest_path, receipts, save, token):
         )
         lines[start:end] = [text]
     return "".join(lines)
+
+
+def image_info(slack, file_id):
+    """Slack completes the upload before asynchronous image processing finishes."""
+    info = {}
+    for attempt in range(10):
+        info = slack.file_info(file_id)
+        if str(info.get("mimetype", "")).startswith("image/") and info.get("permalink"):
+            return info
+        if attempt < 9:
+            time.sleep(1)
+    raise click.ClickException(
+        f"Slack image processing is not ready for {file_id}: "
+        f"mimetype={info.get('mimetype')!r}, filetype={info.get('filetype')!r}. "
+        "The upload receipt is saved; retry without uploading another copy."
+    )
