@@ -184,6 +184,14 @@ Uploads use the same file transport as daily briefing videos and send no
 individual channel messages. Slack copies follow the workspace's retention,
 independently of any public bucket lifecycle.
 
+Add `--gallery-columns 4` for compact side-by-side screenshot galleries. Adjacent
+top-level image/caption paragraphs become Markdown tables, with each caption and
+its links under its image. Choose 2–4 columns; headings and other block structures
+separate galleries. Existing tables, code and isolated images remain unchanged.
+This uses Canvas's supported table layout; a plain sequence of image paragraphs
+otherwise expands each capture to the full document width. To update an existing
+Canvas's layout, restore its receipt and use `--gallery-columns 4 --refresh-media`.
+
 Image receipts live in the Canvas state file alongside the Canvas ID and summary
 timestamp. To repair images in an already published report, restore that receipt
 and pass `--image-manifest ... --refresh-media`. This replaces the saved Canvas's

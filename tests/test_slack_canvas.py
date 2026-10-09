@@ -7,6 +7,7 @@ import click
 import httpx
 import pytest
 from click.testing import CliRunner
+from markdown_it import MarkdownIt
 
 from issueclaw.main import cli
 from issueclaw import slack_canvas, slack_canvas_images
@@ -492,3 +493,153 @@ def test_native_image_waits_for_processing_before_embedding():
         assert (
             slack_canvas_images.image_info(Files(), "FIMAGE")["mimetype"] == "image/png"
         )
+
+
+def test_gallery_layout_repair_preserves_evidence_and_does_not_republish(tmp_path):
+    screenshots = [
+        f"![State {i}](https://team.slack.com/files/U/F{i}/state.png)" for i in range(4)
+    ]
+    captions = [
+        f"**State {i}** — phone prototype. [Explore](https://example.com/#/{i})"
+        for i in range(4)
+    ]
+    gallery = "\n\n".join(part for pair in zip(screenshots, captions) for part in pair)
+    code = "```markdown\n![Example](https://example.com/code.png)\n```"
+    source = (
+        "# Feature\n\n"
+        + gallery
+        + "\n\n"
+        + code
+        + "\n\n## Next feature\n\n![Separate](https://example.com/separate.png)"
+    )
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": hashlib.sha256(
+                    json.dumps([source, "Report", "C123"]).encode()
+                ).hexdigest(),
+                "canvas_id": "FCANVAS",
+                "url": "https://team.slack.com/docs/FCANVAS",
+                "message_ts": "123.456789",
+                "rendered_sha256": "old-layout",
+            }
+        )
+    )
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        assert request.url.path.endswith("/canvases.edit")
+        rendered = json.loads(request.content)["changes"][0]["document_content"][
+            "markdown"
+        ]
+        blocks = MarkdownIt().enable("table").parse(rendered)
+        image_row = next(
+            i for i, block in enumerate(blocks) if block.type == "tbody_open"
+        )
+        row_end = next(
+            i for i in range(image_row, len(blocks)) if blocks[i].type == "tr_close"
+        )
+        images = [
+            child
+            for block in blocks[image_row:row_end]
+            for child in block.children or []
+            if child.type == "image"
+        ]
+        assert len(images) == 4
+        for text in screenshots + captions + [code]:
+            assert text in rendered
+        assert rendered.count("https://example.com/separate.png") == 1
+        return httpx.Response(200, json={"ok": True})
+
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        side_effect=lambda _: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        for _ in range(2):
+            asyncio.run(
+                slack_canvas.publish(
+                    source,
+                    "Report",
+                    "C123",
+                    path,
+                    "test-token",
+                    refresh_media=True,
+                    gallery_columns=4,
+                )
+            )
+    assert len(requests) == 1
+    assert json.loads(path.read_text())["message_ts"] == "123.456789"
+
+
+@pytest.mark.parametrize("columns", [2, 3, 4])
+def test_gallery_tables_preserve_boundaries_and_existing_layouts(columns):
+    source = "\n\n".join(
+        f"![Image {i}](https://example.com/{i}.png)\n\nCaption **{i}** | detail"
+        for i in range(7)
+    )
+    unchanged = "\n\n## Separate\n\n![Single](https://example.com/single.png)\n\nText\n\n> ![Quoted](https://example.com/quote.png)\n\n| Existing | Table |\n| --- | --- |\n| ![In table](https://example.com/table.png) | Preserve |\n"
+    result = slack_canvas.gallery_tables(source + unchanged, columns)
+    assert unchanged.strip() in result
+    assert slack_canvas.gallery_tables(result, columns) == result
+    for i in range(7):
+        assert result.count(f"https://example.com/{i}.png") == 1
+        assert f"Caption **{i}** &#124; detail" in result
+    for line in result.splitlines():
+        if line.startswith("| ![Image"):
+            assert 1 <= line.count("![") <= columns
+
+
+def test_gallery_cli_passes_layout_to_slack(tmp_path):
+    source = tmp_path / "report.md"
+    source.write_text(
+        "![One](https://team.slack.com/files/U/F1/one.png)\n\n![Two](https://team.slack.com/files/U/F2/two.png)"
+    )
+    published = []
+
+    def handle(request):
+        if request.url.path.endswith("/canvases.create"):
+            published.append(
+                json.loads(request.content)["document_content"]["markdown"]
+            )
+            return httpx.Response(200, json={"ok": True, "canvas_id": "FCANVAS"})
+        assert request.url.path.endswith("/files.info")
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "file": {"permalink": "https://team.slack.com/docs/FCANVAS"},
+            },
+        )
+
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        side_effect=lambda _: httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        result = CliRunner().invoke(
+            cli,
+            [
+                "slack-canvas",
+                "--source",
+                str(source),
+                "--title",
+                "Report",
+                "--channel",
+                "C123",
+                "--state",
+                str(tmp_path / "state.json"),
+                "--gallery-columns",
+                "4",
+            ],
+            env={"SLACK_BOT_TOKEN": "test-token"},
+        )
+    assert result.exit_code == 0, result.output
+    assert "| ![One]" in published[0]
+    assert ") | ![Two]" in published[0]

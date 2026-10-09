@@ -11,3 +11,9 @@
 - [x] Native image repair run 37904480539 succeeded: 24 completed image receipts, 24 image embeds in Slack read-back, same Canvas ID and summary timestamp. The read-back retains all 41 preview URL occurrences and six video links. Computer-use visual inspection was unavailable because its runtime rejected the WSL working directory.
 
 Report source: linear-git run 37781764858. Existing Canvas: F0C7TT5G81Z; preserve its URL and summary timestamp. No Terraform changes, apply, or PR merges.
+
+### Compact galleries
+
+- [x] Publisher regression: keep four images in one table row, preserve captions/links/code and section boundaries, update the same Canvas once across retries, retain summary timestamp. Failed before implementation.
+- [x] Exercise CLI layout option; 2–4 columns, existing tables, isolated images and repeated rendering.
+- [x] 82 focused tests pass; Slack accepted a four-column mobile table and the requester confirmed its actual rendering with a screenshot. All six live galleries now use tables; 24 embeds preserved.

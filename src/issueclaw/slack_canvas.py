@@ -13,6 +13,7 @@ import httpx
 from markdown_it import MarkdownIt
 
 from issueclaw.slack_canvas_images import prepare_images
+from issueclaw.slack_canvas_layout import gallery_tables
 
 
 def make_client(token: str) -> httpx.AsyncClient:
@@ -69,6 +70,7 @@ async def publish(
     on_save: Callable[[dict], None] | None = None,
     image_manifest: Path | None = None,
     refresh_media: bool = False,
+    gallery_columns: int | None = None,
 ) -> str:
     fingerprint = hashlib.sha256(
         json.dumps([source, title, channel]).encode()
@@ -95,6 +97,8 @@ async def publish(
         rendered = prepare_images(
             rendered, image_manifest, state.setdefault("images", {}), checkpoint, token
         )
+    if gallery_columns is not None:
+        rendered = gallery_tables(rendered, gallery_columns)
     rendered_sha = hashlib.sha256(rendered.encode()).hexdigest()
 
     async with make_client(token) as client:
@@ -156,10 +160,12 @@ async def publish(
             state["canvas_id"] = result["canvas_id"]
             state["rendered_sha256"] = rendered_sha
             checkpoint()
-        elif image_manifest and state.get("rendered_sha256") != rendered_sha:
+        elif (image_manifest or gallery_columns) and state.get(
+            "rendered_sha256"
+        ) != rendered_sha:
             if not refresh_media:
                 raise click.ClickException(
-                    "Existing Canvas needs image repair; use --refresh-media to update it in place."
+                    "Existing Canvas needs media/layout repair; use --refresh-media to update it in place."
                 )
             await api(
                 "canvases.edit",
@@ -249,6 +255,11 @@ async def post_summary_message(
 
 @click.command("slack-canvas")
 @click.option(
+    "--gallery-columns",
+    type=click.IntRange(2, 4),
+    help="Group adjacent screenshots and captions into tables with 2–4 columns.",
+)
+@click.option(
     "--image-manifest",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="Upload selected local captures to Slack (files:write); preserve public full-size links.",
@@ -304,6 +315,7 @@ def slack_canvas_command(
     thread_ts: str,
     image_manifest: Path | None,
     refresh_media: bool,
+    gallery_columns: int | None,
 ) -> None:
     """Create a report Canvas; optionally post its TLDR to a channel or thread.
 
@@ -344,6 +356,7 @@ def slack_canvas_command(
                 token,
                 image_manifest=image_manifest,
                 refresh_media=refresh_media,
+                gallery_columns=gallery_columns,
             )
         )
     except (httpx.HTTPError, KeyError, ValueError) as exc:
