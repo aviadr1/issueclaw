@@ -21,7 +21,14 @@ don't force it into a "bug" story.
    - for a problem: what went wrong concretely, the mechanism behind it, the fix;
    - for something built or improved: the problem it answers, the core idea or
      mechanism that makes it work, and what changed as a result.
-   Then name the one transferable takeaway. Check every number against a source and
+   Then name the one transferable takeaway. If the draft includes a concrete second
+   use outside the original subsystem, have a Haiku helper inspect that source too.
+   Preserve the transferable mechanism and a brief second-use example in both
+   the lesson and video, plus where the analogy stops. Do not narrow a cross-system
+   lesson into a local CI trick simply to avoid reading another PR or to fit the
+   kit's duration. Reject the analogy only on inspected evidence and record why;
+   never present two different mechanisms as identical.
+   Check every number against a source and
    keep its setting (local fixture, dev, production). Don't claim production
    impact, shipped defects or unfixed hazards without current proof.
 
