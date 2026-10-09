@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 import httpx
 import yaml
 
+from issueclaw import briefing_pr_videos
+from issueclaw import briefing_trace as trace
 from issueclaw import learning_videos as lessons
 from issueclaw import report_evidence as report
 from issueclaw import slack_canvas
@@ -360,6 +362,7 @@ def publish(
     canvas_invitation=None,
     finalize=None,
     taught=None,
+    reviewed=None,
 ):
     """Checkpoint every message; only a completely posted thread advances time.
 
@@ -393,6 +396,8 @@ def publish(
     if taught is not None:
         # recorded with the completed cutoff, so a retried publication can't double it
         state["taught_lessons"] = taught
+    if reviewed is not None:
+        state["reviewed_prs"] = reviewed
     save(state)
 
 
@@ -822,6 +827,7 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             "previous_canvas_invitation": state.get("last_canvas_invitation"),
             # lessons already taught, so the briefing picks something new
             "previous_lessons": state.get("taught_lessons", []),
+            "previous_reviews": state.get("reviewed_prs", []),
         },
     )
     write_json(out / "inventory.json", inventory)
@@ -884,6 +890,7 @@ def configure_delivery(out, config):
     if info.get("already_posted"):
         return
     info["delivery_format"] = "canvas"
+    info["review_video"] = config.get("learning_videos", {}).get("review", False)
     if config.get("slack_summary_format") == "titles":
         info["slack_summary_format"] = "titles"
     if config.get("canvas_inventory") == "merged":
@@ -1142,6 +1149,31 @@ def validate_output(out):
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted"):
         return []
+    if info.get("review_video"):
+        lessons.select_topics(out, 1, review=True)
+        selection = json.loads((out / "selection-audit.json").read_text())
+        if not isinstance(selection.get("candidates"), list) or not selection.get(
+            "advisor_summary"
+        ):
+            raise ValueError(
+                "selection audit needs candidates and an advisor decision summary"
+            )
+        for candidate in selection["candidates"]:
+            if any(
+                not candidate.get(key)
+                for key in (
+                    "prs",
+                    "idea",
+                    "reuse",
+                    "evidence",
+                    "tradeoff",
+                    "decision",
+                    "reason",
+                )
+            ):
+                raise ValueError(
+                    "selection audit candidate lacks evidence or a reuse comparison"
+                )
     delivery = json.loads((out / "delivery.json").read_text())
     title_summary = (
         info.get("delivery_format") == "canvas"
@@ -1265,10 +1297,25 @@ def generate(out, prompt, revision_notes=""):
         p: hashlib.sha256(p.read_bytes()).hexdigest()
         for p in list(out.rglob("*.json"))
         + list((out / "messages").glob("*-inventory.md"))
-        if p not in {out / "coverage.json", out / "review-learning.json"}
+        if not (p.parent == out and p.name.endswith(".request.json"))
+        and p
+        not in {
+            out / "coverage.json",
+            out / "review-learning.json",
+            out / "selection-audit.json",
+            out / "review-selection.json",
+        }
     }
 
     def run_model(text, log_name):
+        trace.model_trace(
+            out,
+            log_name.removesuffix(".log"),
+            text,
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+            "haiku",
+        )
         with (out / log_name).open("w") as log:
             subprocess.run(
                 [
@@ -1278,10 +1325,15 @@ def generate(out, prompt, revision_notes=""):
                     "--dangerously-skip-permissions",
                     "--model",
                     "claude-sonnet-5-5",
+                    "--advisor",
+                    "claude-opus-5-5",
                     "--output-format",
-                    "text",
+                    "stream-json",
+                    "--verbose",
                 ],
                 stdout=log,
+                stderr=subprocess.STDOUT,
+                env=dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
                 check=True,
             )
         if any(
@@ -1336,7 +1388,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=["prepare", "generate", "learn", "validate", "publish", "attach-video"],
+        choices=[
+            "prepare",
+            "generate",
+            "learn",
+            "validate",
+            "publish",
+            "attach-video",
+            "attach-pr-videos",
+        ],
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--mirror", type=Path, default=Path("."))
@@ -1368,7 +1428,11 @@ def main():
             args.videos_dir,
             options.get("max", 1),
             dict(os.environ),
-            options.get("instructions", ""),
+            options.get("instructions", "")
+            + f"\nFinal playback speed: {options.get('playback_speed', 1)}.",
+            review=options.get("review", False),
+            playback_speed=options.get("playback_speed", 1),
+            quality_checks=options.get("quality_checks", False),
         )
         return
     if args.command == "generate":
@@ -1409,6 +1473,17 @@ def main():
         config["channel"],
     )
     state = {"messages": {}} if args.isolated else store.read()
+    if args.command == "attach-pr-videos":
+        if args.isolated:
+            parser.error("isolated previews cannot attach videos to PRs")
+        if config.get("learning_videos", {}).get("attach_to_prs", False):
+            briefing_pr_videos.attach(
+                args.out,
+                config["repos"],
+                state,
+                f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+            )
+        return
     if args.command == "attach-video":
         if args.isolated or not args.file_id:
             parser.error("attach-video requires --file-id and cannot be isolated")
@@ -1519,10 +1594,24 @@ def main():
             store.save,
             canvas_invitation=invitation,
             finalize=finalize,
+            reviewed=(
+                list(state.get("reviewed_prs", []))
+                + [
+                    {
+                        "pr": lesson["pr"],
+                        "head_sha": lesson["head_sha"],
+                        "date": delivery["cutoff"][:10],
+                    }
+                    for lesson in found
+                    if lesson.get("kind") == "review"
+                ]
+            )[-60:],
             taught=lessons.remember(
                 state.get("taught_lessons"), found, delivery["cutoff"][:10]
             ),
         )
+
+        write_json(args.out / "publication-state.json", state)
 
 
 if __name__ == "__main__":

@@ -187,3 +187,49 @@ keep the claimed repetition faithful to the comments and their later resolution.
 Before finishing, check output paths and exact coverage keys in Python. Check the
 invitation length in titles mode; otherwise check the TLDR word count. Finish the report with one brief material freshness/uncertainty line. The
 full report may be long; the Slack message should be easy to read in a minute.
+
+Selection and reviewability (required before drafting Learning):
+- Use Haiku subagents for bounded evidence extraction across configured repos. Give
+  each the same questions and require exact PR IDs, source URLs, mechanisms and
+  unknowns. They must not edit evidence or publish. You own the synthesis.
+- Consult the Opus advisor after comparing candidates and again to challenge the
+  proposed lesson and review questions. Save a brief decision summary of what you
+  accepted/rejected and why, not hidden reasoning or a claim to expose it.
+- Scan ALL merged PRs in the window across ALL repos before picking. Group related
+  PRs into capabilities rather than counting a prolific series as many candidates.
+  Shortlist at least five distinct ideas when available (otherwise all of them).
+  Do not let easy animation, vivid trivia, number of PRs, author, or a measurable
+  microbenchmark outrank practical value. A narrow platform trick needs a strong
+  explanation of why this team will use it again; do not automatically favor CI.
+- For each candidate ask: What concrete problem does this solve? What mechanism
+  is surprising? Where ELSE could a teammate use it in the next month? What are
+  the limits/counterexamples? What source proves it? Compare reusable architecture,
+  correctness and product capabilities as well as performance and tooling.
+- Write selection-audit.json with {"candidates": [{"prs": ["owner/repo#123"],
+  "idea": "...", "reuse": "specific second use", "evidence": ["source URLs"],
+  "tradeoff": "when this does not apply", "decision": "selected|rejected",
+  "reason": "why this beats/loses to the alternatives"}],
+  "advisor_summary": "brief critique and resulting decisions"}.
+  Cite the evidence actually inspected. A useful general principle should lead
+  the lesson; local implementation details illustrate it. Do not invent scores.
+
+If window.review_video is true, also choose ONE substantial open, non-draft PR
+waiting for review. This is an ADDITIONAL review walkthrough, not the merged-work
+lesson. Compare at least three eligible candidates when available. Prefer a
+current review request with important behavior, multiple interacting components,
+state transitions or a migration that makes review difficult. Lines changed alone
+are not importance. Exclude release/bump PRs and already approved work; do not
+mislabel author-blocked work as waiting for reviewers. Consider prior walkthroughs
+in window.previous_reviews and avoid the same PR/head unless a new review need is
+explicitly explained.
+
+Write review-selection.json with {"pr": "owner/repo#123", "head_sha": "exact
+collected headRefOid", "heading": "exact level-3 report heading", "reason": "why
+this review benefits now", "alternatives": [{"pr": "...", "reason": "..."}]}.
+If there is no eligible PR, use {"pr": null, "reason": "concrete reason"}; do not
+choose a draft just to fill the slot. Add ## Review walkthrough with exactly that
+### heading, the PR link, its author and requested reviewers, what/why/how, why it
+is hard to review, and the highest-value questions. It counts toward the report's
+eight-open-PR limit. The video researcher will inspect the actual code at that
+head, not treat the PR description as proof. The report is review guidance, not
+an approval or a claim that the change is correct.

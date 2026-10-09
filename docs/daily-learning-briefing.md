@@ -94,7 +94,7 @@ or ambiguous, the process stops rather than blindly duplicating a message. An
 operator must inspect the thread and repair that intent on the state branch with the
 verified timestamp, or clear it only after verifying no message was accepted. An
 explicit Slack rejection is safe to retry. Expired/unavailable artifacts block
-recovery; artifact retention is 45 days. GitHub workflow failures remain visible in
+recovery; artifact retention is 90 days. GitHub workflow failures remain visible in
 Actions. No extra failure message is posted to the team channel.
 
 The generator is given no Slack token or write credentials. It must not change
@@ -250,3 +250,57 @@ The optional `split-delivery` recovery input restores the Canvas card on the
 original briefing and posts the recovered video with its lesson rule in a separate
 channel message. Both message timestamps are checkpointed, so retrying the repair
 does not duplicate the follow-up. Formatting and split repairs cannot be combined.
+
+
+## Readable videos, selection audits and review walkthroughs
+
+The Sonnet 5.5 report runner now uses `--advisor claude-opus-5-5` and
+`CLAUDE_CODE_SUBAGENT_MODEL=haiku`. The Opus 5.5 video researcher retains medium
+effort and uses Haiku for bounded extraction. Candidate comparisons and advisor
+conclusions are concise decision records; they do not claim to expose hidden
+model reasoning. The generator writes `selection-audit.json` comparing reuse,
+evidence, tradeoffs and why each candidate won or lost across the merged work.
+
+Optional caller settings under `learning_videos`:
+
+- `playback_speed: 0.5` delivers the rendered clip at half speed with pitch-preserving
+  audio. Today's observed 42.5-second clip becomes about 85 seconds. Conversion is
+  applied once before publication; failed conversion suppresses the video, retaining
+  the lesson text and error. The prompt targets 75–120 final seconds for a lesson.
+- `review: true` adds one substantial open PR walkthrough without consuming `max`
+  lesson slots. The report compares eligible PRs and writes `review-selection.json`.
+  Selection requires the collected open state, reviewer dependency and head SHA;
+  approved, draft and author-blocked work are excluded. No suitable candidate gets
+  an explicit reason. Review videos target 3–5 minutes, inspect source and tests at
+  the recorded head, and explain purpose, mechanism, review difficulty and specific
+  questions with evidence and unknowns. Previously covered PR/heads are remembered.
+- `quality_checks: true` requires research, question/answer notes, a storyboard,
+  per-scene QA stills and QA notes. The gate checks the recorded final timing against
+  the actual video duration and requires reading time after the final reveal. These
+  checks cannot prove the agent's timing claims match every rendered frame; still
+  inspection and human viewing remain necessary. A failed gate retains text and
+  the failed video in the private artifact but does not upload the clip to Slack.
+- `attach_to_prs: true` posts one comment per video/source PR, containing the team
+  Slack video permalink and a link to the generation run/artifacts. This is a video
+  link, not a native GitHub video upload; viewers need team Slack access. Review
+  videos attach only to their selected PR and refuse a changed head or closed/draft
+  state. Lesson videos attach to the PR URLs cited as sources in configured repos.
+
+Comment publishing happens only after Slack publication; previews never comment.
+An optional `PR_COMMENT_TOKEN` needs issue-comment write access on the source
+repositories. It falls back to `REPOS_READ_TOKEN`, which must have that write scope
+for this feature despite its historical name. Generation still receives only the
+existing read token. Missing access fails the attachment step visibly and leaves
+per-target receipts, while the already delivered Slack briefing is preserved.
+Rerun the publish job to recover: comments are found by authenticated author and
+video-hash marker, so even an accepted write with a lost response is not duplicated.
+
+The `daily-learning-briefing` artifact retains selection audits, frozen evidence,
+exact model prompts and requested models, structured tool transcripts, runner and
+pinned tooling/kit versions, source/captured assets, questions, research, storyboard,
+QA stills, pacing measurements, MP4s and outcomes for 90 days. Source is copied even
+when an agent fails. `daily-learning-briefing-delivery` separately retains publication
+state and PR-comment receipts after publication, including partial failures. Neither
+artifact serializes credential environments. The rendered video's SHA-256 links its
+pacing record to the PR-comment receipt. Source inspection/QA transcripts may contain
+private repository material; artifacts stay in the caller repository.
