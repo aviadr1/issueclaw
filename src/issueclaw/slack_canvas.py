@@ -77,8 +77,12 @@ async def publish(
             response.raise_for_status()
             result = response.json()
             if not result.get("ok"):
+                # Slack returns the rejected Markdown node/line in `detail`.
+                # Preserve that diagnostic, without dumping the response or token.
+                detail = str(result.get("detail") or "").replace(token, "[redacted]")
                 raise click.ClickException(
                     f"Slack {method}: {result.get('error', 'unknown_error')}"
+                    + (f" — {detail}" if detail else "")
                 )
             return result
 

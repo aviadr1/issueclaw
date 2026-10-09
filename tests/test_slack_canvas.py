@@ -3,6 +3,7 @@ import hashlib
 import json
 from unittest.mock import patch
 
+import click
 import httpx
 import pytest
 from click.testing import CliRunner
@@ -228,3 +229,30 @@ def test_confirmed_legacy_summary_checkpoint_does_not_repost(tmp_path):
                 text, "C123", "1790860328.061289", state, "secret-test"
             )
         )
+
+
+def test_canvas_rejection_preserves_actionable_detail_and_allows_corrected_retry(
+    tmp_path,
+):
+    detail = "'content' error: line 28: Unsupported block type"
+
+    def handle(request):
+        return httpx.Response(
+            200, json={"ok": False, "error": "canvas_creation_failed", "detail": detail}
+        )
+
+    state = tmp_path / "state.json"
+    with patch.object(
+        slack_canvas,
+        "make_client",
+        return_value=httpx.AsyncClient(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(handle)
+        ),
+    ):
+        with pytest.raises(
+            click.ClickException, match="line 28: Unsupported block type"
+        ):
+            asyncio.run(
+                slack_canvas.publish("# Report", "Report", "C123", state, "secret-test")
+            )
+    assert not state.exists()
