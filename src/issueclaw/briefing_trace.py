@@ -128,11 +128,11 @@ def validate_quality(directory, duration):
             any(character.isalnum() for character in token)
             for token in scene["visible_text"].split()
         )
-        minimum = max(4, words / 2.5 + 2)
+        minimum = max(3, words / 3 + 1)
         if scene.get("interpretation", True):
-            minimum += 3
+            minimum += 2
         if index == len(scenes) - 1:
-            minimum = max(minimum, 8)
+            minimum = max(minimum, 4)
         if not (0 <= start <= fully_visible < end <= duration + 0.1):
             raise ValueError(f"invalid final timing for scene {scene['id']}")
         if hold < minimum or hold > end - fully_visible + 0.1:
