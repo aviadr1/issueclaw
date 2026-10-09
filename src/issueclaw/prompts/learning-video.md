@@ -141,6 +141,14 @@ Avoid unchanged screens longer than about 4 seconds. If a beat has nothing left
 to explain, move on or shorten its text. No idle bouncing, spinners, camera drift,
 looping particles or decorative progress bars to fake activity. Semantic progress
 must be visible. Do not make the reader chase moving text.
+Keep diagram anchors and scale stable across adjacent explanatory beats. Reveal
+containers and their contents in causal order: a nested box must remain inside
+its parent throughout its entrance, and a log record must not travel before its
+source, route and destination exist. Prefer opacity reveals at final geometry to
+independently growing nested boxes. A cursor represents a real active operation:
+keep it within that operation's bounds and hide it when the operation ends. Never
+let it drift into empty space merely to keep the screen moving. Ease arrivals and
+direction changes; avoid abrupt turns, overlapping labels and repeated layout resets.
 
 For each reading window allow max(3 seconds, word count / 3 + 1 second), plus
 2 seconds when interpreting code/diagram labels. Reading and explanatory motion
@@ -161,6 +169,10 @@ show the reviewed short SHA. Do not imply that an open PR is shipped.
 
 Render and inspect the busiest frame of EVERY scene and save the PNGs as qa/<scene-id>.png (one for every storyboard scene).
 Also inspect motion across the full timeline, especially 0–15 seconds, at 1x.
+Inspect short sequences immediately before, during and after reveals, record
+departures/arrivals, operation endings and scene transitions. Check cursor bounds,
+parent/child containment and synchronization between markers and boxes. Busiest
+stills and a passing freeze detector cannot establish that animation is coherent.
 Write qa.md with frame/time samples checked, fixes and remaining limitations.
 Answer as a cold viewer: By 10 seconds, what system and problem do I understand?
 What changed, why does it work, what should a senior engineer reuse, and when not?
