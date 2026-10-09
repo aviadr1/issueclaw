@@ -92,20 +92,27 @@ process environments. Do not ask for or expose hidden chain-of-thought.
 Write storyboard.json: an array of scenes with id, question, visible_text (one string),
 visual_description, source_urls, start_seconds, end_seconds, fully_visible_seconds,
 reading_hold_seconds, and interpretation (true for code/diagrams). Times refer to
-the FINAL video; fully_visible_seconds is the absolute time the last reveal ends. The pipeline plays the
-render at the speed in the caller instructions (0.5 means twice as long).
-For a lesson aim for 75–120 final seconds; for a review aim for 3–5 minutes.
-The kit's under-45-seconds cap DOES NOT apply to review walkthroughs. Shorten the
-content rather than speeding it up. One idea per scene, one short caption at a
-time, legible labels, minimal code excerpts. Allocate final stable reading time
-AFTER the last reveal: at least max(4 seconds, visible word count / 2.5 + 2 seconds),
-and 3 more seconds for a code/diagram interpretation. Count whitespace-separated
-tokens containing at least one letter or digit; separator marks such as | and ·
-are not words. Include all visible text, not only newly introduced captions. Do not count a text-write
-animation or transition as reading time. The final scene/end card needs at least 8 seconds after its last reveal, even
-when an earlier takeaway scene already had 8 seconds.
-Keep sounds pitch-correct; use the kit's existing audio. Do not retime video.mp4
-in the agent; the publisher's deterministic pacing step does that once.
+the FINAL video; fully_visible_seconds is the absolute time the last reveal ends.
+Render and deliver at 1x: keep animation, transitions, music and sound effects at
+native speed. Create reading time by extending a scene's stable state AFTER the
+caption/diagram has appeared. Do not slow the composition clock, lower the frame
+rate, stretch audio, or add long typing/reveal animations to meet a reading budget.
+Recompute soundtrack cue positions when scene boundaries change; keep the music's
+original tempo. Do not hold or repeat audio samples during a caption pause.
+For a lesson aim for 60–90 seconds; for a review aim for 2–3 minutes. These are
+content budgets, not minimum runtimes: do not pad a concise explanation. The kit's
+under-45-seconds cap does not apply. Shorten captions or split ideas when needed.
+Use one idea per scene, one short caption at a time, legible labels and minimal
+code excerpts. After the last reveal, allow at least
+max(3 seconds, visible word count / 3 + 1 second), plus 2 seconds for code/diagrams.
+Count whitespace-separated tokens containing at least one letter or digit;
+separator marks such as | and · are not words. Include all visible text. Avoid
+repeating verbose labels or permanent chrome that makes every scene unnecessarily
+slow. A short end card needs at least 4 seconds after its last reveal (longer only
+if its text needs it). Keep holds close to the reading budget, rather than doubling
+it. Do not count transitions or text-write animations as stable reading time.
+Use the kit's existing audio at its original tempo. Never retime video.mp4 in the
+agent; the caller's playback_speed must be 1 for this native-speed pacing approach.
 
 For review topics, learning.md may be 250–450 words with Purpose / Mechanism /
 Why review is hard / Questions and evidence / Review route. learning.json retains
@@ -121,8 +128,8 @@ not just a final chat response. Your structured tool transcript and generated
 composition source are preserved automatically in the run artifact.
 
 Before finishing, run the exact publisher check against your raw video:
-`python "{quality_validator}" "{learning_dir}" --playback-speed 0.5`
-(use the caller's actual speed if it differs). This is trusted tooling supplied by
+`python "{quality_validator}" "{learning_dir}" --playback-speed 1`
+This is trusted tooling supplied by
 the job, not code from a source PR. If it fails, fix scene durations/content and
 storyboard, rerender the affected QA stills and raw video, then run it again.
 Do not shorten recorded word counts or invent timing to pass. A final response

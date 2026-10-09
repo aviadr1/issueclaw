@@ -268,22 +268,25 @@ publishing keep standard runners. Runner traces include CPU count and runner nam
 
 Optional caller settings under `learning_videos`:
 
-- `playback_speed: 0.5` delivers the rendered clip at half speed with pitch-preserving
-  audio. The inspected 42.5-second clip becomes about 85 seconds. Conversion is
-  applied once before publication; failed conversion suppresses the video, retaining
-  the lesson text and error. The prompt targets 75–120 final seconds for a lesson.
+- `playback_speed: 1` keeps animation, transitions and audio at their native speed.
+  Add stable caption holds in the composition, then regenerate soundtrack cues
+  without changing musical tempo. Do not stretch the finished video or audio.
+  Lessons target 60–90 seconds without padding shorter explanations. Legacy
+  caller-selected retiming remains available, but is not the recommended pacing.
 - `review: true` adds one substantial open PR walkthrough without consuming `max`
   lesson slots. The report compares eligible PRs and writes `review-selection.json`.
   Selection requires the collected open state, reviewer dependency and head SHA;
   approved, draft and author-blocked work are excluded. No suitable candidate gets
-  an explicit reason. Review videos target 3–5 minutes, inspect source and tests at
+  an explicit reason. Review videos target 2–3 minutes, inspect source and tests at
   the recorded head, and explain purpose, mechanism, review difficulty and specific
   questions with evidence and unknowns. Previously covered PR/heads are remembered.
 - `quality_checks: true` requires research, question/answer notes, a storyboard,
   per-scene QA stills and QA notes. The gate checks the recorded final timing against
   the actual video duration and requires reading time after the final reveal. Word
   counts ignore punctuation-only separators. The video agent must run this same
-  validator before finishing and fix failures, including an 8-second final end card. These
+  validator before finishing and fix failures. Holds allow at least three seconds
+  or visible words / 3 + one second, with two extra seconds for code/diagrams and
+  a four-second end-card minimum. These
   checks cannot prove the agent's timing claims match every rendered frame; still
   inspection and human viewing remain necessary. A failed gate retains text and
   the failed video in the private artifact but does not upload the clip to Slack.

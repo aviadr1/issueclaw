@@ -33,26 +33,38 @@ def test_real_video_doubles_duration_and_keeps_streams(tmp_path, audio):
     assert json.loads((tmp_path / "pacing.json").read_text())["playback_speed"] == 0.5
 
 
-def test_readability_gate_rejects_insufficient_final_hold(tmp_path):
+@pytest.mark.parametrize(
+    "text,interpretation,hold",
+    [("Read this rule.", False, 4), ("word " * 24, False, 9), ("word " * 24, True, 11)],
+)
+def test_readability_gate_allows_caption_budget_but_rejects_short_holds(
+    tmp_path, text, interpretation, hold
+):
     for name in ("questions.md", "research.md", "qa.md"):
         (tmp_path / name).write_text("Reviewed source evidence.")
     (tmp_path / "qa").mkdir()
     (tmp_path / "qa/scene.png").write_bytes(b"png")
     scene = {
         "id": "scene",
-        "visible_text": "Read this rule.",
+        "visible_text": text,
         "start_seconds": 0,
-        "end_seconds": 10,
+        "end_seconds": 2 + hold,
         "fully_visible_seconds": 2,
-        "reading_hold_seconds": 8,
-        "interpretation": False,
+        "reading_hold_seconds": hold,
+        "interpretation": interpretation,
     }
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
-    trace.validate_quality(tmp_path, 10)
-    scene["fully_visible_seconds"] = 8
+    trace.validate_quality(tmp_path, 2 + hold)
+    scene["reading_hold_seconds"] = hold - 0.5
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
     with pytest.raises(ValueError, match="hold"):
-        trace.validate_quality(tmp_path, 10)
+        trace.validate_quality(tmp_path, 2 + hold)
+    # A claimed hold is insufficient if the scene actually ends too early.
+    scene["reading_hold_seconds"] = hold
+    scene["fully_visible_seconds"] = 3
+    (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
+    with pytest.raises(ValueError, match="hold"):
+        trace.validate_quality(tmp_path, 2 + hold)
 
 
 def test_workflow_preserves_traces_without_installed_package(tmp_path):
