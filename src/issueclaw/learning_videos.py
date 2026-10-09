@@ -1,13 +1,15 @@
 """Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
 After the briefing is drafted, each lesson in its Learning section can be handed to
-a separate agent (Sonnet 5.5, medium effort, with an Opus advisor). A lesson can be any kind of
+a separate agent (Sonnet 5.5, high effort, with an Opus advisor and Haiku helpers). A lesson can be any kind of
 knowledge worth sharing: a repeated review problem, a new system or primitive, a
 CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
 the cited PRs, comments and code for what really happened and why, writes a short
 lesson that replaces the briefing's draft in place, and renders a short explainer
 video with the caller's video kit (a checkout of a repository following
-promo-videos' ``src/learnings/AGENT.md``).
+promo-videos' ``src/learnings/AGENT.md``). The kit's lesson engine owns timing,
+motion and layout checks, so the agent writes the story and the picture as data
+rather than animating by hand.
 
 Everything here is optional and fail-soft. A lesson the agent didn't write is
 dropped, and a missing video leaves the lesson as text, so the briefing never waits
@@ -24,8 +26,8 @@ from issueclaw import briefing_trace as trace
 
 MODEL = "claude-sonnet-5-5"
 ADVISOR = "claude-opus-5-5"
-EFFORT = "medium"
-AGENT_TIMEOUT = 45 * 60
+EFFORT = "high"
+AGENT_TIMEOUT = 60 * 60
 RENDER_TIMEOUT = 20 * 60
 PLACEHOLDER = "{{{{learning-video-{n}}}}}"
 HEADING = re.compile(r"^(#{2,6})\s+(.+?)\s*$")

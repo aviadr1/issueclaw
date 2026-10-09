@@ -389,6 +389,7 @@ def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
     assert args[2].endswith("Use our house style.")
     assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
     assert args[args.index("--advisor") + 1] == "claude-opus-5-5"
+    assert args[args.index("--effort") + 1] == "high"
     assert options["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku"
     request = json.loads((tmp_path / "agent.request.json").read_text())
     assert request["model"] == "claude-sonnet-5-5"

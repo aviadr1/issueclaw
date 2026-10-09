@@ -191,3 +191,13 @@ def test_motion_gate_measures_the_rendered_clip(tmp_path, moving):
     report = json.loads((tmp_path / "motion.json").read_text())
     assert report["passed"] is moving
     assert bool(report["freeze_starts_seconds"]) is (not moving)
+
+
+def test_trace_index_links_the_kit_filmstrip_and_motion_report(tmp_path):
+    attempt = tmp_path / "learnings/1"
+    (attempt / "filmstrip").mkdir(parents=True)
+    (attempt / "motion.txt").write_text("Holds of 2.5 s or more\n  none\n")
+    trace.write_index(tmp_path)
+    index = (tmp_path / "TRACE-INDEX.md").read_text()
+    assert "- [filmstrip](learnings/1/filmstrip)" in index
+    assert "- [motion.txt](learnings/1/motion.txt)" in index
