@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from issueclaw.main import cli
-from issueclaw import slack_canvas
+from issueclaw import slack_canvas, slack_canvas_images
 
 
 @pytest.mark.parametrize("fail_info", [False, True])
@@ -470,3 +470,25 @@ def test_invalid_capture_cannot_trigger_upload(tmp_path, failure):
                     image_manifest=manifest,
                 )
             )
+
+
+def test_native_image_waits_for_processing_before_embedding():
+    responses = iter(
+        [
+            {"permalink": "https://team.slack.com/files/U123/FIMAGE", "mimetype": ""},
+            {
+                "permalink": "https://team.slack.com/files/U123/FIMAGE",
+                "mimetype": "image/png",
+            },
+        ]
+    )
+
+    class Files:
+        def file_info(self, file_id):
+            assert file_id == "FIMAGE"
+            return next(responses)
+
+    with patch.object(slack_canvas_images.time, "sleep"):
+        assert (
+            slack_canvas_images.image_info(Files(), "FIMAGE")["mimetype"] == "image/png"
+        )
