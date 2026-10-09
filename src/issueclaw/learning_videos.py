@@ -1,7 +1,7 @@
 """Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
 After the briefing is drafted, each lesson in its Learning section can be handed to
-a separate agent (Claude Opus 5.5, medium effort). A lesson can be any kind of
+a separate agent (Sonnet 5.5, medium effort, with an Opus advisor). A lesson can be any kind of
 knowledge worth sharing: a repeated review problem, a new system or primitive, a
 CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
 the cited PRs, comments and code for what really happened and why, writes a short
@@ -22,7 +22,8 @@ import subprocess
 
 from issueclaw import briefing_trace as trace
 
-MODEL = "claude-opus-5-5"
+MODEL = "claude-sonnet-5-5"
+ADVISOR = "claude-opus-5-5"
 EFFORT = "medium"
 AGENT_TIMEOUT = 45 * 60
 RENDER_TIMEOUT = 20 * 60
@@ -130,7 +131,9 @@ def run_agent(prompt, directory, videos, env, instructions=""):
     if instructions:
         text += "\n\nThe caller's instructions for this lesson and its video:\n"
         text += instructions
-    trace.model_trace(directory, "agent", text, MODEL, subagents="haiku")
+    trace.model_trace(
+        directory, "agent", text, MODEL, advisor=ADVISOR, subagents="haiku"
+    )
     with (directory / "agent.log").open("w") as log:
         subprocess.run(
             [
@@ -140,6 +143,8 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                 "--dangerously-skip-permissions",
                 "--model",
                 MODEL,
+                "--advisor",
+                ADVISOR,
                 "--effort",
                 EFFORT,
                 "--output-format",

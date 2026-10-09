@@ -1175,7 +1175,7 @@ def validate_output(out):
         info.get("delivery_format") == "canvas"
         and info.get("slack_summary_format") == "titles"
     )
-    # Each Opus lesson replaces the learning the briefing wrote, where it wrote it.
+    # Each researched lesson replaces the learning the briefing wrote, where it wrote it.
     report_path = out / "report.md"
     narrative = (
         lessons.replace_learning(

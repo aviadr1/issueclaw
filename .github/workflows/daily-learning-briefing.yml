@@ -160,6 +160,19 @@ jobs:
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
             --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
             --revision-notes "$BRIEFING_REVISION_NOTES"
+      - name: Preserve selection and model trace before rendering
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: daily-learning-selection
+          path: |
+            /tmp/daily-briefing/report.md
+            /tmp/daily-briefing/*selection*.json
+            /tmp/daily-briefing/generation*
+            /tmp/daily-briefing/revision*
+            /tmp/daily-briefing/runner-*.json
+          retention-days: 90
+          if-no-files-found: warn
       - name: Check out the learning video kit
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
         continue-on-error: true
@@ -170,7 +183,7 @@ jobs:
           path: .learning-videos
           token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
           persist-credentials: false
-      - name: Research and render the lesson plus PR review walkthrough (Opus 5.5)
+      - name: Research and render the lesson plus PR review walkthrough (Sonnet with Opus advisor)
         # Optional and fail-soft: the briefing publishes without lessons on failure.
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
         continue-on-error: true
@@ -183,6 +196,16 @@ jobs:
           test -f .learning-videos/src/learnings/AGENT.md
           (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md             --videos-dir .learning-videos
+      - name: Preserve work-in-progress video source after interruption
+        if: always()
+        run: |
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, '.briefing-tools/src')
+          from issueclaw.briefing_trace import preserve_source
+          preserve_source(Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
+          PY
       - name: Validate message and inventory coverage
         env:
           GITHUB_TOKEN: ${{ github.token }}

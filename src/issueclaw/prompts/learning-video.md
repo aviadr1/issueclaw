@@ -70,6 +70,10 @@ For a review, answer what it does, why, how, why reviewing it is difficult, and
 where human attention matters most. Separate established facts, tentative concerns
 and unanswered questions. Do not manufacture findings, or approve/request changes.
 Use Haiku helpers for bounded source/test extraction; you verify their conclusions.
+Use the Opus advisor enabled for this session before settling on your questions
+and again before rendering. Ask it to challenge the mechanism, counterexamples,
+evidence gaps, review route and storyboard readability. Record the critique's
+practical effect in research.md (decisions and changes, not hidden reasoning).
 
 Write research.md with the sources and pinned commits inspected, a concise account
 of findings, counterexamples, alternatives and unresolved questions. Preserve fetched

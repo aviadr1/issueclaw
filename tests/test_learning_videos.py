@@ -382,10 +382,17 @@ def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
     prompt = briefing(tmp_path)
     seen = []
     monkeypatch.setattr(
-        lessons.subprocess, "run", lambda args, **kw: seen.append(args[2])
+        lessons.subprocess, "run", lambda args, **kw: seen.append((args, kw))
     )
     lessons.run_agent(prompt, tmp_path, tmp_path, {}, "Use our house style.")
-    assert seen[0].endswith("Use our house style.")
+    args, options = seen[0]
+    assert args[2].endswith("Use our house style.")
+    assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
+    assert args[args.index("--advisor") + 1] == "claude-opus-5-5"
+    assert options["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku"
+    request = json.loads((tmp_path / "agent.request.json").read_text())
+    assert request["model"] == "claude-sonnet-5-5"
+    assert request["advisor"] == "claude-opus-5-5"
 
 
 def test_rules_go_before_the_closing_invitation_in_title_summaries():

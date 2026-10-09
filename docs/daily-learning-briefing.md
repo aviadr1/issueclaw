@@ -19,7 +19,8 @@ PRs. Open/draft work is curated in the narrative (at most eight linked PRs), wit
 named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
 The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions;
-optional learning lessons use Claude Opus 5.5 at medium effort (see below).
+both reporting and video research use an Opus 5.5 advisor and Haiku subagents.
+Video research uses Sonnet 5.5 at medium effort (see below).
 The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words in paragraph mode. Set `slack_summary_format: "titles"` for a contents
 message: one bullet per narrative topic heading, in Canvas order with lead names,
@@ -189,8 +190,8 @@ last 60) and passed to the next briefing as `window.json` `previous_lessons`, so
 it doesn't teach the same lesson twice.
 
 After the briefing is drafted, the `learn` command gives each of those lessons (up
-to the limit) to a separate agent: Claude Opus 5.5 (`claude-opus-5-5`) at medium
-effort, with a 45-minute cap. Sonnet still writes the briefing itself. The agent
+to the limit) to a separate agent: Claude Sonnet 5.5 (`claude-sonnet-5-5`) at medium
+effort, with an Opus 5.5 advisor, Haiku subagents and a 45-minute cap. The agent
 gets the briefing's draft (`draft.md`) and any review comments it cites
 (`comments.json`), digs into the PRs and code with read-only GitHub access, then
 writes `learnings/<n>/learning.md` (three or four short paragraphs, e.g. Problem /
@@ -202,7 +203,7 @@ a video if no video was made. If the agent leaves before its render finishes, th
 kit's `render-learning.sh` is run to finish it. Nothing here can block the briefing:
 agent and render failures are recorded in `error.txt` or `render.log`, and the
 briefing publishes without the lesson. `learnings.json` records the lessons; a
-rerun, revision or evidence-reuse preview reuses it instead of running Opus again.
+rerun, revision or evidence-reuse preview reuses it instead of running the researcher again.
 Previews keep each video in the artifact for review.
 
 In the Canvas and its Slack topic list, each lesson replaces the learning the
@@ -255,8 +256,8 @@ does not duplicate the follow-up. Formatting and split repairs cannot be combine
 ## Readable videos, selection audits and review walkthroughs
 
 The Sonnet 5.5 report runner now uses `--advisor claude-opus-5-5` and
-`CLAUDE_CODE_SUBAGENT_MODEL=haiku`. The Opus 5.5 video researcher retains medium
-effort and uses Haiku for bounded extraction. Candidate comparisons and advisor
+`CLAUDE_CODE_SUBAGENT_MODEL=haiku`. The Sonnet 5.5 video researcher also uses
+`--advisor claude-opus-5-5`, medium effort, and Haiku for bounded extraction. Candidate comparisons and advisor
 conclusions are concise decision records; they do not claim to expose hidden
 model reasoning. The generator writes `selection-audit.json` comparing reuse,
 evidence, tradeoffs and why each candidate won or lost across the merged work.
