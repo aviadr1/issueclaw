@@ -147,10 +147,15 @@ Skip releases and promotions, automated dependency-bump PRs (follow them to the
 source PR instead), configuration without a rationale, feature plumbing with no
 general insight, and later steps of a series already taught.
 
-Rank candidates by how well the takeaway transfers beyond this codebase, how
-surprising it is, measured impact (real before/after numbers beat estimates), how
-likely others are to repeat the mistake or reuse the tool, and whether it has a
-natural picture. window.json lists `previous_lessons` already taught (title, rule,
+Rank candidates first by a concrete second use for the team, the importance of the
+invariant or mental model, and how many kinds of work benefit; then by the insight
+in the mechanism. Measurements substantiate performance claims; they are NOT a
+prerequisite for teaching correctness, architecture or a new capability. A domain
+example is not automatically a domain-limited lesson: lift the reusable principle
+out of the example and assess that principle. Never reject a strong candidate
+because it has "no numbers", because its numbers are hard to explain, or because
+another topic is easier to animate. Choose the idea first, then design its picture.
+window.json lists `previous_lessons` already taught (title, rule,
 sources, date): don't teach the same lesson or the same PR again unless there is a
 genuinely new twist, such as a regression of an earlier fix, and vary the kind
 from day to day.
@@ -212,6 +217,11 @@ Selection and reviewability (required before drafting Learning):
   "advisor_summary": "brief critique and resulting decisions"}.
   Cite the evidence actually inspected. A useful general principle should lead
   the lesson; local implementation details illustrate it. Do not invent scores.
+- Ask the advisor explicitly to challenge selection bias: would the winner still
+  win without its benchmark or convenient animation? Did you dismiss a broadly
+  reusable correctness mechanism just because its concrete example was billing,
+  recordings, or another domain? Revise the comparison if so. Do not automatically
+  choose those domains either; show the stronger second use and explain the tradeoff.
 
 If window.review_video is true, also choose ONE substantial open, non-draft PR
 waiting for review. This is an ADDITIONAL review walkthrough, not the merged-work
