@@ -156,6 +156,9 @@ def write_index(out):
     ]
     for name in (
         "report.md",
+        "evidence/manifest.json",
+        "evidence",
+        "window.json",
         "selection-audit.json",
         "review-selection.json",
         "learnings.json",
