@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -389,6 +390,7 @@ def test_caller_instructions_reach_the_agent(tmp_path, monkeypatch):
     assert args[2].endswith("Use our house style.")
     assert args[args.index("--model") + 1] == "claude-sonnet-5-5"
     assert args[args.index("--advisor") + 1] == "claude-opus-5-5"
+    assert args[args.index("--effort") + 1] == "high"
     assert options["env"]["CLAUDE_CODE_SUBAGENT_MODEL"] == "haiku"
     request = json.loads((tmp_path / "agent.request.json").read_text())
     assert request["model"] == "claude-sonnet-5-5"
@@ -498,3 +500,17 @@ def test_reused_preview_preserves_old_video_but_generates_a_replacement(tmp_path
     revised = "# Context first\n\nA job calls another job; its logs must follow the active job."
     lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=agent(body=revised))
     assert (tmp_path / "learnings/1/learning.md").read_text() == revised
+
+
+def test_the_shipped_video_prompt_formats_with_every_path(tmp_path, monkeypatch):
+    prompt = Path(lessons.__file__).parent / "prompts/learning-video.md"
+    seen = []
+    monkeypatch.setattr(
+        lessons.subprocess, "run", lambda args, **kw: seen.append((args, kw))
+    )
+    lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    text = seen[0][0][2]
+    assert str(tmp_path) in text and str(tmp_path / "kit") in text
+    assert "briefing_trace.py" in text
+    # the JSON example is the only brace left once every placeholder is filled
+    assert "{" not in text.replace('{"slug"', "")

@@ -20,7 +20,7 @@ named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
 The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions;
 both reporting and video research use an Opus 5.5 advisor and Haiku subagents.
-Video research uses Sonnet 5.5 at medium effort (see below).
+Video research uses Sonnet 5.5 at high effort (see below).
 The full Canvas report has no 550-word limit; only the TLDR is capped
 at 180 words in paragraph mode. Set `slack_summary_format: "titles"` for a contents
 message: one bullet per narrative topic heading, in Canvas order with lead names,
@@ -190,8 +190,8 @@ last 60) and passed to the next briefing as `window.json` `previous_lessons`, so
 it doesn't teach the same lesson twice.
 
 After the briefing is drafted, the `learn` command gives each of those lessons (up
-to the limit) to a separate agent: Claude Sonnet 5.5 (`claude-sonnet-5-5`) at medium
-effort, with an Opus 5.5 advisor, Haiku subagents and a 45-minute cap. The agent
+to the limit) to a separate agent: Claude Sonnet 5.5 (`claude-sonnet-5-5`) at high
+effort, with an Opus 5.5 advisor, Haiku subagents and a 60-minute cap. The agent
 gets the briefing's draft (`draft.md`) and any review comments it cites
 (`comments.json`), digs into the PRs and code with read-only GitHub access, then
 writes `learnings/<n>/learning.md` (three or four short paragraphs, e.g. Problem /
@@ -205,6 +205,20 @@ agent and render failures are recorded in `error.txt` or `render.log`, and the
 briefing publishes without the lesson. `learnings.json` records the lessons; a
 rerun, revision or evidence-reuse preview reuses it instead of running the researcher again.
 Previews keep each video in the artifact for review.
+
+The kit owns the craft of the video. The agent writes the lesson as data
+(`src/learnings/<slug>/lesson.ts`: a cast of objects on a grid and chapters of
+captioned beats), and the kit's lesson engine times every beat from its caption's
+reading budget and its actions, eases every movement, keeps the picture on screen
+between chapters, and writes the sound cues, `storyboard.json` and per-scene QA
+stills. Its check refuses to render overlapping or off-stage objects, captions
+longer than two lines, and beats where nothing visible changes for about four
+seconds. Its QA script adds `filmstrip/` (the whole video at two frames a second,
+timestamped) and `motion.txt` (holds and abrupt single-frame changes per beat),
+which the agent and its advisor read before the publisher's check runs. Hand
+animation (frame numbers, pixel positions, cues) is no longer part of the
+agent's job; the prompt covers research, the story and the review of what was
+rendered.
 
 In the Canvas and its Slack topic list, each lesson replaces the learning the
 briefing wrote, in the same place: the section the lesson came from takes the
@@ -257,7 +271,9 @@ does not duplicate the follow-up. Formatting and split repairs cannot be combine
 
 The Sonnet 5.5 report runner now uses `--advisor claude-opus-5-5` and
 `CLAUDE_CODE_SUBAGENT_MODEL=haiku`. The Sonnet 5.5 video researcher also uses
-`--advisor claude-opus-5-5`, medium effort, and Haiku for bounded extraction. Candidate comparisons and advisor
+`--advisor claude-opus-5-5`, high effort, and Haiku for bounded source extraction and
+a cold-viewer test: a Haiku subagent sees only the caption script and must explain
+the lesson back before the video is built. Candidate comparisons and advisor
 conclusions are concise decision records; they do not claim to expose hidden
 model reasoning. The generator writes `selection-audit.json` comparing reuse,
 evidence, tradeoffs and why each candidate won or lost across the merged work.

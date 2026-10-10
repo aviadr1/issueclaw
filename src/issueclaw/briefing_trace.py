@@ -246,6 +246,8 @@ def write_index(out):
             "narrative.md",
             "motion.json",
             "motion.log",
+            "motion.txt",
+            "filmstrip",
             "research.md",
             "storyboard.json",
             "qa.md",
