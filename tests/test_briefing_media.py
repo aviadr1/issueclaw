@@ -165,24 +165,48 @@ def test_design_media_still_hosts_content_addressed_keys(tmp_path, monkeypatch):
     assert hosted == f"{BASE}/reports/1/{digest}.png"
 
 
-def test_cli_requires_the_bucket_settings(tmp_path, monkeypatch):
-    config = tmp_path / "config.json"
-    config.write_text("{}")
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "daily_briefing",
-            "host-media",
-            "--config",
-            str(config),
-            "--out",
-            str(tmp_path),
-        ],
-    )
+def run_cli(monkeypatch, *args):
     from issueclaw import daily_briefing
 
+    monkeypatch.setattr("sys.argv", ["daily_briefing", *args])
+    daily_briefing.main()
+
+
+def test_host_media_runs_without_the_callers_briefing_config(tmp_path, monkeypatch):
+    # the hosting job checks out only the tooling, never the caller's config
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GITHUB_RUN_ID", "123")
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    calls = []
+
+    def host(*args):
+        calls.append(args)
+        return {"index": None, "lessons": {}}
+
+    monkeypatch.setattr(briefing_media, "host", host)
+    run_cli(
+        monkeypatch,
+        "host-media",
+        "--out",
+        str(tmp_path),
+        "--bucket",
+        "ci-bucket",
+        "--prefix",
+        PREFIX,
+        "--public-base",
+        BASE,
+    )
+    assert calls == [(tmp_path, "ci-bucket", PREFIX, BASE, "123", "2")]
+
+
+def test_cli_requires_the_bucket_settings(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
-        daily_briefing.main()
+        run_cli(monkeypatch, "host-media", "--out", str(tmp_path))
+
+
+def test_briefing_commands_still_require_the_config(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        run_cli(monkeypatch, "validate", "--out", str(tmp_path))
 
 
 def briefing_workflow():
@@ -208,6 +232,8 @@ def test_only_the_data_only_hosting_job_can_mint_upload_credentials():
     # one shell step: install the pinned tooling, then host files; nothing downloaded runs
     assert len(runs) == 1
     assert "issueclaw.daily_briefing host-media" in runs[0]
+    # the caller's repository is not checked out here, so its config file is absent
+    assert "--config" not in runs[0]
     for word in (
         "claude",
         "npm",
