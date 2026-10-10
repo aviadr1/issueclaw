@@ -285,14 +285,16 @@ jobs:
           role-session-name: daily-briefing-${{ github.run_id }}
       - name: Host each video's review media
         env:
-          BRIEFING_CONFIG: ${{ inputs.config }}
           ARTIFACT_BUCKET: ${{ inputs.ci-artifact-bucket }}
           ARTIFACT_PREFIX: ${{ inputs.ci-artifact-prefix }}
           ARTIFACT_PUBLIC_BASE: ${{ inputs.ci-artifact-public-base }}
         run: |
           uv venv /tmp/briefing-venv
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
-          index=$(/tmp/briefing-venv/bin/python -m issueclaw.daily_briefing host-media             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --bucket "$ARTIFACT_BUCKET" --prefix "$ARTIFACT_PREFIX"             --public-base "$ARTIFACT_PUBLIC_BASE")
+          index=$(/tmp/briefing-venv/bin/python -m issueclaw.daily_briefing host-media \
+            --out /tmp/daily-briefing \
+            --bucket "$ARTIFACT_BUCKET" --prefix "$ARTIFACT_PREFIX" \
+            --public-base "$ARTIFACT_PUBLIC_BASE")
           echo "Review media: $index" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v6
         with:

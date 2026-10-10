@@ -1335,7 +1335,9 @@ def main():
             "host-media",
         ],
     )
-    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--config", type=Path, help="Briefing config; every command but host-media"
+    )
     parser.add_argument("--mirror", type=Path, default=Path("."))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--cutoff")
@@ -1359,7 +1361,7 @@ def main():
         help="Preview only; ignore delivery checkpoint",
     )
     args = parser.parse_args()
-    config = json.loads(args.config.read_text())
+    # host-media runs in a job that checks out only this tooling, not the caller's config
     if args.command == "host-media":
         if not (args.bucket and args.prefix and args.public_base):
             parser.error("host-media requires --bucket, --prefix and --public-base")
@@ -1373,6 +1375,9 @@ def main():
         )
         print(hosted["index"] or "No published video to host")
         return
+    if args.config is None:
+        parser.error(f"{args.command} requires --config")
+    config = json.loads(args.config.read_text())
     if args.command == "learn":
         if args.prompt is None or args.videos_dir is None:
             parser.error("learn requires --prompt and --videos-dir")
