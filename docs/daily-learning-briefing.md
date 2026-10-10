@@ -309,20 +309,42 @@ Optional caller settings under `learning_videos`:
   captions that fail to explain the context, problem, change, engineering tradeoff
   and reusable lesson. A failed gate retains text and failed media in the artifact,
   but does not upload that clip to Slack.
-- `attach_to_prs: true` posts one comment per video/source PR, containing the team
-  Slack video permalink and a link to the generation run/artifacts. This is a video
-  link, not a native GitHub video upload; viewers need team Slack access. Review
-  videos attach only to their selected PR and refuse a changed head or closed/draft
-  state. Lesson videos attach to the PR URLs cited as sources in configured repos.
+- `attach_to_prs: true` posts one comment per video/source PR with the video
+  uploaded and embedded as a native player (`gh pr comment --attach`, GitHub CLI
+  2.99+; the publish job installs a pinned, checksum-verified release when the
+  runner's is older), plus links to the hosted review page, the team Slack post
+  and the generation run. If the upload fails, the comment links the hosted video
+  (or the Slack post) instead and the step fails visibly; a rerun finds the
+  comment by its marker and does not post again. Review videos attach only to
+  their selected PR and refuse a changed head or closed/draft state. Lesson videos
+  attach to the PR URLs cited as sources in configured repos.
 
 Comment publishing happens only after Slack publication; previews never comment.
-An optional `PR_COMMENT_TOKEN` needs issue-comment write access on the source
-repositories. It falls back to `REPOS_READ_TOKEN`, which must have that write scope
+An optional `PR_COMMENT_TOKEN` needs write access on the source repositories:
+GitHub requires it to upload media, and only accepts OAuth or classic personal
+access tokens for uploads (fine-grained tokens are not documented to work). It falls back to `REPOS_READ_TOKEN`, which must have that write scope
 for this feature despite its historical name. Generation still receives only the
 existing read token. Missing access fails the attachment step visibly and leaves
 per-target receipts, while the already delivered Slack briefing is preserved.
 Rerun the publish job to recover: comments are found by authenticated author and
 video-hash marker, so even an accepted write with a lost response is not duplicated.
+
+### Hosting review media by URL
+
+Pass `ci-artifact-role-arn`, `ci-artifact-bucket`, `ci-artifact-prefix` and
+`ci-artifact-public-base` (and `ci-artifact-region`, default `us-east-1`) to host
+each video's review media in a public-by-URL CI bucket with no listing. A
+separate `host-media` job, on the caller's `main` only, downloads the run artifact
+as data, assumes the role over OIDC and uploads an allowlist per published video:
+the MP4, its filmstrip, QA stills, motion report and lesson text, plus an index
+page. The agent's transcript, prompts, research, evidence and captured source are
+never uploaded; they stay in the private run artifact. Objects go under
+`<prefix>/daily-learning-briefing/<run>/<attempt>/<uuid>/`, so a URL is hard to
+guess but anyone holding it can share it. Only `host-media` gets `id-token: write`;
+the job that runs the lesson agent never can mint the credentials. The caller must
+grant `id-token: write` in its own permissions. Hosting is optional and fail-soft:
+publication proceeds if it fails or is skipped, and previews from other branches
+skip it. `hosted-media.json` records the URLs that PR comments link.
 
 Start artifact review at `TRACE-INDEX.md`, which links each completed or failed video
 attempt to its questions, evidence, QA, timing and source.
