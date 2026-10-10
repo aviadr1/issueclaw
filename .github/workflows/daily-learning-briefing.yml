@@ -37,6 +37,25 @@ on:
         description: 'Reviewed commit of the video kit'
         type: string
         default: ''
+      ci-artifact-role-arn:
+        description: 'Role the main branch assumes (OIDC) to host review media publicly by URL; empty disables hosting'
+        type: string
+        default: ''
+      ci-artifact-region:
+        type: string
+        default: us-east-1
+      ci-artifact-bucket:
+        description: 'Public-by-URL CI artifact bucket (no listing)'
+        type: string
+        default: ''
+      ci-artifact-prefix:
+        description: "The caller's upload prefix, e.g. ci-artifacts/365d/<org>/<repo>"
+        type: string
+        default: ''
+      ci-artifact-public-base:
+        description: 'HTTPS base URL of the bucket'
+        type: string
+        default: ''
     secrets:
       REPOS_READ_TOKEN:
         required: true
@@ -232,9 +251,62 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-  publish:
+  host-media:
+    # Its own job, so the only steps that can mint the upload credentials are these:
+    # the agent's job never gets id-token, and this one treats the artifact as data.
     needs: [plan, generate]
-    if: ${{ inputs.post-to-slack }}
+    if: ${{ !cancelled() && needs.generate.result == 'success' && inputs.ci-artifact-role-arn != '' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/download-artifact@v6
+        with:
+          name: daily-learning-briefing
+          path: /tmp/daily-briefing/
+      - name: Assume the repository's CI artifact upload role
+        uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+        with:
+          role-to-assume: ${{ inputs.ci-artifact-role-arn }}
+          aws-region: ${{ inputs.ci-artifact-region }}
+          role-session-name: daily-briefing-${{ github.run_id }}
+      - name: Host each video's review media
+        env:
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          ARTIFACT_BUCKET: ${{ inputs.ci-artifact-bucket }}
+          ARTIFACT_PREFIX: ${{ inputs.ci-artifact-prefix }}
+          ARTIFACT_PUBLIC_BASE: ${{ inputs.ci-artifact-public-base }}
+        run: |
+          uv venv /tmp/briefing-venv
+          uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
+          index=$(/tmp/briefing-venv/bin/python -m issueclaw.daily_briefing host-media             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --bucket "$ARTIFACT_BUCKET" --prefix "$ARTIFACT_PREFIX"             --public-base "$ARTIFACT_PUBLIC_BASE")
+          echo "Review media: $index" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: daily-learning-media
+          path: |
+            /tmp/daily-briefing/hosted-media.json
+            /tmp/daily-briefing/hosted-media.html
+          retention-days: 90
+          if-no-files-found: warn
+
+  publish:
+    needs: [plan, generate, host-media]
+    # Hosting is optional: publish whether it succeeded, failed or was skipped.
+    if: ${{ !cancelled() && inputs.post-to-slack && needs.generate.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -255,6 +327,12 @@ jobs:
         with:
           name: daily-learning-briefing
           path: /tmp/daily-briefing/
+      - name: Use the hosted review media, when there is any
+        continue-on-error: true
+        uses: actions/download-artifact@v6
+        with:
+          name: daily-learning-media
+          path: /tmp/daily-briefing/
       - name: Publish or resume Slack thread
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -265,6 +343,19 @@ jobs:
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing publish \
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing
+      - name: Use a GitHub CLI that can attach video to PR comments (2.99+)
+        run: |
+          set -euo pipefail
+          have=$(gh --version | head -1 | awk '{print $3}')
+          if printf '%s\n%s\n' 2.99.0 "$have" | sort -V -C; then
+            echo "gh $have can attach video"
+            exit 0
+          fi
+          v=2.102.0
+          curl -fsSLo /tmp/gh.tgz "https://github.com/cli/cli/releases/download/v$v/gh_${v}_linux_amd64.tar.gz"
+          echo "bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386  /tmp/gh.tgz" | sha256sum -c -
+          tar -xzf /tmp/gh.tgz -C /tmp
+          echo "/tmp/gh_${v}_linux_amd64/bin" >> "$GITHUB_PATH"
       - name: Attach published videos to their source PRs
         env:
           GITHUB_TOKEN: ${{ github.token }}

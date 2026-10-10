@@ -9,11 +9,11 @@ import asyncio
 import hashlib
 import json
 import re
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from issueclaw import s3_hosting
 from issueclaw.report_evidence import compact_discussions, gh_json
 
 
@@ -376,8 +376,6 @@ async def capture(config, out, browser):
 
 def host_media(manifest_path, bucket, prefix, public_base):
     """Immutable objects are verified before they can be selected for publication."""
-    import httpx
-
     manifest = json.loads(manifest_path.read_text())
     if not public_base.startswith("https://"):
         raise ValueError("Media hosting requires HTTPS")
@@ -388,26 +386,9 @@ def host_media(manifest_path, bucket, prefix, public_base):
             raise ValueError("Capture changed after manifest creation")
         video = media.get("kind") == "video"
         key = f"{prefix.strip('/')}/{digest}.{'webm' if video else 'png'}"
-        subprocess.run(
-            [
-                "aws",
-                "s3",
-                "cp",
-                str(path),
-                f"s3://{bucket}/{key}",
-                "--content-type",
-                "video/webm" if video else "image/png",
-                "--only-show-errors",
-            ],
-            check=True,
-            timeout=90,
+        media["hosted_url"] = s3_hosting.put(
+            path, bucket, key, public_base, kind="video/webm" if video else "image/png"
         )
-        url = public_base.rstrip("/") + "/" + key
-        response = httpx.get(url, timeout=30)
-        response.raise_for_status()
-        if hashlib.sha256(response.content).hexdigest() != digest:
-            raise ValueError("Hosted image differs from inspected capture")
-        media["hosted_url"] = url
         manifest_path.write_text(json.dumps(manifest, indent=2))
 
 

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
-from issueclaw import briefing_pr_videos
+from issueclaw import briefing_media, briefing_pr_videos
 from issueclaw import briefing_trace as trace
 from issueclaw import learning_videos as lessons
 from issueclaw import report_evidence as report
@@ -1332,6 +1332,7 @@ def main():
             "publish",
             "attach-video",
             "attach-pr-videos",
+            "host-media",
         ],
     )
     parser.add_argument("--config", type=Path, required=True)
@@ -1347,6 +1348,11 @@ def main():
     parser.add_argument("--file-id", action="append", default=[])
     parser.add_argument("--format-message", action="store_true")
     parser.add_argument("--split-delivery", action="store_true")
+    parser.add_argument("--bucket", help="host-media: public-by-URL CI artifact bucket")
+    parser.add_argument("--prefix", help="host-media: this repository's upload prefix")
+    parser.add_argument(
+        "--public-base", help="host-media: HTTPS base URL of the bucket"
+    )
     parser.add_argument(
         "--isolated",
         action="store_true",
@@ -1354,6 +1360,19 @@ def main():
     )
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
+    if args.command == "host-media":
+        if not (args.bucket and args.prefix and args.public_base):
+            parser.error("host-media requires --bucket, --prefix and --public-base")
+        hosted = briefing_media.host(
+            args.out,
+            args.bucket,
+            args.prefix,
+            args.public_base,
+            os.environ["GITHUB_RUN_ID"],
+            os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+        )
+        print(hosted["index"] or "No published video to host")
+        return
     if args.command == "learn":
         if args.prompt is None or args.videos_dir is None:
             parser.error("learn requires --prompt and --videos-dir")
