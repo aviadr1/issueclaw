@@ -78,6 +78,21 @@ sources, coverage and message artifact without writing a checkpoint or contactin
 Slack. An optional aware ISO cutoff previews a prior window; open PR/reviewer/CI
 states remain current, not reconstructed historical snapshots.
 
+To recover a run that failed before producing a report, callers can explicitly
+enable publication with the original timezone-aware `cutoff` and `post-to-slack:
+true`. Do not pass `run-early` or reuse preview evidence. This recollects evidence
+for the original window, starting at the last successful delivery. A cutoff without
+a timezone or in the future is rejected; an already delivered cutoff is a no-op.
+Use the same publication concurrency group as scheduled runs. A normal rerun on
+a later day without an explicit cutoff would instead select that day's window.
+
+Read-only GitHub evidence requests retry truncated/invalid JSON, timeouts,
+connection failures, HTTP 5xx, and rate limits up to four total attempts. Backoff
+is 2, 4, and 8 seconds plus jitter (30 seconds plus jitter for rate limits), with
+a 180-second timeout per attempt. Authentication, permission, and other permanent
+errors fail immediately. Exhausted requests are recorded in `evidence/manifest.json`
+as incomplete sources, keeping publication blocked and preserving diagnostics.
+
 Before posting, a checkpoint on the caller's dedicated state branch records the
 prepared artifact run ID and content digest. Every message has a stable metadata
 key and a durable intent/receipt. Only a fully posted thread advances last_cutoff.
