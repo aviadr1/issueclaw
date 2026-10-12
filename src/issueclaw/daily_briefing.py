@@ -53,7 +53,11 @@ def window(now, zone, hour, weekdays=None):
 def coverage_window(config, now, last_cutoff=None, cutoff=None):
     start, end = window(now, config["timezone"], config["hour"], config.get("weekdays"))
     if cutoff:
-        end = report.instant(cutoff).astimezone(timezone.utc)
+        end = report.instant(cutoff)
+        # A recovery must not skip unseen work by advancing the durable cursor.
+        if end.tzinfo is None or end > now:
+            raise ValueError("cutoff must be timezone-aware and no later than now")
+        end = end.astimezone(timezone.utc)
         start = previous_cutoff(
             end.astimezone(ZoneInfo(config["timezone"])),
             config.get("weekdays", range(7)),

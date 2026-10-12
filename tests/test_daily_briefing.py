@@ -31,6 +31,29 @@ def test_scheduled_delay_preserves_eight_am_cutoff():
     assert start.isoformat() == "2026-10-01T05:00:00+00:00"
 
 
+@pytest.mark.parametrize("cutoff", ["2026-10-12T08:00:00", "2026-10-14T08:00:00+03:00"])
+def test_recovery_cutoff_cannot_be_ambiguous_or_advance_into_the_future(cutoff):
+    with pytest.raises(ValueError, match="cutoff"):
+        daily.coverage_window(
+            {"timezone": "Asia/Jerusalem", "hour": 8, "weekdays": [0, 1, 2, 3, 4]},
+            datetime(2026, 10, 13, tzinfo=timezone.utc),
+            cutoff=cutoff,
+        )
+
+
+def test_monday_recovery_keeps_original_window_when_run_on_tuesday():
+    start, end = daily.coverage_window(
+        {"timezone": "Asia/Jerusalem", "hour": 8, "weekdays": [0, 1, 2, 3, 4]},
+        datetime(2026, 10, 13, 10, tzinfo=timezone.utc),
+        last_cutoff="2026-10-09T05:00:00+00:00",
+        cutoff="2026-10-12T08:00:00+03:00",
+    )
+    assert (start.isoformat(), end.isoformat()) == (
+        "2026-10-09T05:00:00+00:00",
+        "2026-10-12T05:00:00+00:00",
+    )
+
+
 def test_collect_includes_old_open_drafts_and_reviewer_identity(monkeypatch, tmp_path):
     row = dict(
         number=1,
@@ -480,6 +503,7 @@ def test_github_failure_preserves_actionable_stderr(monkeypatch):
         )
 
     monkeypatch.setattr(report.subprocess, "run", failed)
+    monkeypatch.setattr(report.time, "sleep", lambda _: None)
     with pytest.raises(RuntimeError, match="API rate limit exceeded"):
         report.gh_json("api", "graphql")
 

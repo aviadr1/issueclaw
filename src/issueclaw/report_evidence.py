@@ -2,8 +2,11 @@
 
 import argparse
 import json
+import logging
+import random
 import re
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,15 +14,71 @@ from pathlib import Path
 from issueclaw.pr_waiting import classify_waiting
 
 
+class EvidenceRequestError(RuntimeError):
+    """A source could not be read completely; publication must remain blocked."""
+
+
 def gh_json(*args):
-    try:
-        result = subprocess.run(
-            ["gh", *args], capture_output=True, text=True, check=True, timeout=180
-        )
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "GitHub request failed").strip()[:1500]
-        raise RuntimeError(f"GitHub evidence request failed: {detail}") from exc
-    return json.loads(result.stdout)
+    """Retry transient read failures, never accepting partial JSON as evidence.
+
+    This helper is only for read-only evidence queries, not GitHub mutations.
+    """
+    attempt = 0
+    while True:
+        attempt += 1
+        rate_limited = False
+        try:
+            result = subprocess.run(
+                ["gh", *args], capture_output=True, text=True, check=True, timeout=180
+            )
+            return json.loads(result.stdout)
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            json.JSONDecodeError,
+        ) as exc:
+            if isinstance(exc, subprocess.CalledProcessError):
+                detail = (exc.stderr or "GitHub request failed").strip()[:1500]
+                lower = detail.lower()
+                rate_limited = "rate limit" in lower or "http 429" in lower
+                transient = (
+                    rate_limited
+                    or bool(re.search(r"\bhttp 5\d\d\b", lower))
+                    or any(
+                        marker in lower
+                        for marker in (
+                            "unexpected end of json input",
+                            "unexpected eof",
+                            "connection reset",
+                            "connection refused",
+                            "timed out",
+                            "timeout",
+                            "temporary failure",
+                            "tls handshake",
+                        )
+                    )
+                )
+            else:
+                transient = True
+                # Do not include the command, query, or response body in retry logs.
+                detail = (
+                    "GitHub request timed out"
+                    if isinstance(exc, subprocess.TimeoutExpired)
+                    else "GitHub returned invalid JSON"
+                )
+            # A bounded retry budget must still fail closed when evidence is missing.
+            if not transient or attempt == 4:
+                raise EvidenceRequestError(
+                    f"GitHub evidence request failed after {attempt} attempt(s): {detail}"
+                ) from exc
+            delay = (30 if rate_limited else 2**attempt) + random.uniform(0, 1)
+            logging.getLogger(__name__).warning(
+                "Transient GitHub evidence failure (%s); retry %d/4 in %.1fs",
+                type(exc).__name__,
+                attempt + 1,
+                delay,
+            )
+            time.sleep(delay)
 
 
 def instant(value):
@@ -571,7 +630,13 @@ def collect(config, start, end, out_dir, *, include_open=False, compact=False):
             (out_dir / (repo.replace("/", "--") + "--inventory.json")).write_text(
                 json.dumps(inventory, indent=2) + "\n"
             )
-        except (subprocess.SubprocessError, ValueError, KeyError, OSError) as exc:
+        except (
+            EvidenceRequestError,
+            subprocess.SubprocessError,
+            ValueError,
+            KeyError,
+            OSError,
+        ) as exc:
             manifest["errors"].append({"repo": repo, "error": str(exc)})
     manifest["complete"] = not manifest["errors"]
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
