@@ -105,9 +105,28 @@ Use clear, concrete language:
   waiting person is unverified, not absent. Use the activity snapshot's as_of time,
   which can be later than the merge cutoff. Never present closed/merged PRs as waiting.
 - CI names observed checks and statuses, with exact run links. Failed, pending,
-  skipped, cancelled and missing differ. Never say 'all green'. If only a security
-  scan is visible, tests/types are unknown. Failed security CI alone does not prove
-  a vulnerability. Do not guess a cause or assign an owner without evidence.
+  skipped, cancelled and missing differ. Never say 'all green'. Read each run's
+  jobs and failed steps: a successful workflow may have run only its planner while
+  skipping every scan/test. Name the executed job; do not call a skipped workload
+  successful. Workflow success alone never proves test/scan coverage.
+- `skipped_runs` is quiet audit evidence, not an incident list. Omit routine skipped
+  comment/status-sync runs from headlines and prose unless a specific expected gate
+  is blocked. For absent tests/types, read `workflow_policies` at the exact head:
+  PR-only, manual-only, scheduled and branch/path-filtered checks are not expected
+  on every main push. Say "PR/manual validation; no main-push result" when supported,
+  instead of repeating alarming "unknown tests/types" caveats. This does not prove
+  those checks passed on the PR. If expected coverage cannot be established, state
+  the narrow evidence limit once without declaring a failure.
+- A later success with the same workflow name and SHA does NOT establish recovery:
+  compare event, run attempt, executed jobs/lanes and target revision. A manual IDK
+  lane cannot clear an earlier sports smoke failure. Keep differing coverage
+  separate and leave a failure unresolved unless equivalent coverage is proven.
+  Names alone cannot prove identical test selection. `issue_comment`, `workflow_run`
+  and dispatch runs may check out another revision: their head SHA can identify the
+  workflow definition rather than the tested code. Do not attribute their result
+  to default-branch code without target evidence. Failed security CI alone does not
+  prove a vulnerability. Use failed job/step names to localize failures; do not
+  guess a root cause or assign an owner without evidence.
 - Verify numeric denominators and environments. Historical selection replays are
   not runtime/production speedups; dev measurements are dev measurements. Drop
   measurements that cannot be explained accurately and simply.
