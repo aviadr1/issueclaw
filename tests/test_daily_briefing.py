@@ -257,22 +257,18 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         return {"complete": True, "repositories": [{"file": "repo.json"}]}
 
     def github(*args):
-        return {
-            "data": {
-                "repository": {
-                    "defaultBranchRef": {
-                        "name": "main",
-                        "target": {
-                            "oid": "abc",
-                            "checkSuites": {
-                                "nodes": [],
-                                "pageInfo": {"hasNextPage": False},
-                            },
-                        },
-                    }
-                }
-            }
-        }
+        if args[:2] == ("api", "graphql"):
+            return {"data": {"repository": {"object": None}}}
+        endpoint = args[-1]
+        if endpoint == "repos/org/repo":
+            return {"default_branch": "main"}
+        if endpoint.endswith("/git/ref/heads/main"):
+            return {"object": {"sha": "abc"}}
+        if endpoint.endswith("/commits/main"):
+            return {"sha": "abc"}
+        if "/actions/runs?" in endpoint:
+            return [{"total_count": 0, "workflow_runs": []}]
+        raise AssertionError(args)
 
     monkeypatch.setattr(report, "collect", collect)
     monkeypatch.setattr(report, "gh_json", github)
@@ -291,6 +287,9 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         datetime(2026, 10, 2, 6, tzinfo=timezone.utc),
     )
     assert len(json.loads((out / "inventory.json").read_text())) == 2
+    ci = json.loads((out / "ci.json").read_text())
+    assert ci[0]["head_sha"] == "abc"
+    assert ci[0]["latest_head_runs"] == []
     assert (
         json.loads((out / "tickets.json").read_text())[0]["metadata"]["status"]
         == "Done"

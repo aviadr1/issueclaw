@@ -66,8 +66,14 @@ succeeded before relying on the replaced morning's skip.
 The weekly collector remains unchanged by default. Daily collection opts into
 all open PRs and includes current head-SHA checks and requested reviewers. A query
 reaching GitHub's 1,000-result search limit blocks publication rather than silently
-omitting PRs. CI collection pages check suites on the current default-branch commit; per-PR
-check rollups identify checks on the current PR head. Discussions use paginated
+omitting PRs. CI collection pins the default-branch commit, pages workflow runs
+and attempt-specific jobs, and reads workflow triggers from that same commit.
+It keeps failed and manual runs separate: a later success does not prove the same
+tests ran. Skipped runs stay in audit evidence, while the report focuses on
+executed jobs and actionable failures. A successful planner with skipped tests is
+not test success; PR/manual-only triggers explain absent main-push checks without
+inventing either a failure or a pass. Incomplete pagination or a moving branch
+blocks publication. Per-PR check rollups identify checks on the current PR head. Discussions use paginated
 GraphQL comments, reviews and inline threads, avoiding thousands of REST requests
 when rebuilding the 30-day history. Timezone data ships with the package for Windows.
 
