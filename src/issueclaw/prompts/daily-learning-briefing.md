@@ -37,10 +37,11 @@ If window.delivery_format is "canvas":
   generic section labels; do not write the generated message yourself. The title
   list has no 180-word cap. Keep Canvas headings short, concrete and useful.
   Use level-2 sections Waiting on people, Active work and CI, with level-3 titles
-  for each selected wait, effort or repository status. These become nested Slack
+  for each selected wait, effort or actionable CI problem. These become nested Slack
   bullets. A wait title names the person and next action; active work names the
-  person and capability; CI titles name the repository and failed/pending/skipped
-  checks or verified success. On quiet days use a factual child title such as
+  person and capability; CI titles name the repository and action needed. If CI
+  needs no action, use ONE child title "All good — no CI action needed" across all
+  repositories, not one success inventory per repository. On quiet days use a factual child title such as
   "No verified review waits". Section labels without child titles are rejected.
 - Otherwise write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
   paragraph, around 100–160 words, maximum 180 whitespace-separated words. Name
@@ -104,19 +105,32 @@ Use clear, concrete language:
   Missing current snapshots or unattributed possible author follow-up means the
   waiting person is unverified, not absent. Use the activity snapshot's as_of time,
   which can be later than the merge cutoff. Never present closed/merged PRs as waiting.
-- CI names observed checks and statuses, with exact run links. Failed, pending,
-  skipped, cancelled and missing differ. Never say 'all green'. Read each run's
-  jobs and failed steps: a successful workflow may have run only its planner while
-  skipping every scan/test. Name the executed job; do not call a skipped workload
-  successful. Workflow success alone never proves test/scan coverage.
+- CI is a SHORT ACTION SUMMARY, not a run inventory. When the collected evidence
+  supports no outstanding CI problem or blocking uncertainty, write only
+  "### All good — no CI action needed". This means no action is needed, not that
+  every possible test ran or production was verified. Keep supporting run links,
+  trigger explanations and coverage details in coverage.md, not the report.
+  Otherwise include only actionable problems: one short heading and at most two
+  sentences each, naming the repository, failing or blocked check, known owner
+  (omit if unknown), next action and one direct evidence link. For example:
+  "gigaverse-ai: sports smoke tests failing — fix the missing prompt input and
+  rerun the affected lane. [Failure](exact-run-url)". Do not invent a cause or owner.
+  Routine in-progress runs need no mention unless they block a concrete next step.
+  A material evidence gap that prevents assessing a required gate is itself an
+  action: "CI status unverified — restore access to the required check and recheck."
+  Never hide a known unresolved failure behind the all-good line.
+- To reach that short verdict, distinguish failed, pending, skipped, cancelled
+  and missing. Read each run's jobs and failed steps: a successful workflow may
+  have run only its planner while skipping every scan/test. Do not call a skipped
+  workload successful. Workflow success alone never proves test/scan coverage.
 - `skipped_runs` is quiet audit evidence, not an incident list. Omit routine skipped
   comment/status-sync runs from headlines and prose unless a specific expected gate
   is blocked. For absent tests/types, read `workflow_policies` at the exact head:
   PR-only, manual-only, scheduled and branch/path-filtered checks are not expected
-  on every main push. Say "PR/manual validation; no main-push result" when supported,
-  instead of repeating alarming "unknown tests/types" caveats. This does not prove
-  those checks passed on the PR. If expected coverage cannot be established, state
-  the narrow evidence limit once without declaring a failure.
+  on every main push. Keep those expected absences and their explanations in
+  coverage.md; they are not report action items. This does not prove those checks
+  passed on the PR. If a genuinely required gate lacks evidence, report the action
+  needed to verify it once. Do not turn an expected absence into an uncertainty alert.
 - A later success with the same workflow name and SHA does NOT establish recovery:
   compare event, run attempt, executed jobs/lanes and target revision. A manual IDK
   lane cannot clear an earlier sports smoke failure. Keep differing coverage
@@ -127,6 +141,8 @@ Use clear, concrete language:
   to default-branch code without target evidence. Failed security CI alone does not
   prove a vulnerability. Use failed job/step names to localize failures; do not
   guess a root cause or assign an owner without evidence.
+  Once equivalent coverage proves recovery, omit the resolved failure from CI;
+  historical failures belong in the audit unless they leave a concrete action.
 - Verify numeric denominators and environments. Historical selection replays are
   not runtime/production speedups; dev measurements are dev measurements. Drop
   measurements that cannot be explained accurately and simply.

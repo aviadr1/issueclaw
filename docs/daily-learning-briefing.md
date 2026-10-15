@@ -77,6 +77,13 @@ blocks publication. Per-PR check rollups identify checks on the current PR head.
 GraphQL comments, reviews and inline threads, avoiding thousands of REST requests
 when rebuilding the 30-day history. Timezone data ships with the package for Windows.
 
+The reader-facing CI section is an action summary: one "All good — no CI action
+needed" heading when supported, or a short item per unresolved problem with the
+next action and an evidence link. Routine skips, expected PR/manual-only checks,
+ordinary in-progress runs and proven recoveries stay out of that section. Detailed
+coverage explanations stay in the audit. A missing required gate is an action to
+verify, never grounds for an unsupported all-good claim.
+
 ## Preview and recovery
 
 `workflow_dispatch` should default to `post-to-slack: false`; it preserves the same
