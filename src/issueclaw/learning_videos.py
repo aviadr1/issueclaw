@@ -119,9 +119,19 @@ def select_topics(out, limit, review=False):
 def write_inputs(out, directory, topic):
     """The agent's inputs: the briefing's draft and the review comments it cites."""
     evidence = json.loads((out / "review-learning-evidence.json").read_text())
+    info = json.loads((out / "window.json").read_text())
     comments = [c for c in evidence["comments"] if c["url"] in topic["text"]]
     directory.mkdir(parents=True, exist_ok=True)
-    trace.write_json(directory / "topic.json", topic)
+    trace.write_json(
+        directory / "topic.json",
+        {
+            **topic,
+            "briefing_title": info.get("title", "Daily learning briefing"),
+            "audience": info.get(
+                "audience", "Engineers working on the configured repositories"
+            ),
+        },
+    )
     (directory / "draft.md").write_text(topic["text"] + "\n", encoding="utf-8")
     (directory / "comments.json").write_text(json.dumps(comments, indent=2) + "\n")
 

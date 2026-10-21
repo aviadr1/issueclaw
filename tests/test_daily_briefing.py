@@ -201,6 +201,14 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
     ticket.write_text(
         "---\nidentifier: BE-1\ntitle: Completed work\nstatus: Done\nassignee: Rae\nurl: https://linear.app/example/BE-1\n---\nA concrete fix.\n"
     )
+    documents = mirror / "linear/documents"
+    documents.mkdir(parents=True)
+    for name, text in {
+        "mobile": "React Native rendering",
+        "backend": "Backend service topology",
+        "repository": "org/repo integration",
+    }.items():
+        (documents / f"{name}.md").write_text(f"---\ntitle: {name}\n---\n{text}")
     subprocess.run(["git", "add", "."], cwd=mirror, check=True)
     subprocess.run(
         [
@@ -280,6 +288,9 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
             "timezone": "Asia/Jerusalem",
             "hour": 8,
             "delivery_format": delivery_format,
+            "title": "Frontend learning briefing",
+            "audience": "Web and mobile engineers",
+            "context_terms": ["React Native"],
         },
         mirror,
         out,
@@ -301,7 +312,14 @@ def test_prepare_audits_daily_merges_carryover_and_changed_done_tickets(
         delivery = json.loads((out / "delivery.json").read_text())
         assert delivery["files"] == ["01-toplevel.md"]
         assert delivery["inventory_files"]
-        assert delivery["canvas_title"] == "Backend learning briefing — 2026-10-02"
+        assert delivery["canvas_title"] == "Frontend learning briefing — 2026-10-02"
+    assert {
+        row["metadata"]["title"]
+        for row in json.loads((out / "context.json").read_text())
+    } == {"mobile", "repository"}
+    info = json.loads((out / "window.json").read_text())
+    assert info["title"] == "Frontend learning briefing"
+    assert info["audience"] == "Web and mobile engineers"
     review_evidence = json.loads((out / "review-learning-evidence.json").read_text())
     assert review_evidence["review_events"] == 2
     assert review_evidence["inline_review_comments"] == 2

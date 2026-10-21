@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from issueclaw import briefing_media, briefing_pr_videos
+from issueclaw.briefing_config import load_config, prepared_config
 from issueclaw.ci_evidence import collect_default_branch_ci
 from issueclaw import briefing_trace as trace
 from issueclaw import learning_videos as lessons
@@ -549,10 +550,12 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             timeout=180,
             capture_output=True,
         )
+        prepared_config(config, out)
         info = json.loads((out / "window.json").read_text())
         info["resume"] = True
         write_json(out / "window.json", info)
         return
+    write_json(out / "briefing-config.json", config)
     start, end = coverage_window(config, now, state.get("last_cutoff"), cutoff)
     if state.get("last_cutoff"):
         previous = report.instant(state["last_cutoff"])
@@ -663,8 +666,11 @@ def prepare(config, mirror, out, state, now, cutoff=None):
             ticket_rows.append(ticket)
     related_files = []
     terms = re.compile(
-        "|".join(re.escape(r.split("/")[-1]) for r in config["repos"])
-        + r"|backend|realtime|shopify|factcheck",
+        "|".join(
+            re.escape(term)
+            for term in [r.split("/")[-1] for r in config["repos"]]
+            + config.get("context_terms", [])
+        ),
         re.I,
     )
     for folder in (mirror / "linear" / "projects", mirror / "linear" / "documents"):
@@ -767,10 +773,20 @@ def prepare(config, mirror, out, state, now, cutoff=None):
 
 def configure_delivery(out, config):
     """Opt into a full Canvas plus one TLDR; preserve the collected snapshot."""
-    if config.get("delivery_format", "thread") != "canvas":
-        return
     info = json.loads((out / "window.json").read_text())
     if info.get("already_posted"):
+        return
+    info.update(
+        title=config.get("title", "Daily learning briefing"),
+        audience=config.get(
+            "audience", "Engineers working on the configured repositories"
+        ),
+        instructions=config.get("instructions", ""),
+        people=config.get("people", {}),
+        what_changed_order_last=config.get("what_changed_order_last", []),
+    )
+    write_json(out / "window.json", info)
+    if config.get("delivery_format", "thread") != "canvas":
         return
     info["delivery_format"] = "canvas"
     info["review_video"] = config.get("learning_videos", {}).get("review", False)
@@ -785,7 +801,9 @@ def configure_delivery(out, config):
     date = (
         report.instant(delivery["cutoff"]).astimezone(ZoneInfo(info["timezone"])).date()
     )
-    delivery["canvas_title"] = f"Backend learning briefing — {date}"
+    delivery["canvas_title"] = (
+        f"{config.get('title', 'Daily learning briefing')} — {date}"
+    )
     write_json(out / "delivery.json", delivery)
     top = out / "messages/01-toplevel.md"
     if top.exists() and not (out / "report.md").exists():
@@ -1324,7 +1342,9 @@ def main():
         return
     if args.config is None:
         parser.error(f"{args.command} requires --config")
-    config = json.loads(args.config.read_text())
+    config = load_config(args.config)
+    if args.command != "prepare":
+        config = prepared_config(config, args.out)
     if args.command == "learn":
         if args.prompt is None or args.videos_dir is None:
             parser.error("learn requires --prompt and --videos-dir")
@@ -1369,11 +1389,13 @@ def main():
             timeout=180,
             capture_output=True,
         )
+        config = prepared_config(config, args.out)
         lessons.archive_preview_videos(args.out, args.evidence_run_id)
         info = json.loads((args.out / "window.json").read_text())
         info.pop("resume", None)
         info.pop("already_posted", None)
         write_json(args.out / "window.json", info)
+        write_json(args.out / "briefing-config.json", config)
         configure_delivery(args.out, config)
         return
     store = StateStore(

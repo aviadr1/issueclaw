@@ -5,10 +5,15 @@ a scheduled exception without installing reporting or model dependencies.
 """
 
 import argparse
-import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING or __package__:
+    from .briefing_config import load_config
+else:
+    from briefing_config import load_config
 
 
 def plan(config, now, event, *, early=False):
@@ -29,7 +34,7 @@ def main():
     parser.add_argument("--early", action="store_true")
     args = parser.parse_args()
     result = plan(
-        json.loads(args.config.read_text(encoding="utf-8")),
+        load_config(args.config),
         datetime.now(timezone.utc),
         args.event,
         early=args.early,

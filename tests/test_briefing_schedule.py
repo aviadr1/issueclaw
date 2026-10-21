@@ -1,9 +1,34 @@
 from datetime import datetime
+import json
+import subprocess
+import sys
 
 import pytest
 
 from issueclaw import briefing_schedule
 from issueclaw import daily_briefing as daily
+
+
+def test_standalone_planner_reads_defaults_without_installed_dependencies(tmp_path):
+    (tmp_path / "defaults.json").write_text(json.dumps({"timezone": "UTC"}))
+    config = tmp_path / "frontend.json"
+    config.write_text(json.dumps({"defaults": "defaults.json"}))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            briefing_schedule.__file__,
+            "--config",
+            str(config),
+            "--event",
+            "workflow_dispatch",
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout == "enabled=true\ncutoff=\n"
 
 
 @pytest.mark.parametrize(
