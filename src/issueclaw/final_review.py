@@ -18,7 +18,8 @@ class Call:
 
 def read_json(path):
     try:
-        return json.loads(path.read_text())
+        value = json.loads(path.read_text())
+        return value if isinstance(value, dict) else {}
     except (OSError, ValueError):
         return {}
 
@@ -143,8 +144,13 @@ def inspect_final_review(directory):
     }
     manifest = read_json(directory / "render.json")
     chapters = manifest.get("chapters", [])
-    if not chapters or any(
-        not part.get("chapter") or not part.get("key") for part in chapters
+    if (
+        not isinstance(chapters, list)
+        or not chapters
+        or any(
+            not isinstance(part, dict) or not part.get("chapter") or not part.get("key")
+            for part in chapters
+        )
     ):
         report["reason"] = (
             "Final render.json with chapter cache keys is missing; preserve the video and regenerate its QA evidence."
@@ -153,6 +159,8 @@ def inspect_final_review(directory):
     ids = [part["chapter"] for part in chapters]
     keys = {part["chapter"]: part["key"] for part in chapters}
     previous = read_json(directory / "final-review.json").get("reviewed_chapters", {})
+    if not isinstance(previous, dict):
+        previous = {}
     reviewed = {
         chapter: key for chapter, key in keys.items() if previous.get(chapter) == key
     }

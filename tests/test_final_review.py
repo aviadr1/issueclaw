@@ -281,3 +281,17 @@ def test_failed_render_does_not_reuse_prior_filmstrip_reads(rendered):
     events[1]["message"]["content"][0]["is_error"] = True
     write_log(directory, events + reads(directory, paths) + advisor())
     assert inspect_final_review(directory)["passed"] is False
+
+
+@pytest.mark.parametrize(
+    "manifest", [None, [], {"chapters": None}, {"chapters": [None]}]
+)
+def test_malformed_render_metadata_requests_recovery_instead_of_losing_work(
+    tmp_path, manifest
+):
+    (tmp_path / "render.json").write_text(json.dumps(manifest))
+    (tmp_path / "video.mp4").write_bytes(b"useful render")
+    report = inspect_final_review(tmp_path)
+    assert report["passed"] is False
+    assert "render.json" in report["reason"]
+    assert (tmp_path / "video.mp4").read_bytes() == b"useful render"
