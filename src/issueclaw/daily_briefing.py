@@ -1360,6 +1360,7 @@ def main():
             review=options.get("review", False),
             playback_speed=options.get("playback_speed", 1),
             quality_checks=options.get("quality_checks", False),
+            workers=options.get("workers", 2),
         )
         return
     if args.command == "generate":

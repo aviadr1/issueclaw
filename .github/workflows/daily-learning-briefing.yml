@@ -219,6 +219,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRIEFING_CONFIG: ${{ inputs.config }}
+          LEARNING_VIDEO_WEBM: '0'
         run: |
           test -f .learning-videos/src/learnings/AGENT.md
           (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
@@ -230,7 +231,7 @@ jobs:
           import runpy
           from pathlib import Path
           trace = runpy.run_path('.briefing-tools/src/issueclaw/briefing_trace.py')
-          trace['preserve_source'](Path('.learning-videos'), Path('/tmp/daily-briefing/video-kit'))
+          trace['preserve_video_sources'](Path('.learning-videos'), Path('/tmp/daily-briefing'))
           trace['write_index'](Path('/tmp/daily-briefing'))
           PY
       - name: Validate message and inventory coverage

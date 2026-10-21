@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -121,6 +122,51 @@ def test_learn_keeps_the_lesson_and_its_video(tmp_path):
     ]
     # a second run (a retry or revision) reuses the recorded lessons
     assert lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=pytest.fail) == found
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_parallel_lessons_own_their_kit_and_preserve_results(tmp_path, failed):
+    prompt = briefing(tmp_path)
+    kit = tmp_path / "kit"
+    registry = Path("src/learnings/registry.ts")
+    (kit / registry).parent.mkdir(parents=True)
+    (kit / registry).write_text("original")
+    both_written = Barrier(2, timeout=5)
+
+    def generate(prompt, directory, videos, env, instructions=""):
+        (videos / registry).write_text(directory.name)
+        both_written.wait()
+        assert (videos / registry).read_text() == directory.name
+        if failed and directory.name == "1":
+            raise subprocess.CalledProcessError(1, "agent")
+        agent()(prompt, directory, videos, env, instructions)
+
+    found = lessons.learn(tmp_path, prompt, kit, 2, {}, run=generate, workers=2)
+
+    assert [row["n"] for row in found] == ([2] if failed else [1, 2])
+    assert json.loads((tmp_path / "learnings.json").read_text()) == found
+    assert (kit / registry).read_text() == "original"
+    for n in (1, 2):
+        directory = tmp_path / "learnings" / str(n)
+        assert (directory / "source" / registry).read_text() == str(n)
+        assert (
+            json.loads((directory / "timings.json").read_text())["total_seconds"] >= 0
+        )
+
+
+def test_interrupted_parallel_workspaces_are_preserved(tmp_path):
+    kit = tmp_path / ".learning-videos"
+    interrupted = tmp_path / ".learning-videos-work-interrupted" / "2"
+    source = interrupted / "src/learnings/registry.ts"
+    source.parent.mkdir(parents=True)
+    source.write_text("unfinished review composition")
+    out = tmp_path / "briefing"
+
+    lessons.trace.preserve_video_sources(kit, out)
+
+    assert (
+        out / "learnings/2/source/src/learnings/registry.ts"
+    ).read_text() == source.read_text()
 
 
 def test_every_lesson_the_briefing_teaches_is_a_topic_not_only_review_patterns(
