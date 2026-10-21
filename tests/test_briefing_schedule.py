@@ -1,5 +1,7 @@
 from datetime import datetime
+from importlib.resources import files
 import json
+import os
 import subprocess
 import sys
 
@@ -27,6 +29,7 @@ def test_standalone_planner_reads_defaults_without_installed_dependencies(tmp_pa
         check=True,
         capture_output=True,
         text=True,
+        env=dict(os.environ, PYTHONTZPATH=str(files("tzdata") / "zoneinfo")),
     )
     assert result.stdout == "enabled=true\ncutoff=\n"
 
