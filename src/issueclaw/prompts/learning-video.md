@@ -128,6 +128,11 @@ before you start.
    Inspect every beat sheet in review.md (full-size PNGs in review.json where
    needed). Give the Opus advisor one complete packet: these actual frames, the
    exact captions, pinned claim evidence, personalized card and explicit unknowns.
+   Send this first packet before making local visual corrections. Collect your
+   own findings and the advisor's findings first, then apply their combined fixes.
+   Do not polish and regenerate the packet one finding at a time before asking
+   the advisor. Keep unresolved issues in one checklist and confirm all of the
+   combined changes in the next packet; correctness fixes are never skipped.
    Ask for factual errors, misleading visual states and cold-viewer confusion.
    Check especially whether each diagram demonstrates what its caption claims.
    Apply all warranted corrections together before exporting video. Regenerate
