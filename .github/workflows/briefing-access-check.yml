@@ -1,0 +1,84 @@
+name: Verify briefing credentials without publishing
+on:
+  workflow_call:
+    inputs:
+      tooling-ref:
+        type: string
+        required: true
+      config:
+        type: string
+        required: true
+    secrets:
+      REPOS_READ_TOKEN:
+        required: true
+      PR_COMMENT_TOKEN:
+        required: false
+      SLACK_BOT_TOKEN:
+        required: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - name: Verify source reads, comment permissions and Slack membership
+        env:
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          REPOS_READ_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          PR_COMMENT_TOKEN: ${{ secrets.PR_COMMENT_TOKEN || secrets.REPOS_READ_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, runpy, urllib.request, urllib.error
+          load = runpy.run_path('.briefing-tools/src/issueclaw/briefing_config.py')['load_config']
+          config = load(pathlib.Path(os.environ['BRIEFING_CONFIG']))
+          results = {'repositories': [], 'slack': {}}
+          def request(url, token, payload=None):
+              req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/json', 'Content-Type': 'application/json'}, data=json.dumps(payload).encode() if payload is not None else None)
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as resp:
+                      return json.load(resp), dict(resp.headers)
+              except urllib.error.HTTPError as error:
+                  raise RuntimeError(f'Access check returned HTTP {error.code} for {url}') from None
+          for repo in config['repos']:
+              read = os.environ['REPOS_READ_TOKEN']
+              meta, _ = request('https://api.github.com/repos/' + repo, read)
+              request('https://api.github.com/repos/' + repo + '/pulls?per_page=1', read)
+              request('https://api.github.com/repos/' + repo + '/actions/runs?per_page=1', read)
+              request('https://api.github.com/repos/' + repo + '/contents/.github/workflows', read)
+              comment_meta, headers = request('https://api.github.com/repos/' + repo, os.environ['PR_COMMENT_TOKEN'])
+              scopes = {s.strip() for s in headers.get('X-OAuth-Scopes', headers.get('x-oauth-scopes', '')).split(',') if s.strip()}
+              upload_scope = 'repo' in scopes or (not meta['private'] and 'public_repo' in scopes)
+              write = bool(comment_meta.get('permissions', {}).get('push'))
+              results['repositories'].append({'repo': repo, 'read_prs_actions_workflows': True, 'comment_token_repo_write': write, 'classic_or_oauth_repo_scope_for_upload': upload_scope})
+              assert write and upload_scope, 'Comment token lacks repository write access or classic/OAuth repo scope for ' + repo
+          auth, headers = request('https://slack.com/api/auth.test', os.environ['SLACK_BOT_TOKEN'], {})
+          assert auth.get('ok'), 'Slack authentication failed: ' + str(auth.get('error'))
+          assert auth['user_id'] == 'U0ALH160P1C', 'CI token belongs to an unexpected bot'
+          scopes = {s.strip() for s in headers.get('x-oauth-scopes', headers.get('X-OAuth-Scopes', '')).split(',')}
+          required = {'chat:write', 'canvases:write', 'files:write', 'files:read'}
+          results['slack'] = {'bot_user_id': auth['user_id'], 'required_scopes_present': sorted(required & scopes), 'missing_scopes': sorted(required - scopes)}
+          assert not required - scopes, 'Slack token is missing required scopes'
+          channel, _ = request('https://slack.com/api/conversations.info?channel=' + config['channel'], os.environ['SLACK_BOT_TOKEN'])
+          assert channel.get('ok'), 'Slack channel inspection failed: ' + str(channel.get('error'))
+          results['slack'].update(channel=config['channel'], is_member=channel['channel'].get('is_member', False))
+          assert results['slack']['is_member'], 'Reporting bot is not a channel member'
+          pathlib.Path('access-check.json').write_text(json.dumps(results, indent=2))
+          print(json.dumps(results, indent=2))
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: frontend-briefing-access-check
+          path: access-check.json
+          if-no-files-found: warn
