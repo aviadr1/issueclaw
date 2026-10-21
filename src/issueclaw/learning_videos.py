@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -161,41 +162,84 @@ def write_inputs(out, directory, topic):
 
 
 def run_agent(prompt, directory, videos, env, instructions=""):
-    text = prompt.read_text().format(
-        learning_dir=directory.resolve(),
-        videos_dir=videos.resolve(),
-        quality_validator=trace.__file__,
-    )
-    if instructions:
-        text += "\n\nThe caller's instructions for this lesson and its video:\n"
-        text += instructions
-    trace.model_trace(
-        directory, "agent", text, MODEL, advisor=ADVISOR, subagents="haiku"
-    )
-    with (directory / "agent.log").open("w") as log:
-        subprocess.run(
-            [
-                shutil.which("claude") or "claude",
-                "-p",
-                text,
-                "--dangerously-skip-permissions",
-                "--model",
-                MODEL,
-                "--advisor",
-                ADVISOR,
-                "--effort",
-                EFFORT,
-                "--output-format",
-                "stream-json",
-                "--verbose",
-            ],
-            cwd=videos,
-            env=dict(env, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            check=True,
-            timeout=AGENT_TIMEOUT,
+    research = prompt.with_name("learning-research.md")
+    phases = [("research", research)] if research.exists() else []
+    phases.append(("agent", prompt))
+    deadline = time.monotonic() + AGENT_TIMEOUT
+    for phase, prompt in phases:
+        text = prompt.read_text().format(
+            learning_dir=directory.resolve(),
+            videos_dir=videos.resolve(),
+            quality_validator=trace.__file__,
         )
+        if instructions:
+            text += "\n\nThe caller's instructions for this lesson and its video:\n"
+            text += instructions
+        trace.model_trace(
+            directory, phase, text, MODEL, advisor=ADVISOR, subagents="haiku"
+        )
+        agent_env = dict(env, CLAUDE_CODE_SUBAGENT_MODEL="haiku")
+        tracing_args = []
+        plugin = env.get("LEARNING_TRACE_PLUGIN")
+        if (
+            plugin
+            and env.get("CC_LANGSMITH_API_KEY")
+            and (Path(plugin) / "bundle/dispatch.js").is_file()
+        ):
+            session = str(uuid.uuid4())
+            tracing_args = ["--plugin-dir", plugin, "--session-id", session]
+            agent_env.update(
+                TRACE_TO_LANGSMITH="true",
+                CC_LANGSMITH_REDACT="true",
+                STATE_FILE=str(directory / "tracing-state.json"),
+                CC_LANGSMITH_LOG_FILE=str(directory / "tracing.log"),
+                CC_LANGSMITH_METADATA=json.dumps(
+                    {
+                        "phase": phase,
+                        "lesson": directory.name,
+                        "ci_run": env.get("GITHUB_RUN_ID", ""),
+                        "ci_attempt": env.get("GITHUB_RUN_ATTEMPT", ""),
+                        "repository": env.get("GITHUB_REPOSITORY", ""),
+                        "commit_sha": env.get("GITHUB_SHA", ""),
+                    }
+                ),
+            )
+            trace.write_json(
+                directory / f"{phase}.trace.json",
+                {
+                    "session_id": session,
+                    "project": env.get(
+                        "CC_LANGSMITH_PROJECT", "daily-learning-briefing"
+                    ),
+                },
+            )
+        with (directory / f"{phase}.log").open("w") as log:
+            subprocess.run(
+                [
+                    shutil.which("claude") or "claude",
+                    "-p",
+                    text,
+                    "--dangerously-skip-permissions",
+                    "--model",
+                    MODEL,
+                    "--advisor",
+                    ADVISOR,
+                    "--effort",
+                    EFFORT,
+                    "--output-format",
+                    "stream-json",
+                    "--verbose",
+                    *tracing_args,
+                ],
+                cwd=directory if phase == "research" else videos,
+                env=agent_env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=True,
+                timeout=max(1, deadline - time.monotonic()),
+            )
+        if phase == "research" and (directory / "video-error.txt").exists():
+            return
 
 
 def read_lesson(directory):

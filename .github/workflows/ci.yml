@@ -27,6 +27,28 @@ jobs:
       - run: uv sync --dev --extra media
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest tests/test_design_media_browser.py -m browser -n 0 -q
+  briefing-progress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: npm ci --prefix tools/briefing-progress --ignore-scripts --no-audit --no-fund
+      - run: node --test tests/briefing-progress.test.mjs
+      - name: Exercise live artifact delivery
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const {mkdtempSync} = require('node:fs');
+            const {tmpdir} = require('node:os');
+            const {join, resolve} = require('node:path');
+            const {pathToFileURL} = require('node:url');
+            process.env.BRIEFING_ARTIFACT_MODULE = resolve('tools/briefing-progress');
+            const {supervise} = await import(pathToFileURL(resolve('src/issueclaw/briefing-progress.mjs')).href);
+            const directory = mkdtempSync(join(tmpdir(), 'briefing-progress-ci-'));
+            const result = await supervise(directory, [process.execPath, '-e', 'process.stdout.write("progress smoke test")']);
+            if (result !== 0) core.setFailed('Progress supervisor did not preserve success');
   webhook-inbox:
     runs-on: ubuntu-latest
     steps:

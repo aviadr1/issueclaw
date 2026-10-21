@@ -37,6 +37,14 @@ on:
         description: 'Reviewed commit of the video kit'
         type: string
         default: ''
+      langsmith-project:
+        description: 'Private tracing project when LANGSMITH_API_KEY is provided'
+        type: string
+        default: daily-learning-briefing
+      langsmith-workspace-id:
+        description: 'Workspace for an organization-scoped LangSmith key'
+        type: string
+        default: ''
       ci-artifact-role-arn:
         description: 'Role the main branch assumes (OIDC) to host review media publicly by URL; empty disables hosting'
         type: string
@@ -57,6 +65,9 @@ on:
         type: string
         default: ''
     secrets:
+      LANGSMITH_API_KEY:
+        description: Private Claude session tracing (optional)
+        required: false
       REPOS_READ_TOKEN:
         required: true
       ANTHROPIC_API_KEY:
@@ -210,6 +221,28 @@ jobs:
           path: .learning-videos
           token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
           persist-credentials: false
+      - name: Check out Claude session tracing
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          repository: langchain-ai/langsmith-claude-code-plugins
+          # 0.4.2 supports org-scoped keys; 0.5.3 loses the workspace on upload.
+          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
+          path: .briefing-tracing
+          persist-credentials: false
+      - name: Prepare live progress snapshots
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        continue-on-error: true
+        run: npm ci --prefix .briefing-tools/tools/briefing-progress --ignore-scripts --no-audit --no-fund
+      - name: Enable private in-run progress artifacts
+        if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const key of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) {
+              const value = process.env[key];
+              if (value) { core.setSecret(value); core.exportVariable(key, value); }
+            }
       - name: Research and render the lesson plus PR review walkthrough (Sonnet with Opus advisor)
         # Optional and fail-soft: the briefing publishes without lessons on failure.
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
@@ -219,6 +252,11 @@ jobs:
           GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRIEFING_CONFIG: ${{ inputs.config }}
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+          LEARNING_TRACE_PLUGIN: ${{ github.workspace }}/.briefing-tracing
+          BRIEFING_ARTIFACT_MODULE: ${{ github.workspace }}/.briefing-tools/tools/briefing-progress
           LEARNING_VIDEO_WEBM: '0'
           LEARNING_REQUIRE_CARD: '1'
           LEARNING_RENDER_WORKERS: '2'
@@ -226,7 +264,11 @@ jobs:
         run: |
           test -f .learning-videos/src/learnings/AGENT.md
           (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)
-          /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing             --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md             --videos-dir .learning-videos
+          node .briefing-tools/src/issueclaw/briefing-progress.mjs /tmp/daily-briefing \
+            /tmp/briefing-venv/bin/python -m issueclaw.daily_briefing learn \
+            --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
+            --prompt .briefing-tools/src/issueclaw/prompts/learning-video.md \
+            --videos-dir .learning-videos
       - name: Preserve work-in-progress video source after interruption
         if: always()
         run: |

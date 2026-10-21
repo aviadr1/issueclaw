@@ -439,3 +439,43 @@ private repository material; artifacts stay in the caller repository.
 Evidence-reuse previews archive earlier learning outputs under
 `previous-videos/<source-run>/` before generating replacements. Frozen evidence
 stays unchanged; the previous video manifest cannot silently skip a rewrite.
+
+
+### Live video sessions
+
+Video generation has separate research and visual-authoring sessions, using the
+same Sonnet/Opus models and a shared one-hour limit. Research settles pinned
+claims, captions and the personalized card in `script.json`, with a caption cold
+read and factual advisor preflight. Authoring starts with a fresh context and
+reads that handoff. The video kit generates composition/registry/cue plumbing and
+joins captions to actions by beat ID. Final QA generates questions.md and
+narrative.md from the compiled storyboard, so corrections cannot leave those
+derived records stale. Research and visual-review notes remain authored evidence.
+Actual-frame advisor review and all final
+filmstrip, reading, motion, join, audio and publisher checks remain required.
+
+While generation runs, `learning-progress-<attempt>-<sequence>` artifacts appear
+about once a minute. They contain full research/authoring JSONL transcripts,
+prompts and model settings, plus `progress.json`. Download the newest snapshot
+from the running workflow's artifacts. Local counters update every 15 seconds;
+the final artifact retains `progress/history.jsonl`. Counters separate active
+tools, advisor waits, layout checks, stills and renders. Tool durations can overlap;
+they are not an exclusive partition of wall time. API duration is reported when
+each CLI session ends. Snapshot/upload failures do not stop video generation.
+The artifact uploader's runtime credentials are excluded from the child process.
+
+Provide optional `LANGSMITH_API_KEY` and `langsmith-workspace-id` to send full
+sessions to the private `langsmith-project` (default `daily-learning-briefing`).
+The pinned official LangSmith Claude Code plugin records prompts, tool inputs and
+outputs, assistant responses, subagents and usage, with secret redaction enabled.
+Tool traces upload during a turn; complete model/subagent structure settles as
+sessions finish. `research.trace.json` and `agent.trace.json` retain the session
+IDs. Metadata includes CI run/attempt, repository, commit, lesson and phase.
+System prompts and unavailable/redacted advisor internals are not recoverable.
+
+The plugin is pinned to 0.4.2: a real workspace-scoped smoke test succeeded there;
+0.5.3 dropped the workspace when uploading with an org-scoped key (HTTP 403).
+Verify ingestion, not only hook exit status, when updating this pin. Tracing
+failures retain the full private GitHub transcripts and never relax quality QA.
+The public-by-URL S3 media bucket is not a destination for raw session traces;
+its existing main-only publisher and IAM boundary remain unchanged.

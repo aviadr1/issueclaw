@@ -1,0 +1,183 @@
+import {spawn} from 'node:child_process';
+import {copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, appendFileSync} from 'node:fs';
+import {join, resolve} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+
+const activity = (name, input = {}) => {
+  if (name === 'advisor') return 'advisor';
+  if (name === 'Agent' || name === 'Task') return 'helper';
+  if (name === 'Write' || name === 'Edit') return 'writing';
+  if (name === 'Read') return /\.(png|jpg)$/.test(input.file_path ?? '') ? 'visual_review' : 'reading';
+  const command = input.command ?? '';
+  if (/render-learning\.(sh|mjs)/.test(command)) return 'render';
+  if (/learning-review\.mjs/.test(command)) return 'early_frames';
+  if (/(?:node\s+scripts\/learning-check\.mjs|npm\s+run\s+typecheck)/.test(command)) return 'layout_check';
+  if (/briefing_trace\.py|learning-qa\.mjs/.test(command)) return 'quality_check';
+  if (/gh (api|pr)/.test(command)) return 'research';
+  return 'tool';
+};
+const seconds = (ms) => Math.round(ms / 100) / 10;
+
+export class Progress {
+  constructor(started = Date.now()) {
+    this.started = started;
+    this.last = started;
+    this.pending = new Map();
+    this.messages = new Map();
+    this.totals = {};
+    this.calls = {};
+    this.result = null;
+  }
+  accept(event, now = Date.now()) {
+    if (!['assistant', 'user', 'result'].includes(event.type)) return;
+    const stamp = Date.parse(event.timestamp);
+    const at = Number.isFinite(stamp) ? stamp : now;
+    this.last = Math.max(this.last, at);
+    const msg = event.message;
+    if (msg?.id && msg.usage) this.messages.set(msg.id, msg.usage.output_tokens ?? 0);
+    for (const block of Array.isArray(msg?.content) ? msg.content : []) {
+      if (block.type === 'tool_use' || block.type === 'server_tool_use') {
+        if (this.pending.has(block.id)) continue;
+        const label = activity(block.name, block.input);
+        this.pending.set(block.id, {label, at});
+        this.calls[label] = (this.calls[label] ?? 0) + 1;
+      } else if (block.type === 'tool_result' || block.type === 'advisor_tool_result') {
+        const pending = this.pending.get(block.tool_use_id);
+        if (pending) {
+          this.totals[pending.label] = (this.totals[pending.label] ?? 0) + Math.max(0, at - pending.at);
+          this.pending.delete(block.tool_use_id);
+        }
+      }
+    }
+    if (event.type === 'result') this.result = {
+      api_seconds: seconds(event.duration_api_ms ?? 0), turns: event.num_turns ?? 0,
+      failed: event.is_error === true,
+      wall_seconds: seconds(event.duration_ms ?? at - this.started),
+      reported_output_tokens: event.usage?.output_tokens ?? [...this.messages.values()].reduce((a, b) => a + b, 0),
+    };
+  }
+  snapshot(now = Date.now()) {
+    const current = [...this.pending.values()].sort((a, b) => a.at - b.at)[0];
+    return {
+      elapsed_seconds: this.result?.wall_seconds ?? seconds(now - this.started),
+      activity: this.result ? (this.result.failed ? 'failed' : 'finished') : (current?.label ?? 'model'),
+      activity_seconds: this.result ? 0 : seconds(now - (current?.at ?? this.last)),
+      seconds_since_event: seconds(now - this.last),
+      reported_output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
+      calls: this.calls,
+      tool_seconds: Object.fromEntries(Object.entries(this.totals).map(([k, v]) => [k, seconds(v)])),
+      ...this.result,
+    };
+  }
+}
+
+export const observe = async (directory, streams, now = Date.now()) => {
+  const lessons = join(directory, 'learnings');
+  if (!existsSync(lessons)) return [];
+  const result = [];
+  for (const number of readdirSync(lessons).filter((n) => /^\d+$/.test(n)).sort()) {
+    const phases = {};
+    for (const phase of ['research', 'agent']) {
+      const path = join(lessons, number, `${phase}.log`);
+      if (!existsSync(path)) continue;
+      const info = statSync(path);
+      if (!streams.has(path) || info.size < streams.get(path).offset) streams.set(path, {offset: 0, partial: '', progress: new Progress(info.birthtimeMs)});
+      const stream = streams.get(path);
+      if (info.size > stream.offset) {
+        for await (const chunk of createReadStream(path, {start: stream.offset, end: info.size - 1, encoding: 'utf8'})) {
+          const lines = (stream.partial + chunk).split('\n');
+          stream.partial = lines.pop();
+          for (const line of lines) {
+            try { stream.progress.accept(JSON.parse(line), now); } catch { /* CLI stderr is not a JSON event. */ }
+          }
+        }
+        stream.offset = info.size;
+      }
+      phases[phase] = stream.progress.snapshot(now);
+    }
+    let outcome;
+    try { outcome = JSON.parse(readFileSync(join(lessons, number, 'outcome.json'), 'utf8')).status; } catch {}
+    result.push({lesson: Number(number), phases, outcome: ['video', 'text_only', 'failed', 'written'].includes(outcome) ? outcome : 'running'});
+  }
+  return result;
+};
+
+export const loadUploader = async (directory) => {
+  const {DefaultArtifactClient} = await import(pathToFileURL(join(directory, 'upload.mjs')).href);
+  return new DefaultArtifactClient();
+};
+
+export const supervise = async (directory, command) => {
+  mkdirSync(directory, {recursive: true});
+  const progressDir = join(directory, 'progress');
+  mkdirSync(progressDir, {recursive: true});
+  const snapshotPath = join(progressDir, 'progress.json');
+  const streams = new Map();
+  const started = Date.now();
+  let uploader;
+  if (process.env.BRIEFING_ARTIFACT_MODULE) {
+    try {
+      uploader = await loadUploader(resolve(process.env.BRIEFING_ARTIFACT_MODULE));
+    } catch { console.warn('Progress artifact client unavailable; local progress and job logs continue.'); }
+  }
+  const childEnv = {...process.env};
+  for (const key of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) delete childEnv[key];
+  const child = spawn(command[0], command.slice(1), {stdio: 'inherit', env: childEnv, detached: process.platform !== 'win32'});
+  let resolveExit;
+  const exited = new Promise((resolve) => { resolveExit = resolve; });
+  let finished = false;
+  let exitCode = 1;
+  child.on('error', () => { finished = true; resolveExit(); });
+  child.on('exit', (code) => { exitCode = code ?? 1; finished = true; resolveExit(); });
+  const stop = () => {
+    if (!finished) {
+      try { process.platform === 'win32' ? child.kill('SIGTERM') : process.kill(-child.pid, 'SIGTERM'); } catch {}
+    }
+  };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  let sequence = 0;
+  let lastUpload = 0;
+  while (true) {
+    let finalSnapshot = false;
+    try {
+      const data = {schema: 1, updated_at: new Date().toISOString(), elapsed_seconds: seconds(Date.now() - started),
+        finished, exit_code: finished ? exitCode : null, lessons: await observe(directory, streams)};
+      finalSnapshot = data.finished;
+      writeFileSync(snapshotPath + '.tmp', JSON.stringify(data, null, 2) + '\n');
+      renameSync(snapshotPath + '.tmp', snapshotPath);
+      appendFileSync(join(progressDir, 'history.jsonl'), JSON.stringify(data) + '\n');
+      console.log('BRIEFING_PROGRESS ' + JSON.stringify(data));
+      if (uploader && (data.finished || Date.now() - lastUpload >= 60000)) {
+        lastUpload = Date.now();
+        const name = `learning-progress-${process.env.GITHUB_RUN_ATTEMPT ?? '1'}-${String(++sequence).padStart(3, '0')}`;
+        try {
+          const files = [snapshotPath];
+          for (const lesson of data.lessons) {
+            const from = join(directory, 'learnings', String(lesson.lesson));
+            const to = join(progressDir, 'sessions', String(lesson.lesson));
+            mkdirSync(to, {recursive: true});
+            for (const file of readdirSync(from).filter((name) => /^(research|agent)\.(log|prompt\.md|request\.json|trace\.json)$/.test(name))) {
+              const target = join(to, file);
+              copyFileSync(join(from, file), target);
+              files.push(target);
+            }
+          }
+          const uploaded = await uploader.uploadArtifact(name, files, progressDir, {retentionDays: 7});
+          console.log(`Progress snapshot artifact: ${name} (${uploaded.id})`);
+        } catch { console.warn('Progress snapshot upload failed; retrying at the next interval. Local history is preserved.'); }
+      }
+    } catch { console.warn('Progress snapshot failed; generation continues and the next interval retries.'); finalSnapshot = finished; }
+    if (finalSnapshot) break;
+    if (!finished) await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 15000).unref())]);
+  }
+  process.removeListener('SIGTERM', stop);
+  process.removeListener('SIGINT', stop);
+  return exitCode;
+};
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [directory, ...command] = process.argv.slice(2);
+  if (!directory || !command.length) throw new Error('Usage: briefing-progress.mjs <output-dir> <command> [args...]');
+  process.exitCode = await supervise(resolve(directory), command);
+}

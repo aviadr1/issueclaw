@@ -242,6 +242,8 @@ def write_index(out):
         "selection-audit.json",
         "review-selection.json",
         "learnings.json",
+        "progress/progress.json",
+        "progress/history.jsonl",
         "previous-videos",
     ):
         if (out / name).exists():
@@ -263,6 +265,13 @@ def write_index(out):
             "motion.txt",
             "filmstrip",
             "research.md",
+            "script.json",
+            "research.prompt.md",
+            "research.request.json",
+            "research.log",
+            "research.trace.json",
+            "agent.trace.json",
+            "tracing.log",
             "storyboard.json",
             "qa.md",
             "quality.json",
