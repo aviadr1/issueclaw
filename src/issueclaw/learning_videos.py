@@ -138,6 +138,26 @@ def write_inputs(out, directory, topic):
     )
     (directory / "draft.md").write_text(topic["text"] + "\n", encoding="utf-8")
     (directory / "comments.json").write_text(json.dumps(comments, indent=2) + "\n")
+    prs, missing = [], []
+    urls = sorted(
+        set(
+            re.findall(
+                r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+",
+                topic["text"] + " " + topic.get("url", ""),
+            )
+        )
+    )
+    for url in urls:
+        owner, repo, _, number = url.removeprefix("https://github.com/").split("/")
+        record = out / "pr-records" / f"{owner}--{repo}--{number}.json"
+        if record.exists():
+            prs.append(json.loads(record.read_text()))
+        else:
+            missing.append(url)
+    trace.write_json(
+        directory / "collected-prs.json",
+        {"window": info, "prs": prs, "missing": missing},
+    )
 
 
 def run_agent(prompt, directory, videos, env, instructions=""):

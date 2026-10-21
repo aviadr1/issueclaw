@@ -632,3 +632,32 @@ def test_learn_command_uses_inherited_video_options_from_prepared_config(
     assert len(lessons.lessons_of(tmp_path)) == 2
     assert len(calls) == 2
     assert all("Teach shared client contracts" in text for text in calls)
+
+
+def test_video_inputs_reuse_only_records_for_exact_cited_prs(tmp_path):
+    briefing(tmp_path)
+    records = tmp_path / "pr-records"
+    records.mkdir()
+    cited = {
+        "url": "https://github.com/example/frontend/pull/12",
+        "headRefOid": "abc",
+        "author": {"login": "author"},
+        "body": "Collected evidence",
+    }
+    unrelated = {
+        "url": "https://github.com/example/frontend/pull/123",
+        "body": "Unrelated",
+    }
+    for number, record in [(12, cited), (123, unrelated)]:
+        (records / f"example--frontend--{number}.json").write_text(json.dumps(record))
+    target = tmp_path / "lesson"
+    lessons.write_inputs(tmp_path, target, {"text": cited["url"] + "#discussion_r456"})
+    packet = json.loads((target / "collected-prs.json").read_text())
+    assert packet["prs"] == [cited]
+    assert packet["missing"] == []
+    lessons.write_inputs(
+        tmp_path, target, {"text": "https://github.com/example/frontend/pull/99"}
+    )
+    packet = json.loads((target / "collected-prs.json").read_text())
+    assert packet["prs"] == []
+    assert packet["missing"] == ["https://github.com/example/frontend/pull/99"]
