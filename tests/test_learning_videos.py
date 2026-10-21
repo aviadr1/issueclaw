@@ -556,11 +556,14 @@ def test_the_shipped_video_prompt_formats_with_every_path(tmp_path, monkeypatch)
         lessons.subprocess, "run", lambda args, **kw: seen.append((args, kw))
     )
     lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
-    text = seen[0][0][2]
+    assert len(seen) == 2
+    assert "research.md" in seen[0][0][2]
+    assert seen[0][1]["cwd"] == tmp_path
+    text = seen[1][0][2]
     assert str(tmp_path) in text and str(tmp_path / "kit") in text
     assert "briefing_trace.py" in text
-    # the JSON example is the only brace left once every placeholder is filled
-    assert "{" not in text.replace('{"slug"', "")
+    assert "{learning_dir}" not in text
+    assert "{videos_dir}" not in text
 
 
 def test_lesson_research_receives_the_prepared_team_audience(tmp_path):
@@ -661,3 +664,51 @@ def test_video_inputs_reuse_only_records_for_exact_cited_prs(tmp_path):
     packet = json.loads((target / "collected-prs.json").read_text())
     assert packet["prs"] == []
     assert packet["missing"] == ["https://github.com/example/frontend/pull/99"]
+
+
+def test_research_failure_preserves_the_handoff_without_starting_authoring(
+    tmp_path, monkeypatch
+):
+    prompt = Path(lessons.__file__).parent / "prompts/learning-video.md"
+    seen = []
+
+    def fail(args, **options):
+        seen.append(args)
+        (tmp_path / "research.md").write_text("Pinned evidence already gathered")
+        raise subprocess.CalledProcessError(1, args)
+
+    monkeypatch.setattr(lessons.subprocess, "run", fail)
+    with pytest.raises(subprocess.CalledProcessError):
+        lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    assert len(seen) == 1
+    assert (tmp_path / "research.md").read_text() == "Pinned evidence already gathered"
+
+
+def test_trace_key_is_only_passed_in_environment_and_sessions_are_separate(
+    tmp_path, monkeypatch
+):
+    prompt = Path(lessons.__file__).parent / "prompts/learning-video.md"
+    plugin = tmp_path / "plugin"
+    (plugin / "bundle").mkdir(parents=True)
+    (plugin / "bundle/dispatch.js").write_text("")
+    seen = []
+    monkeypatch.setattr(
+        lessons.subprocess, "run", lambda args, **kw: seen.append((args, kw))
+    )
+    lessons.run_agent(
+        prompt,
+        tmp_path,
+        tmp_path / "kit",
+        {
+            "LEARNING_TRACE_PLUGIN": str(plugin),
+            "CC_LANGSMITH_API_KEY": "private-key",
+        },
+    )
+    sessions = []
+    for args, options in seen:
+        assert "private-key" not in str(args)
+        assert options["env"]["CC_LANGSMITH_API_KEY"] == "private-key"
+        assert options["env"]["CC_LANGSMITH_REDACT"] == "true"
+        sessions.append(args[args.index("--session-id") + 1])
+    assert len(set(sessions)) == 2
+    assert "private-key" not in (tmp_path / "research.request.json").read_text()

@@ -27,6 +27,14 @@ jobs:
       - run: uv sync --dev --extra media
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest tests/test_design_media_browser.py -m browser -n 0 -q
+  briefing-progress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: node --test tests/briefing-progress.test.mjs
   webhook-inbox:
     runs-on: ubuntu-latest
     steps:
