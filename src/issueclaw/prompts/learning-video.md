@@ -53,7 +53,10 @@ repair the affected chapter. Keep the context focused on evidence and the video.
    effect; keep the diagram within the engine's existing object/action vocabulary.
    Use the smallest representative example that still demonstrates the mechanism
    and its edge case. Never build a many-point simulation or decorative cast.
-   Size shared lists with stackInPanel using all planned label/tag variants;
+   Build EVERY stack with stackInPanel, including the shared cast: collect all
+   planned token visitors and label/tag changes before sizing it. Do not hand-size
+   a raw stack and discover overflow after delegation. The first-chapter check
+   must include the longest planned labels/tags, even when they appear later;
    codeInPanel accepts [col, row, width] to calculate its own natural height.
    Keep the card headline within 12 words and sub line within 14; preserve meaning.
 
@@ -64,7 +67,12 @@ repair the affected chapter. Keep the context focused on evidence and the video.
    `node scripts/learning-review.mjs <slug> {learning_dir}/first-chapter --through <first-chapter-id>`.
    Correct the common layout before expanding it. Then dispatch independent
    chapters to chapter-worker concurrently, at most TWO workers per video.
-   Every worker writes only its assigned file. Never have two writers on one
+   Use one Agent call per chapter; never bundle two or more chapters in one job.
+   Give each call only that chapter's brief plus the shared contract. Refill a
+   free worker slot as each finishes. Before dispatch, compare every referenced
+   ID with shared.ts and the assigned chapter prefix. Promote cross-chapter
+   objects to the shared cast now; never ask a worker to reference another
+   chapter's private objects. Every worker writes only its assigned file. Never have two writers on one
    chapter or change shared.ts while workers depend on it. Shared objects persist:
    each brief must specify the actual incoming/outgoing state; a worker cannot
    invent an independent starting scene. Keep all later action lists initialized.

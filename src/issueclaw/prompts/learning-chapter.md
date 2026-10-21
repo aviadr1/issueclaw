@@ -10,6 +10,11 @@ starter. Preserve every beat ID and caption. New object IDs and emitted copies
 must start with `<chapter-id>-`. Use shared IDs exactly as supplied. Do not edit
 shared.ts, lesson.ts, script.json, another chapter, engine code or QA files.
 Do not render, run commands, research, install, publish, call reviewers or delegate.
+The native advisor may be visible through session inheritance: do NOT call it.
+The lead owns the complete visual/advisor reviews. Report uncertainty to the lead
+and finish your bounded job instead of starting another planning/review cycle.
+If the request contains several chapters, implement only its first assigned
+chapter and return the remaining IDs for separate jobs; never edit sibling files.
 
 Follow the brief literally. If a required fact, start/end state or motion is
 ambiguous, return the specific missing decision to the lead; do not invent it.
