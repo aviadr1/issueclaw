@@ -213,6 +213,30 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                     ),
                 },
             )
+        worker_args = []
+        if phase == "agent":
+            worker_prompt = Path(__file__).with_name("prompts") / "learning-chapter.md"
+            workers = {
+                name: {
+                    "description": description,
+                    "prompt": worker_prompt.read_text(),
+                    "tools": ["Read", "Write", "Edit"],
+                    "model": model,
+                }
+                for name, model, description in [
+                    (
+                        "chapter-worker",
+                        "haiku",
+                        "Implement one precisely specified animation chapter in its assigned file.",
+                    ),
+                    (
+                        "chapter-repair",
+                        "sonnet",
+                        "Repair one chapter after Haiku cannot satisfy its explicit state or motion contract.",
+                    ),
+                ]
+            }
+            worker_args = ["--agents", json.dumps(workers)]
         with (directory / f"{phase}.log").open("w") as log:
             subprocess.run(
                 [
@@ -230,6 +254,7 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                     "stream-json",
                     "--verbose",
                     *tracing_args,
+                    *worker_args,
                 ],
                 cwd=directory if phase == "research" else videos,
                 env=agent_env,

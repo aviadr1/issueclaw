@@ -54,6 +54,7 @@ Describe a feasible persistent diagram, not an elaborate new simulator. Quoted
 code and measured numbers must be backed by captured sources. Label schematic
 animations as illustrations. For review say "Review walkthrough" in the first
 caption and put the reviewed short SHA in a footnote. Never imply it shipped.
+The end headline must be at most 12 words, the sub line at most 14 words.
 The whole thank-you should fit in 16 words; use "proposing ..." where appropriate.
 
 Give a Haiku cold reader ONLY the captions. Ask it to explain the system, change

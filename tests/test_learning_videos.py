@@ -712,3 +712,24 @@ def test_trace_key_is_only_passed_in_environment_and_sessions_are_separate(
         sessions.append(args[args.index("--session-id") + 1])
     assert len(set(sessions)) == 2
     assert "private-key" not in (tmp_path / "research.request.json").read_text()
+
+
+def test_author_can_delegate_bounded_chapters_without_delegating_review(
+    tmp_path, monkeypatch
+):
+    prompt = Path(lessons.__file__).parent / "prompts/learning-video.md"
+    calls = []
+    monkeypatch.setattr(
+        lessons.subprocess, "run", lambda args, **kw: calls.append((args, kw))
+    )
+    lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    research, author = [args for args, _ in calls]
+    assert "--agents" not in research
+    workers = json.loads(author[author.index("--agents") + 1])
+    assert workers["chapter-worker"]["model"] == "haiku"
+    assert workers["chapter-repair"]["model"] == "sonnet"
+    for worker in workers.values():
+        assert set(worker["tools"]) == {"Read", "Write", "Edit"}
+        assert "Bash" not in worker["tools"]
+        assert "advisor" not in worker["tools"]
+    assert author[author.index("--advisor") + 1] == lessons.ADVISOR

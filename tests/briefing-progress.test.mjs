@@ -73,3 +73,19 @@ test('thinking heartbeats do not reset meaningful activity and completed phase t
   assert.equal(progress.snapshot(20000).elapsed_seconds, 7);
   assert.equal(progress.snapshot(20000).reported_output_tokens, 1200);
 });
+
+
+test('parallel chapter helpers are visible individually and retire independently', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {content: [
+    {type: 'tool_use', id: 'a', name: 'Agent', input: {subagent_type: 'chapter-worker', prompt: 'private evidence'}},
+    {type: 'tool_use', id: 'b', name: 'Agent', input: {subagent_type: 'chapter-repair'}},
+  ]}}, 1000);
+  assert.deepEqual(progress.snapshot(3000).active_helpers, [
+    {worker: 'chapter-worker', elapsed_seconds: 2},
+    {worker: 'chapter-repair', elapsed_seconds: 2},
+  ]);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'a', content: 'done'}]}}, 4000);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'chapter-repair', elapsed_seconds: 4}]);
+  assert.ok(!JSON.stringify(progress.snapshot(5000)).includes('private evidence'));
+});

@@ -39,7 +39,8 @@ export class Progress {
       if (block.type === 'tool_use' || block.type === 'server_tool_use') {
         if (this.pending.has(block.id)) continue;
         const label = activity(block.name, block.input);
-        this.pending.set(block.id, {label, at});
+        const worker = ['chapter-worker', 'chapter-repair'].includes(block.input?.subagent_type) ? block.input.subagent_type : undefined;
+        this.pending.set(block.id, {label, at, worker});
         this.calls[label] = (this.calls[label] ?? 0) + 1;
       } else if (block.type === 'tool_result' || block.type === 'advisor_tool_result') {
         const pending = this.pending.get(block.tool_use_id);
@@ -65,6 +66,9 @@ export class Progress {
       seconds_since_event: seconds(now - this.last),
       reported_output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
       calls: this.calls,
+      active_helpers: [...this.pending.values()].filter((tool) => tool.label === 'helper').map((tool) => ({
+        worker: tool.worker ?? 'helper', elapsed_seconds: seconds(now - tool.at),
+      })),
       tool_seconds: Object.fromEntries(Object.entries(this.totals).map(([k, v]) => [k, seconds(v)])),
       ...this.result,
     };
