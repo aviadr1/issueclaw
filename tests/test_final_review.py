@@ -1,8 +1,11 @@
 import json
+import subprocess
+import sys
 from pathlib import PurePosixPath
 
 import pytest
 
+from issueclaw import final_review
 from issueclaw.final_review import inspect_final_review
 
 
@@ -410,3 +413,27 @@ def test_malformed_history_falls_back_to_current_render_review(rendered):
     (directory / "render-history.jsonl").write_text('null\n{"qa": {}}\n{"partial"')
     write_log(directory, events + reads(directory, paths) + advisor())
     assert inspect_final_review(directory)["passed"] is True
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_review_cli_reports_actionable_evidence_and_preserves_generated_work(
+    rendered, complete
+):
+    directory, paths, events = rendered
+    if complete:
+        events += reads(directory, paths) + advisor()
+    write_log(directory, events)
+    (directory / "video.mp4").write_bytes(b"useful video")
+    (directory / "learning.md").write_text("Useful explanation.")
+    process = subprocess.run(
+        [sys.executable, final_review.__file__, str(directory)],
+        capture_output=True,
+        text=True,
+    )
+    assert process.returncode == (0 if complete else 1), process.stderr
+    report = json.loads(process.stdout)
+    assert report["passed"] is complete
+    assert report["missing_files"] == ([] if complete else sorted(paths))
+    assert report == json.loads((directory / "final-review.json").read_text())
+    assert (directory / "video.mp4").read_bytes() == b"useful video"
+    assert (directory / "learning.md").read_text() == "Useful explanation."

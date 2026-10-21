@@ -148,6 +148,16 @@ hand. If you can't get a video working, still deliver the text files and write
 why to {learning_dir}/video-error.txt. Your tool transcript and the lesson's
 source are preserved automatically.
 
+Before ending this session, check the recorded final review:
+`python "{final_review_validator}" "{learning_dir}"`
+It derives final-review.json from actual image reads, advisor results and render
+history. If passed is false, open its missing_files, complete the required advisor
+review, resolve warranted findings and rerun the check in this same session.
+After a correction, review changed chapters and their joins; the checker retains
+approved unchanged keys. Do not rerender merely to satisfy a missing read. Do not
+hand-edit the receipt. Finish with passed true, or preserve the video and explain
+the concrete issue you could not repair. The parent independently checks again.
+
 ## Review walkthroughs
 
 If topic.json's kind is "review", this is a walkthrough of the selected OPEN PR

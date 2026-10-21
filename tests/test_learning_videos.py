@@ -562,6 +562,8 @@ def test_the_shipped_video_prompt_formats_with_every_path(tmp_path, monkeypatch)
     text = seen[1][0][2]
     assert str(tmp_path) in text and str(tmp_path / "kit") in text
     assert "briefing_trace.py" in text
+    assert f'python "{lessons.final_review.__file__}" "{tmp_path.resolve()}"' in text
+    assert "{final_review_validator}" not in text
     assert "{learning_dir}" not in text
     assert "{videos_dir}" not in text
 

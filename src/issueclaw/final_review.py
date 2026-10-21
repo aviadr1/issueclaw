@@ -1,5 +1,6 @@
 """Recover missing final visual review from tool evidence, retaining reviewed cache keys."""
 
+import argparse
 import json
 import re
 import shlex
@@ -375,3 +376,22 @@ def inspect_final_review(directory):
     return (
         receipt if renders else inspect_render(directory, current, calls, None, saved)
     )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Check final visual review evidence without rendering or discarding generated work"
+    )
+    parser.add_argument("directory", type=Path)
+    args = parser.parse_args()
+    report = inspect_final_review(args.directory)
+    text = json.dumps(report, indent=2) + "\n"
+    temporary = args.directory / "final-review.json.tmp"
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(args.directory / "final-review.json")
+    print(text, end="")
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

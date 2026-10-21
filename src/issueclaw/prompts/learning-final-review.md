@@ -20,7 +20,9 @@ Copy the final assembled output to {learning_dir}/video.mp4 if you rendered agai
 Run python "{quality_validator}" "{learning_dir}" --playback-speed 1 and repair
 any actual failures. Update qa.md with the exact images reviewed, advisor findings
 and resolutions. Keep all evidence, source and video if a correction cannot be
-finished; report the concrete unresolved issue. Do not edit final-review.json,
-which the orchestrator derives from tool events. Do not publish or modify external
+finished; report the concrete unresolved issue. Before finishing, run
+python "{final_review_validator}" "{learning_dir}" and repair any missing reads or
+advisor evidence in this session. The checker updates final-review.json from tool
+events and preserves unchanged chapter approvals; do not hand-edit it. Do not publish or modify external
 systems, install packages, commit, or push. Only modify this lesson, its handoff,
 registry entry, public/learnings and out. Finish as soon as review and repairs pass.

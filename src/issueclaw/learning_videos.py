@@ -180,6 +180,7 @@ def run_agent(prompt, directory, videos, env, instructions=""):
             learning_dir=directory.resolve(),
             videos_dir=videos.resolve(),
             quality_validator=trace.__file__,
+            final_review_validator=final_review.__file__,
         )
         if instructions:
             text += "\n\nThe caller's instructions for this lesson and its video:\n"
