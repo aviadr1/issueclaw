@@ -40,6 +40,10 @@ before you start.
    Keep one simple persistent diagram that demonstrates the mechanism and its
    edge case; avoid adding a separate simulation or decorative objects.
    Preserve all substantive facts, evidence gaps and review questions.
+   Follow the kit's placement/state contract and small mechanism-diagram guidance.
+   For geometry or animation, trace representative states rather than rebuilding
+   a many-point chart or searching for synthetic coordinates. Use only the points
+   needed to demonstrate the relevant edge case; retain captured algorithm evidence.
    Reuse captured evidence files for quoted source; do not re-fetch pinned files.
    Use the kit's
    `twoPanels` and `codeInPanel` helpers for diagram/code layouts and existing
@@ -106,9 +110,9 @@ source are preserved automatically.
 ## Review walkthroughs
 
 If topic.json's kind is "review", this is a walkthrough of the selected OPEN PR
-at head_sha, not a lesson about merged code. Verify the current head with
-read-only gh and read the exact base/head diff, surrounding callers, tests and
-review discussion. If the head moved, record the mismatch and stop rather than
+at head_sha, not a lesson about merged code. Recheck the current head with
+read-only gh. The handoff already covers the exact base/head diff, surrounding
+callers, tests and review discussion; revisit only a changed or disputed claim. If the head moved, record the mismatch and stop rather than
 explain a different version. Do not execute scripts from the PR.
 
 Answer what it does, why, how, why reviewing it is hard, and where human
