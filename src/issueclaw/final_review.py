@@ -4,6 +4,7 @@ import json
 import re
 import shlex
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 
@@ -14,6 +15,15 @@ class Call:
     end: int | None = None
     path: str = ""
     background: bool = False
+    started_at: float | None = None
+    ended_at: float | None = None
+
+
+def timestamp(value):
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except (AttributeError, ValueError):
+        return None
 
 
 def read_json(path):
@@ -95,7 +105,10 @@ def review_calls(directory):
                     command = inputs.get("command", "")
                     if (
                         name == "Bash"
-                        and re.search(r"render-learning\.(sh|mjs)(?:\s|$)", command)
+                        and re.search(
+                            r"(?:^|[\s;(])(?:sh|bash|node)\s+(?:[^\s;]*/)?render-learning\.(?:sh|mjs)(?:\s|$)",
+                            command,
+                        )
                         and "--chapters" not in command
                     ):
                         name = "render"
@@ -103,6 +116,7 @@ def review_calls(directory):
                         calls[(log.name, block["id"])] = Call(
                             name,
                             index,
+                            started_at=timestamp(event.get("timestamp")),
                             path=qa_path(command)
                             if name == "render"
                             else inputs.get("file_path", ""),
@@ -129,11 +143,13 @@ def review_calls(directory):
                         call.background = True
                         continue
                     call.end = index
+                    call.ended_at = timestamp(event.get("timestamp"))
     return list(calls.values())
 
 
-def inspect_final_review(directory):
-    directory = Path(directory)
+def inspect_render(
+    directory, manifest, calls, latest, previous, until=None, historical=False
+):
     report = {
         "passed": False,
         "status": "incomplete",
@@ -142,7 +158,6 @@ def inspect_final_review(directory):
         "reviewed_chapters": {},
         "reason": "",
     }
-    manifest = read_json(directory / "render.json")
     chapters = manifest.get("chapters", [])
     if (
         not isinstance(chapters, list)
@@ -158,7 +173,13 @@ def inspect_final_review(directory):
         return report
     ids = [part["chapter"] for part in chapters]
     keys = {part["chapter"]: part["key"] for part in chapters}
-    previous = read_json(directory / "final-review.json").get("reviewed_chapters", {})
+    report["chapter_order"] = ids
+    report["render_started_at"] = manifest.get("render_started_at")
+    previous = (
+        previous.get("reviewed_chapters", {})
+        if previous.get("chapter_order") == ids
+        else {}
+    )
     if not isinstance(previous, dict):
         previous = {}
     reviewed = {
@@ -178,9 +199,9 @@ def inspect_final_review(directory):
         path.relative_to(directory).as_posix()
         for path in (directory / "filmstrip").glob("sheet-*.png")
     )
-    calls = review_calls(directory)
-    renders = [call for call in calls if call.name == "render"]
-    latest = max(renders, key=lambda call: call.start, default=None)
+    if historical:
+        chapter_files = manifest["qa"]["chapters"]
+        root_files = manifest["qa"]["filmstrip"]
     boundary = latest.end if latest and latest.end is not None else None
     reads = {}
     roots = {str(directory.resolve()).replace("\\", "/").rstrip("/")}
@@ -192,6 +213,8 @@ def inspect_final_review(directory):
             or call.end is None
             or boundary is None
             or call.start <= boundary
+            or until is not None
+            and call.end >= until
         ):
             continue
         path = call.path.replace("\\", "/")
@@ -206,12 +229,16 @@ def inspect_final_review(directory):
         and call.end is not None
         and boundary is not None
         and call.start > boundary
+        and (until is None or call.end < until)
     ]
 
     def reviewed_files(files):
         return (
             bool(files)
-            and all(path in reads and (directory / path).is_file() for path in files)
+            and all(
+                path in reads and (historical or (directory / path).is_file())
+                for path in files
+            )
             and any(
                 call.start > max(reads[path] for path in files) for call in advisors
             )
@@ -264,3 +291,87 @@ def inspect_final_review(directory):
             "Read the missing final filmstrips and chapter joins, then complete a lead advisor review. Retain matching reviewed chapter keys."
         )
     return report
+
+
+def inspect_final_review(directory):
+    directory = Path(directory)
+    current = read_json(directory / "render.json")
+    saved = read_json(directory / "final-review.json")
+    calls = review_calls(directory)
+    renders = sorted(
+        (call for call in calls if call.name == "render"), key=lambda call: call.start
+    )
+    history = []
+    path = directory / "render-history.jsonl"
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            qa, chapters = entry.get("qa", {}), entry.get("chapters", [])
+            if (
+                not isinstance(qa, dict)
+                or not isinstance(chapters, list)
+                or not chapters
+            ):
+                continue
+            inventories = qa.get("chapters", {})
+            if not isinstance(inventories, dict) or not all(
+                isinstance(part, dict)
+                and part.get("chapter") in inventories
+                and part.get("key")
+                for part in chapters
+            ):
+                continue
+            files = [qa.get("filmstrip"), *inventories.values()]
+            if all(
+                isinstance(names, list)
+                and names
+                and all(isinstance(name, str) for name in names)
+                for names in files
+            ):
+                history.append(entry)
+    receipt = {}
+    for index, render in enumerate(renders):
+        final = index == len(renders) - 1
+        matches = [
+            entry
+            for entry in history
+            if render.started_at is not None
+            and render.ended_at is not None
+            and (start := timestamp(entry.get("render_started_at"))) is not None
+            and (end := timestamp(entry.get("render_completed_at"))) is not None
+            and render.started_at <= start <= end <= render.ended_at
+        ]
+        if not final and len(matches) != 1:
+            receipt = {}
+            continue
+        manifest = current if final else matches[0]
+        if saved.get("render_started_at") == manifest.get("render_started_at") and (
+            final or manifest.get("render_started_at")
+        ):
+            if saved.get("chapter_order") == receipt.get("chapter_order"):
+                receipt = {
+                    **saved,
+                    "reviewed_chapters": {
+                        **saved.get("reviewed_chapters", {}),
+                        **receipt.get("reviewed_chapters", {}),
+                    },
+                }
+            else:
+                receipt = saved
+        receipt = inspect_render(
+            directory,
+            manifest,
+            calls,
+            render,
+            receipt,
+            until=None if final else renders[index + 1].start,
+            historical=not final,
+        )
+    return (
+        receipt if renders else inspect_render(directory, current, calls, None, saved)
+    )

@@ -273,6 +273,7 @@ def write_index(out):
             "final-review.json",
             "timings.json",
             "render.json",
+            "render-history.jsonl",
             "render-timings",
             "pacing.json",
             "error.txt",

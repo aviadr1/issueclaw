@@ -217,6 +217,7 @@ def test_trace_index_links_available_phase_and_final_review_evidence(
         "final-review.json",
         "timings.json",
         "render.json",
+        "render-history.jsonl",
         "research.timing.json",
         "agent.timing.json",
         "final-review-2.prompt.md",
