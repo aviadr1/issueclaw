@@ -1,5 +1,5 @@
 import json
-from pathlib import Path
+from pathlib import PurePosixPath
 
 import pytest
 
@@ -181,7 +181,7 @@ def test_full_final_filmstrip_is_an_alternative_to_chapter_sheets(rendered):
 
 def test_reads_from_recorded_ci_path_match_downloaded_artifact_location(rendered):
     directory, paths, _ = rendered
-    ci = Path("/tmp/daily-briefing/learnings/1")
+    ci = PurePosixPath("/tmp/daily-briefing/learnings/1")
     events = [
         tool(
             "Bash",

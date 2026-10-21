@@ -266,19 +266,15 @@ def write_index(out):
             "filmstrip",
             "research.md",
             "script.json",
-            "research.prompt.md",
-            "research.request.json",
-            "research.log",
-            "research.trace.json",
-            "agent.trace.json",
             "tracing.log",
             "storyboard.json",
             "qa.md",
             "quality.json",
+            "final-review.json",
+            "timings.json",
+            "render.json",
+            "render-timings",
             "pacing.json",
-            "agent.request.json",
-            "agent.prompt.md",
-            "agent.log",
             "error.txt",
             "video-error.txt",
             "pacing-error.txt",
@@ -290,6 +286,17 @@ def write_index(out):
         ):
             if (directory / name).exists():
                 lines.append(f"- [{name}]({prefix}/{name})")
+        for phase in ("research", "agent", "final-review-*"):
+            for suffix in (
+                "prompt.md",
+                "request.json",
+                "log",
+                "trace.json",
+                "timing.json",
+            ):
+                for path in sorted(directory.glob(f"{phase}.{suffix}")):
+                    if path.is_file():
+                        lines.append(f"- [{path.name}]({prefix}/{path.name})")
     lines += [
         "",
         "## Reproduction and delivery",

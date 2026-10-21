@@ -205,3 +205,37 @@ def test_trace_index_links_the_kit_filmstrip_and_motion_report(tmp_path):
     index = (tmp_path / "TRACE-INDEX.md").read_text()
     assert "- [filmstrip](learnings/1/filmstrip)" in index
     assert "- [motion.txt](learnings/1/motion.txt)" in index
+
+
+@pytest.mark.parametrize("recovery_finished", [False, True])
+def test_trace_index_links_available_phase_and_final_review_evidence(
+    tmp_path, recovery_finished
+):
+    attempt = tmp_path / "learnings/1"
+    attempt.mkdir(parents=True)
+    files = {
+        "final-review.json",
+        "timings.json",
+        "render.json",
+        "research.timing.json",
+        "agent.timing.json",
+        "final-review-2.prompt.md",
+    }
+    phases = ["research", "agent", "final-review-1"]
+    if recovery_finished:
+        phases.append("final-review-2")
+    for phase in phases:
+        for suffix in ("log", "prompt.md", "request.json", "trace.json", "timing.json"):
+            files.add(f"{phase}.{suffix}")
+    for name in files:
+        (attempt / name).write_text("{}")
+    (attempt / "render-timings").mkdir()
+
+    trace.write_index(tmp_path)
+
+    index = (tmp_path / "TRACE-INDEX.md").read_text()
+    for name in files | {"render-timings"}:
+        assert index.count(f"- [{name}](learnings/1/{name})") == 1
+    if not recovery_finished:
+        assert "final-review-2.log" not in index
+        assert "final-review-2.timing.json" not in index
