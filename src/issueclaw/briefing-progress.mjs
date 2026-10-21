@@ -29,7 +29,7 @@ export class Progress {
     this.messages = new Map();
     this.totals = {};
     this.calls = {};
-    this.result = null;
+    this.results = new Map();
   }
   accept(event, now = Date.now()) {
     if (event.type === 'system') {
@@ -66,21 +66,29 @@ export class Progress {
         }
       }
     }
-    if (event.type === 'result') this.result = {
-      api_seconds: seconds(event.duration_api_ms ?? 0), turns: event.num_turns ?? 0,
-      failed: event.is_error === true,
-      wall_seconds: seconds(event.duration_ms ?? at - this.started),
-      reported_output_tokens: event.usage?.output_tokens ?? [...this.messages.values()].reduce((a, b) => a + b, 0),
-    };
+    if (event.type === 'result') {
+      const key = event.result_index != null ? `${event.session_id ?? ''}:${event.result_index}` : event.uuid ?? JSON.stringify([event.timestamp, event.duration_ms, event.duration_api_ms, event.num_turns]);
+      this.results.set(key, {
+        api_ms: event.duration_api_ms ?? 0, turns: event.num_turns ?? 0,
+        duration_ms: event.duration_ms ?? 0, output_tokens: event.usage?.output_tokens ?? 0,
+      });
+    }
   }
-  snapshot(now = Date.now()) {
+  snapshot(now = Date.now(), timing = null) {
     const current = [...this.pending.values()].sort((a, b) => a.at - b.at)[0];
+    const complete = ['completed', 'failed'].includes(timing?.status) && Number.isFinite(timing.duration_ms);
+    const totals = [...this.results.values()].reduce((sum, turn) => ({
+      api_ms: sum.api_ms + turn.api_ms, turns: sum.turns + turn.turns,
+      duration_ms: sum.duration_ms + turn.duration_ms, output_tokens: sum.output_tokens + turn.output_tokens,
+    }), {api_ms: 0, turns: 0, duration_ms: 0, output_tokens: 0});
     return {
-      elapsed_seconds: this.result?.wall_seconds ?? seconds(now - this.started),
-      activity: this.result ? (this.result.failed ? 'failed' : 'finished') : (current?.label ?? 'model'),
-      activity_seconds: this.result ? 0 : seconds(now - (current?.at ?? this.last)),
+      elapsed_seconds: seconds(complete ? timing.duration_ms : now - this.started),
+      activity: complete ? (timing.status === 'failed' ? 'failed' : 'finished') : (current?.label ?? 'model'),
+      activity_seconds: complete ? 0 : seconds(now - (current?.at ?? this.last)),
       seconds_since_event: seconds(now - this.last),
-      reported_output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
+      reported_output_tokens: Math.max(totals.output_tokens, [...this.messages.values()].reduce((a, b) => a + b, 0)),
+      api_seconds: seconds(totals.api_ms), turns: totals.turns, result_turns: this.results.size,
+      reported_turn_seconds: seconds(totals.duration_ms),
       calls: this.calls,
       completed_helpers: this.completedHelpers.size,
       active_helpers: [...this.helperTasks.values(), ...[...this.pending.entries()]
@@ -89,7 +97,7 @@ export class Progress {
         worker: tool.worker ?? 'helper', elapsed_seconds: seconds(now - tool.at),
       })),
       tool_seconds: Object.fromEntries(Object.entries(this.totals).map(([k, v]) => [k, seconds(v)])),
-      ...this.result,
+      ...(complete ? {wall_seconds: seconds(timing.duration_ms), failed: timing.status === 'failed'} : {}),
     };
   }
 }
@@ -104,7 +112,13 @@ export const observe = async (directory, streams, now = Date.now()) => {
       const path = join(lessons, number, `${phase}.log`);
       if (!existsSync(path)) continue;
       const info = statSync(path);
-      if (!streams.has(path) || info.size < streams.get(path).offset) streams.set(path, {offset: 0, partial: '', progress: new Progress(info.birthtimeMs)});
+      let timing;
+      try { timing = JSON.parse(readFileSync(join(lessons, number, `${phase}.timing.json`), 'utf8')); } catch {}
+      const recordedStart = Date.parse(timing?.started_at);
+      const started = Number.isFinite(recordedStart) ? recordedStart : info.birthtimeMs;
+      if (!streams.has(path) || info.size < streams.get(path).offset || streams.get(path).progress.started !== started) {
+        streams.set(path, {offset: 0, partial: '', progress: new Progress(started)});
+      }
       const stream = streams.get(path);
       if (info.size > stream.offset) {
         for await (const chunk of createReadStream(path, {start: stream.offset, end: info.size - 1, encoding: 'utf8'})) {
@@ -116,7 +130,7 @@ export const observe = async (directory, streams, now = Date.now()) => {
         }
         stream.offset = info.size;
       }
-      phases[phase] = stream.progress.snapshot(now);
+      phases[phase] = stream.progress.snapshot(now, timing);
     }
     let outcome;
     try { outcome = JSON.parse(readFileSync(join(lessons, number, 'outcome.json'), 'utf8')).status; } catch {}
@@ -180,7 +194,7 @@ export const supervise = async (directory, command) => {
             const from = join(directory, 'learnings', String(lesson.lesson));
             const to = join(progressDir, 'sessions', String(lesson.lesson));
             mkdirSync(to, {recursive: true});
-            for (const file of readdirSync(from).filter((name) => /^(research|agent)\.(log|prompt\.md|request\.json|trace\.json)$/.test(name))) {
+            for (const file of readdirSync(from).filter((name) => /^(research|agent)\.(log|prompt\.md|request\.json|trace\.json|timing\.json)$/.test(name))) {
               const target = join(to, file);
               copyFileSync(join(from, file), target);
               files.push(target);

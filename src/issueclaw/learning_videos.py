@@ -25,6 +25,7 @@ import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 from issueclaw import briefing_trace as trace
@@ -161,6 +162,13 @@ def write_inputs(out, directory, topic):
     )
 
 
+def write_phase_timing(directory, phase, timing):
+    target = directory / f"{phase}.timing.json"
+    temporary = target.with_suffix(".json.tmp")
+    trace.write_json(temporary, timing)
+    temporary.replace(target)
+
+
 def run_agent(prompt, directory, videos, env, instructions=""):
     research = prompt.with_name("learning-research.md")
     phases = [("research", research)] if research.exists() else []
@@ -238,31 +246,51 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                 ]
             }
             worker_args = ["--agents", json.dumps(workers)]
-        with (directory / f"{phase}.log").open("w") as log:
-            subprocess.run(
-                [
-                    shutil.which("claude") or "claude",
-                    "-p",
-                    text,
-                    "--dangerously-skip-permissions",
-                    "--model",
-                    MODEL,
-                    "--advisor",
-                    ADVISOR,
-                    "--effort",
-                    EFFORT,
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    *tracing_args,
-                    *worker_args,
-                ],
-                cwd=directory if phase == "research" else videos,
-                env=agent_env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-                timeout=max(1, deadline - time.monotonic()),
+        phase_started = time.monotonic()
+        timing = {
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "status": "running",
+        }
+        write_phase_timing(directory, phase, timing)
+        status = "failed"
+        try:
+            with (directory / f"{phase}.log").open("w") as log:
+                subprocess.run(
+                    [
+                        shutil.which("claude") or "claude",
+                        "-p",
+                        text,
+                        "--dangerously-skip-permissions",
+                        "--model",
+                        MODEL,
+                        "--advisor",
+                        ADVISOR,
+                        "--effort",
+                        EFFORT,
+                        "--output-format",
+                        "stream-json",
+                        "--verbose",
+                        *tracing_args,
+                        *worker_args,
+                    ],
+                    cwd=directory if phase == "research" else videos,
+                    env=agent_env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    check=True,
+                    timeout=max(1, deadline - time.monotonic()),
+                )
+            status = "completed"
+        finally:
+            write_phase_timing(
+                directory,
+                phase,
+                {
+                    **timing,
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_ms": round((time.monotonic() - phase_started) * 1000),
+                    "status": status,
+                },
             )
         if phase == "research" and (directory / "video-error.txt").exists():
             return

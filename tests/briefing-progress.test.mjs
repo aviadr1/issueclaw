@@ -65,12 +65,13 @@ test('the installed artifact client loads through its ESM export', async () => {
   assert.equal(typeof client.uploadArtifact, 'function');
 });
 
-test('thinking heartbeats do not reset meaningful activity and completed phase time stays fixed', () => {
+test('thinking heartbeats do not reset activity and a result does not finish a live process', () => {
   const progress = new Progress(0);
   progress.accept({type: 'system', subtype: 'thinking_tokens'}, 5000);
   assert.equal(progress.snapshot(6000).activity_seconds, 6);
   progress.accept({type: 'result', duration_ms: 7000, duration_api_ms: 6000, usage: {output_tokens: 1200}}, 7000);
-  assert.equal(progress.snapshot(20000).elapsed_seconds, 7);
+  assert.equal(progress.snapshot(20000).elapsed_seconds, 20);
+  assert.notEqual(progress.snapshot(20000).activity, 'finished');
   assert.equal(progress.snapshot(20000).reported_output_tokens, 1200);
 });
 
@@ -101,4 +102,49 @@ test('background worker remains observable after its launch tool returns', () =>
   progress.accept({type: 'system', subtype: 'task_notification', task_id: 'worker', status: 'completed'}, 7001);
   assert.deepEqual(progress.snapshot(8000).active_helpers, []);
   assert.equal(progress.snapshot(8000).completed_helpers, 1);
+});
+
+
+test('result turns accumulate once while later notifications keep the process live', () => {
+  const progress = new Progress(1000);
+  const first = {type: 'result', uuid: 'result-a', session_id: 'session', result_index: 0, duration_ms: 198000, duration_api_ms: 207000, num_turns: 20, usage: {output_tokens: 23000}, modelUsage: {private: {outputTokens: 23000}}};
+  progress.accept(first, 199000);
+  assert.notEqual(progress.snapshot(200000).activity, 'finished');
+  progress.accept({type: 'assistant', message: {id: 'next-message', content: [{type: 'tool_use', id: 'write', name: 'Edit', input: {file_path: '/private', old_string: 'SECRET'}}]}}, 201000);
+  assert.equal(progress.snapshot(202000).activity, 'writing');
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'write'}]}}, 203000);
+  progress.accept({...first, uuid: 'duplicate-delivery'}, 204000);
+  progress.accept({type: 'result', uuid: 'result-b', session_id: 'session', result_index: 1, duration_ms: 600, duration_api_ms: 0, num_turns: 0, usage: {output_tokens: 0}}, 205000);
+  const live = progress.snapshot(210000);
+  assert.equal(live.elapsed_seconds, 209);
+  assert.equal(live.api_seconds, 207);
+  assert.equal(live.turns, 20);
+  assert.equal(live.result_turns, 2);
+  assert.equal(live.reported_turn_seconds, 198.6);
+  assert.equal(live.reported_output_tokens, 23000);
+  assert.notEqual(live.activity, 'finished');
+  assert.ok(!JSON.stringify(live).match(/SECRET|private/));
+});
+
+test('only process timing marks a phase finished and keeps its full wall time', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'briefing-timing-'));
+  try {
+    const dir = join(root, 'learnings/1');
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, 'agent.log'), JSON.stringify({type: 'result', result_index: 0, duration_ms: 600, duration_api_ms: 400, num_turns: 1}) + '\n');
+    const streams = new Map();
+    const started_at = new Date(1000).toISOString();
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, status: 'running'}));
+    const live = (await observe(root, streams, 21000))[0].phases.agent;
+    assert.equal(live.elapsed_seconds, 20);
+    assert.notEqual(live.activity, 'finished');
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, ended_at: new Date(31000).toISOString(), duration_ms: 30000, status: 'completed'}));
+    const final = (await observe(root, streams, 40000))[0].phases.agent;
+    assert.equal(final.activity, 'finished');
+    assert.equal(final.elapsed_seconds, 30);
+    assert.equal(final.wall_seconds, 30);
+    assert.equal(final.api_seconds, 0.4);
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, ended_at: new Date(31000).toISOString(), duration_ms: 30000, status: 'failed'}));
+    assert.equal((await observe(root, streams, 40000))[0].phases.agent.activity, 'failed');
+  } finally { rmSync(root, {recursive: true, force: true}); }
 });

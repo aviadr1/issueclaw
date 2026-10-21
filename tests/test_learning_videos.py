@@ -737,3 +737,32 @@ def test_author_can_delegate_bounded_chapters_without_delegating_review(
         assert "Bash" not in worker["tools"]
         assert "advisor" not in worker["tools"]
     assert author[author.index("--advisor") + 1] == lessons.ADVISOR
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_agent_process_timing_covers_all_turns_and_failure(
+    tmp_path, monkeypatch, failed
+):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Create the lesson.")
+    clock = iter([0, 10, 11, 35])
+    monkeypatch.setattr(lessons.time, "monotonic", lambda: next(clock))
+
+    def run(*args, **kwargs):
+        timing = json.loads((tmp_path / "agent.timing.json").read_text())
+        assert timing["status"] == "running"
+        assert "ended_at" not in timing
+        if failed:
+            raise subprocess.CalledProcessError(9, "claude")
+
+    monkeypatch.setattr(lessons.subprocess, "run", run)
+    if failed:
+        with pytest.raises(subprocess.CalledProcessError):
+            lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    else:
+        lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    timing = json.loads((tmp_path / "agent.timing.json").read_text())
+    assert timing["status"] == ("failed" if failed else "completed")
+    assert timing["duration_ms"] == 25000
+    assert timing["started_at"] <= timing["ended_at"]
+    assert set(timing) == {"status", "started_at", "ended_at", "duration_ms"}
