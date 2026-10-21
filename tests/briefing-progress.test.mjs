@@ -172,3 +172,43 @@ test('queued notifications do not double cumulative API counters', () => {
   assert.equal(progress.snapshot(2000).api_seconds, 854.1);
   assert.equal(progress.snapshot(2000).turns, 84);
 });
+
+test('lead continuation retires an unresolved advisor wait without completing helpers or fabricating its duration', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {id: 'launch', content: [{type: 'tool_use', id: 'worker-launch', name: 'Agent', input: {subagent_type: 'chapter-worker'}}]}}, 1000);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'worker-launch'}]}}, 1100);
+  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'worker-launch'}, 1200);
+  progress.accept({type: 'assistant', message: {id: 'first', content: [{type: 'server_tool_use', id: 'orphan', name: 'advisor'}]}}, 2000);
+  progress.accept({type: 'assistant', parent_tool_use_id: 'worker-launch', message: {id: 'worker-message', content: [{type: 'tool_use', id: 'worker-read', name: 'Read'}]}}, 3000);
+  assert.equal(progress.snapshot(4000).activity, 'advisor');
+  progress.accept({type: 'user', parent_tool_use_id: 'worker-launch', message: {content: [{type: 'tool_result', tool_use_id: 'worker-read'}]}}, 4500);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'server_tool_use', id: 'returned', name: 'advisor'}]}}, 5000);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'advisor_tool_result', tool_use_id: 'returned', content: 'redacted'}]}}, 7000);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'tool_use', id: 'edit', name: 'Edit', input: {new_string: 'PRIVATE'}}]}}, 8000);
+  const resumed = progress.snapshot(9000);
+  assert.equal(resumed.activity, 'writing');
+  assert.equal(resumed.activity_seconds, 1);
+  assert.equal(resumed.unresolved_advisor_calls, 1);
+  assert.equal(resumed.tool_seconds.advisor, 2);
+  assert.deepEqual(resumed.active_helpers, [{worker: 'chapter-worker', elapsed_seconds: 8}]);
+  assert.equal(resumed.completed_helpers, 0);
+  assert.ok(!JSON.stringify(resumed).includes('PRIVATE'));
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'edit'}]}}, 10000);
+  assert.equal(progress.snapshot(11000).activity, 'model');
+  progress.accept({type: 'assistant', message: {content: [{type: 'advisor_tool_result', tool_use_id: 'orphan', content: 'redacted'}]}}, 12000);
+  const late = progress.snapshot(13000);
+  assert.equal(late.activity, 'model');
+  assert.equal(late.unresolved_advisor_calls, 0);
+  assert.equal(late.tool_seconds.advisor, 12);
+  assert.equal(late.active_helpers.length, 1);
+});
+
+test('lead tools preserve a worker advisor and a concurrent advisor in the same message', () => {
+  for (const parent_tool_use_id of ['worker-launch', undefined]) {
+    const progress = new Progress(0);
+    progress.accept({type: 'assistant', parent_tool_use_id, message: {id: parent_tool_use_id ? 'worker-message' : 'parallel', content: [{type: 'server_tool_use', id: 'review', name: 'advisor'}]}}, 1000);
+    progress.accept({type: 'assistant', message: {id: 'parallel', content: [{type: 'tool_use', id: 'edit', name: 'Edit'}]}}, 2000);
+    assert.equal(progress.snapshot(3000).activity, 'advisor');
+    assert.equal(progress.snapshot(3000).activity_seconds, 2);
+  }
+});

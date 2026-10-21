@@ -53,9 +53,14 @@ export class Progress {
     for (const block of Array.isArray(msg?.content) ? msg.content : []) {
       if (block.type === 'tool_use' || block.type === 'server_tool_use') {
         if (this.pending.has(block.id)) continue;
+        if (block.type === 'tool_use' && !event.parent_tool_use_id) {
+          for (const pending of this.pending.values()) {
+            if (pending.label === 'advisor' && !pending.parent && (!msg.id || pending.messageId !== msg.id)) pending.resumed = true;
+          }
+        }
         const label = activity(block.name, block.input);
         const worker = ['chapter-worker', 'chapter-repair'].includes(block.input?.subagent_type) ? block.input.subagent_type : undefined;
-        this.pending.set(block.id, {label, at, worker});
+        this.pending.set(block.id, {label, at, worker, parent: event.parent_tool_use_id, messageId: msg.id});
         if (label === 'helper') this.helperCalls.set(block.id, {at, worker});
         this.calls[label] = (this.calls[label] ?? 0) + 1;
       } else if (block.type === 'tool_result' || block.type === 'advisor_tool_result') {
@@ -75,7 +80,7 @@ export class Progress {
     }
   }
   snapshot(now = Date.now(), timing = null) {
-    const current = [...this.pending.values()].sort((a, b) => a.at - b.at)[0];
+    const current = [...this.pending.values()].filter((tool) => !tool.resumed).sort((a, b) => a.at - b.at)[0];
     const complete = ['completed', 'failed'].includes(timing?.status) && Number.isFinite(timing.duration_ms);
     const totals = [...this.results.values()].reduce((sum, turn) => ({
       api_ms: Math.max(sum.api_ms, turn.api_ms), turns: sum.turns + turn.turns,
@@ -92,6 +97,7 @@ export class Progress {
       reported_turn_seconds: seconds(totals.duration_ms),
       calls: this.calls,
       completed_helpers: this.completedHelpers.size,
+      unresolved_advisor_calls: [...this.pending.values()].filter((tool) => tool.resumed).length,
       active_helpers: [...this.helperTasks.values(), ...[...this.pending.entries()]
         .filter(([id, tool]) => tool.label === 'helper' && ![...this.helperTasks.values()].some((task) => task.toolUseId === id))
         .map(([, tool]) => tool)].map((tool) => ({
