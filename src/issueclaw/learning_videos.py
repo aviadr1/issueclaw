@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from issueclaw import briefing_trace as trace
+from issueclaw import final_review
 
 MODEL = "claude-sonnet-5-5"
 ADVISOR = "claude-opus-5-5"
@@ -294,6 +295,20 @@ def run_agent(prompt, directory, videos, env, instructions=""):
             )
         if phase == "research" and (directory / "video-error.txt").exists():
             return
+        if phase != "research" and any(
+            (directory / name).exists() for name in ("video.mp4", "render.json")
+        ):
+            review = final_review.inspect_final_review(directory)
+            trace.write_json(directory / "final-review.json", review)
+            if not review["passed"] and phase != "final-review-2":
+                attempt = 1 if phase == "agent" else 2
+                phases.append(
+                    (
+                        f"final-review-{attempt}",
+                        Path(__file__).with_name("prompts")
+                        / "learning-final-review.md",
+                    )
+                )
 
 
 def read_lesson(directory):
@@ -483,6 +498,12 @@ def _learn_topic(
             )
     if lesson["video"] and quality_checks:
         try:
+            review = final_review.inspect_final_review(directory)
+            trace.write_json(directory / "final-review.json", review)
+            if not review["passed"]:
+                raise ValueError(
+                    "final visual review incomplete; see final-review.json"
+                )
             duration = float(trace.probe(video)["format"]["duration"])
             trace.validate_quality(directory, duration)
             trace.validate_motion(directory)

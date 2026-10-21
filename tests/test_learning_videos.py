@@ -766,3 +766,45 @@ def test_agent_process_timing_covers_all_turns_and_failure(
     assert timing["duration_ms"] == 25000
     assert timing["started_at"] <= timing["ended_at"]
     assert set(timing) == {"status", "started_at", "ended_at", "duration_ms"}
+
+
+def test_missing_final_review_retries_without_discarding_rendered_work(
+    tmp_path, monkeypatch
+):
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Create the lesson.")
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        if len(calls) == 1:
+            (tmp_path / "learning.json").write_text('{"title":"Useful lesson"}')
+            (tmp_path / "video.mp4").write_bytes(b"preserved rendered work")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(lessons.subprocess, "run", run)
+    lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    assert len(calls) == 3
+    assert "Complete the missing final visual review" in calls[1][2]
+    assert "Complete the missing final visual review" in calls[2][2]
+    assert (tmp_path / "video.mp4").read_bytes() == b"preserved rendered work"
+    assert json.loads((tmp_path / "final-review.json").read_text())["passed"] is False
+    assert (
+        json.loads((tmp_path / "final-review-2.timing.json").read_text())["status"]
+        == "completed"
+    )
+
+
+def test_unreviewed_video_preserves_text_and_artifacts_for_recovery(tmp_path):
+    prompt = briefing(tmp_path)
+    found = lessons.learn(
+        tmp_path, prompt, tmp_path, 1, {}, run=agent(), quality_checks=True
+    )
+    assert found[0]["title"]
+    assert found[0]["video"] is False
+    directory = tmp_path / "learnings/1"
+    assert (directory / "video.mp4").exists()
+    assert json.loads((directory / "quality.json").read_text()) == {
+        "passed": False,
+        "error": "final visual review incomplete; see final-review.json",
+    }

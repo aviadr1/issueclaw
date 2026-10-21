@@ -148,3 +148,17 @@ test('only process timing marks a phase finished and keeps its full wall time', 
     assert.equal((await observe(root, streams, 40000))[0].phases.agent.activity, 'failed');
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
+
+
+test('final review recovery has its own live phase and process duration', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'briefing-review-'));
+  try {
+    const dir = join(root, 'learnings/1');
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, 'final-review-1.log'), JSON.stringify({type: 'assistant', message: {content: [{type: 'server_tool_use', id: 'review', name: 'advisor'}]}}) + '\n');
+    writeFileSync(join(dir, 'final-review-1.timing.json'), JSON.stringify({started_at: new Date(1000).toISOString(), status: 'running'}));
+    const phase = (await observe(root, new Map(), 11000))[0].phases['final-review-1'];
+    assert.equal(phase.activity, 'advisor');
+    assert.equal(phase.elapsed_seconds, 10);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});

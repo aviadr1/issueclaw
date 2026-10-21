@@ -108,7 +108,7 @@ export const observe = async (directory, streams, now = Date.now()) => {
   const result = [];
   for (const number of readdirSync(lessons).filter((n) => /^\d+$/.test(n)).sort()) {
     const phases = {};
-    for (const phase of ['research', 'agent']) {
+    for (const phase of ['research', 'agent', 'final-review-1', 'final-review-2']) {
       const path = join(lessons, number, `${phase}.log`);
       if (!existsSync(path)) continue;
       const info = statSync(path);
@@ -194,7 +194,7 @@ export const supervise = async (directory, command) => {
             const from = join(directory, 'learnings', String(lesson.lesson));
             const to = join(progressDir, 'sessions', String(lesson.lesson));
             mkdirSync(to, {recursive: true});
-            for (const file of readdirSync(from).filter((name) => /^(research|agent)\.(log|prompt\.md|request\.json|trace\.json|timing\.json)$/.test(name))) {
+            for (const file of readdirSync(from).filter((name) => /^(research|agent|final-review-[12])\.(log|prompt\.md|request\.json|trace\.json|timing\.json)$/.test(name))) {
               const target = join(to, file);
               copyFileSync(join(from, file), target);
               files.push(target);
