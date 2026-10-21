@@ -162,3 +162,13 @@ test('final review recovery has its own live phase and process duration', async 
     assert.equal(phase.elapsed_seconds, 10);
   } finally { rmSync(root, {recursive: true, force: true}); }
 });
+
+
+test('queued notifications do not double cumulative API counters', () => {
+  const progress = new Progress(0);
+  for (const [result_index, duration_api_ms, num_turns] of [[0, 207944, 20], [1, 0, 0], [2, 854052, 10], [3, 854052, 54]]) {
+    progress.accept({type: 'result', session_id: 'session', result_index, duration_api_ms, num_turns}, 1000);
+  }
+  assert.equal(progress.snapshot(2000).api_seconds, 854.1);
+  assert.equal(progress.snapshot(2000).turns, 54);
+});

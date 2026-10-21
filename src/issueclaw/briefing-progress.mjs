@@ -78,8 +78,8 @@ export class Progress {
     const current = [...this.pending.values()].sort((a, b) => a.at - b.at)[0];
     const complete = ['completed', 'failed'].includes(timing?.status) && Number.isFinite(timing.duration_ms);
     const totals = [...this.results.values()].reduce((sum, turn) => ({
-      api_ms: sum.api_ms + turn.api_ms, turns: sum.turns + turn.turns,
-      duration_ms: sum.duration_ms + turn.duration_ms, output_tokens: sum.output_tokens + turn.output_tokens,
+      api_ms: Math.max(sum.api_ms, turn.api_ms), turns: Math.max(sum.turns, turn.turns),
+      duration_ms: sum.duration_ms + turn.duration_ms, output_tokens: Math.max(sum.output_tokens, turn.output_tokens),
     }), {api_ms: 0, turns: 0, duration_ms: 0, output_tokens: 0});
     return {
       elapsed_seconds: seconds(complete ? timing.duration_ms : now - this.started),
@@ -87,6 +87,7 @@ export class Progress {
       activity_seconds: complete ? 0 : seconds(now - (current?.at ?? this.last)),
       seconds_since_event: seconds(now - this.last),
       reported_output_tokens: Math.max(totals.output_tokens, [...this.messages.values()].reduce((a, b) => a + b, 0)),
+      result_counters: 'maximum_reported',
       api_seconds: seconds(totals.api_ms), turns: totals.turns, result_turns: this.results.size,
       reported_turn_seconds: seconds(totals.duration_ms),
       calls: this.calls,
