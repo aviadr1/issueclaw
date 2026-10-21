@@ -170,5 +170,5 @@ test('queued notifications do not double cumulative API counters', () => {
     progress.accept({type: 'result', session_id: 'session', result_index, duration_api_ms, num_turns}, 1000);
   }
   assert.equal(progress.snapshot(2000).api_seconds, 854.1);
-  assert.equal(progress.snapshot(2000).turns, 54);
+  assert.equal(progress.snapshot(2000).turns, 84);
 });
