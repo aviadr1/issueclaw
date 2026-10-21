@@ -78,20 +78,17 @@ Write {learning_dir}/narrative.md in plain language:
   {videos_dir}/src/learnings/AGENT.md: narrated full sentences, one idea each,
   plain words before internal names, nothing the picture doesn't show.
 
-Before rendering, give the Opus advisor one complete packet: the narrative,
-caption script, pinned evidence, intended diagrams, personalized card and
-explicit unknowns. Ask for factual errors, misleading visual claims and wording
-that a cold viewer cannot follow. In the same phase, give a Haiku helper ONLY
-the captions and ask it to explain the system, change and reusable rule back.
-Collect both critiques, resolve factual issues from the existing evidence, and
-apply one consolidated edit. Re-check only unresolved correctness issues;
-avoid open-ended stylistic rewriting. Record critiques and their resolutions in
-narrative.md, including which source supports each final claim.
+Give a Haiku helper ONLY the captions and ask it to explain the system, change
+and reusable rule back. Resolve factual gaps from the pinned evidence and apply
+one consolidated edit. Keep a compact caption-to-source mapping in narrative.md.
+The Opus factual/visual review happens on the actual early frames in step 3,
+before video export, so it can check the picture rather than an intended diagram.
+Do not replace that review with the caption helper's feedback.
 
-Treat this as the settled content for rendering. A later layout or motion fix
-should reuse the research and approved wording. Reopen research only when the
-fix changes a factual claim or exposes missing evidence. Do not run another
-broad factual review after every render.
+A later layout or motion fix should reuse the research and approved wording.
+Reopen research only when the fix changes a factual claim or exposes missing
+evidence. Re-check affected claims and their dependencies; do not run another
+broad factual investigation after every render.
 Write {learning_dir}/learning.md: a first line `# <the lesson in at most 10 words>`,
 then three or four short labelled paragraphs, 80-150 words in all, for example
 **Problem / Root cause / Fix / Rule** or **Problem / Idea / How it works /
@@ -120,21 +117,34 @@ lesson as data in `lesson.ts`; the kit's engine does the timing, motion, layout
 checks, sound, storyboard and QA stills. Read src/learnings/limit-one/lesson.ts
 before you start.
 
-1. Captures, then lesson.ts with the captions from narrative.md.
+1. Captures, then lesson.ts with the captions from narrative.md. Use the kit's
+   `twoPanels` and `codeInPanel` helpers for diagram/code layouts and existing
+   stack slots for lists. Check a representative chapter before extending the
+   cast; preserve captured text and readable font sizes.
 2. `node scripts/learning-check.mjs <slug>` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next
    piece of the picture with it; never add motion that explains nothing.
-3. Render final-resolution chapters and their QA in one command:
+3. Run `node scripts/learning-review.mjs <slug> {learning_dir}/early-review`.
+   Inspect every beat sheet in review.md (full-size PNGs in review.json where
+   needed). Give the Opus advisor one complete packet: these actual frames, the
+   exact captions, pinned claim evidence, personalized card and explicit unknowns.
+   Ask for factual errors, misleading visual states and cold-viewer confusion.
+   Check especially whether each diagram demonstrates what its caption claims.
+   Apply all warranted corrections together before exporting video. Regenerate
+   affected early frames and resolve remaining correctness objections. Record
+   findings and resolutions in qa.md and the caption-to-source map in narrative.md.
+   This early review does not replace the final filmstrip/motion/audio checks.
+4. Render final-resolution chapters and their QA in one command:
    `sh scripts/render-learning.sh <slug> --qa-dir {learning_dir}`.
    This renders disjoint 1080p chapters, assembles them without re-encoding, and
    writes `render.json`, chapter QA under `chapters/<id>/`, and the publisher's
    storyboard/stills/motion evidence. No separate all-chapter 720p pass is needed.
    Use a targeted 720p preview only to experiment with an uncertain layout.
-4. Inspect every new chapter's filmstrips and motion report. Give the advisor
+5. Inspect every new chapter's filmstrips and motion report. Give the advisor
    the chapter filmstrips together for one visual pass against the settled
    script: does the picture explain each caption, and can a cold viewer follow
    the sequence? Batch all warranted fixes before the next render.
-5. Run the same render command after edits. It automatically re-renders affected
+6. Run the same render command after edits. It automatically re-renders affected
    chapters and reuses the rest, including cached audio when cues are unchanged.
    `render.json.qaToReview` lists fresh chapter QA; inspect those sheets and the
    joins to their neighbors. Keep prior review notes for unchanged chapter keys
@@ -142,7 +152,7 @@ before you start.
    Timing, persistent-object, shared-engine and poster-card changes may invalidate
    additional chapters. Let the renderer determine dependencies; never manually
    splice overlapping previews or bypass an invalidation.
-6. Copy out/learnings/<slug>.mp4 to {learning_dir}/video.mp4. On the first complete
+7. Copy out/learnings/<slug>.mp4 to {learning_dir}/video.mp4. On the first complete
    cut, review the full sequence, chapter boundaries and soundtrack sync. On a
    revision, review changed chapters and their joins; retain review evidence for
    unchanged chapters instead of rereading the whole filmstrip. The inexpensive
