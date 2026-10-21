@@ -215,6 +215,7 @@ def run_agent(prompt, directory, videos, env, instructions=""):
             )
         worker_args = []
         if phase == "agent":
+            agent_env.pop("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", None)
             worker_prompt = Path(__file__).with_name("prompts") / "learning-chapter.md"
             workers = {
                 name: {

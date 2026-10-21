@@ -89,3 +89,16 @@ test('parallel chapter helpers are visible individually and retire independently
   assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'chapter-repair', elapsed_seconds: 4}]);
   assert.ok(!JSON.stringify(progress.snapshot(5000)).includes('private evidence'));
 });
+
+
+test('background worker remains observable after its launch tool returns', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {content: [{type: 'tool_use', id: 'launch', name: 'Agent', input: {subagent_type: 'chapter-worker'}}]}}, 1000);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'launch', content: 'Async agent launched successfully'}]}}, 1100);
+  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'launch', subagent_type: 'chapter-worker'}, 1200);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'chapter-worker', elapsed_seconds: 4}]);
+  progress.accept({type: 'system', subtype: 'task_updated', task_id: 'worker', patch: {status: 'completed', end_time: 7000}}, 7000);
+  progress.accept({type: 'system', subtype: 'task_notification', task_id: 'worker', status: 'completed'}, 7001);
+  assert.deepEqual(progress.snapshot(8000).active_helpers, []);
+  assert.equal(progress.snapshot(8000).completed_helpers, 1);
+});

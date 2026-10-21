@@ -722,8 +722,12 @@ def test_author_can_delegate_bounded_chapters_without_delegating_review(
     monkeypatch.setattr(
         lessons.subprocess, "run", lambda args, **kw: calls.append((args, kw))
     )
-    lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
+    lessons.run_agent(
+        prompt, tmp_path, tmp_path / "kit", {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}
+    )
     research, author = [args for args, _ in calls]
+    assert calls[0][1]["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
+    assert "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" not in calls[1][1]["env"]
     assert "--agents" not in research
     workers = json.loads(author[author.index("--agents") + 1])
     assert workers["chapter-worker"]["model"] == "haiku"

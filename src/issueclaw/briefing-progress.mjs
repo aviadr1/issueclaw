@@ -23,12 +23,27 @@ export class Progress {
     this.started = started;
     this.last = started;
     this.pending = new Map();
+    this.helperCalls = new Map();
+    this.helperTasks = new Map();
+    this.completedHelpers = new Set();
     this.messages = new Map();
     this.totals = {};
     this.calls = {};
     this.result = null;
   }
   accept(event, now = Date.now()) {
+    if (event.type === 'system') {
+      if (event.subtype === 'task_started' && event.task_type === 'local_agent') {
+        const call = this.helperCalls.get(event.tool_use_id);
+        this.helperTasks.set(event.task_id, {toolUseId: event.tool_use_id, at: call?.at ?? now, worker: call?.worker});
+      }
+      const status = event.subtype === 'task_updated' ? event.patch?.status : event.subtype === 'task_notification' ? event.status : null;
+      if (['completed', 'failed', 'stopped'].includes(status) && this.helperTasks.has(event.task_id)) {
+        this.helperTasks.delete(event.task_id);
+        this.completedHelpers.add(event.task_id);
+      }
+      return;
+    }
     if (!['assistant', 'user', 'result'].includes(event.type)) return;
     const stamp = Date.parse(event.timestamp);
     const at = Number.isFinite(stamp) ? stamp : now;
@@ -41,6 +56,7 @@ export class Progress {
         const label = activity(block.name, block.input);
         const worker = ['chapter-worker', 'chapter-repair'].includes(block.input?.subagent_type) ? block.input.subagent_type : undefined;
         this.pending.set(block.id, {label, at, worker});
+        if (label === 'helper') this.helperCalls.set(block.id, {at, worker});
         this.calls[label] = (this.calls[label] ?? 0) + 1;
       } else if (block.type === 'tool_result' || block.type === 'advisor_tool_result') {
         const pending = this.pending.get(block.tool_use_id);
@@ -66,7 +82,10 @@ export class Progress {
       seconds_since_event: seconds(now - this.last),
       reported_output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
       calls: this.calls,
-      active_helpers: [...this.pending.values()].filter((tool) => tool.label === 'helper').map((tool) => ({
+      completed_helpers: this.completedHelpers.size,
+      active_helpers: [...this.helperTasks.values(), ...[...this.pending.entries()]
+        .filter(([id, tool]) => tool.label === 'helper' && ![...this.helperTasks.values()].some((task) => task.toolUseId === id))
+        .map(([, tool]) => tool)].map((tool) => ({
         worker: tool.worker ?? 'helper', elapsed_seconds: seconds(now - tool.at),
       })),
       tool_seconds: Object.fromEntries(Object.entries(this.totals).map(([k, v]) => [k, seconds(v)])),
