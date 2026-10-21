@@ -3,7 +3,8 @@ import {test} from 'node:test';
 import {mkdtempSync, mkdirSync, appendFileSync, writeFileSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {Progress, observe, supervise} from '../src/issueclaw/briefing-progress.mjs';
+import {fileURLToPath} from 'node:url';
+import {Progress, observe, supervise, loadUploader} from '../src/issueclaw/briefing-progress.mjs';
 
 test('progress measures tool waits separately and never emits prompt or tool payloads', () => {
   const p = new Progress(1000);
@@ -16,7 +17,7 @@ test('progress measures tool waits separately and never emits prompt or tool pay
   const final = p.snapshot(8000);
   assert.equal(final.tool_seconds.early_frames, 4);
   assert.equal(final.api_seconds, 2);
-  assert.equal(final.output_tokens, 12);
+  assert.equal(final.reported_output_tokens, 12);
   assert.ok(!JSON.stringify(final).match(/SECRET|secret-topic|private/));
 });
 
@@ -26,7 +27,7 @@ test('message parts count usage once and a pending advisor remains visible', () 
   p.accept(event, 1000); p.accept(event, 1000);
   p.accept({type: 'assistant', message: {content: [{type: 'server_tool_use', id: 'advisor', name: 'advisor', input: {prompt: 'secret'}}]}}, 2000);
   assert.equal(p.snapshot(5000).activity, 'advisor');
-  assert.equal(p.snapshot(5000).output_tokens, 10);
+  assert.equal(p.snapshot(5000).reported_output_tokens, 10);
   p.accept({type: 'assistant', message: {content: [{type: 'advisor_tool_result', tool_use_id: 'advisor', content: 'private'}]}}, 6000);
   assert.equal(p.snapshot(7000).activity, 'model');
 });
@@ -55,4 +56,20 @@ test('observer preserves child failure and writes a final local snapshot without
     assert.equal(final.finished, true);
     assert.equal(final.exit_code, 7);
   } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+
+test('the installed artifact client loads through its ESM export', async () => {
+  const directory = fileURLToPath(new URL('../tools/briefing-progress/', import.meta.url));
+  const client = await loadUploader(directory);
+  assert.equal(typeof client.uploadArtifact, 'function');
+});
+
+test('thinking heartbeats do not reset meaningful activity and completed phase time stays fixed', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'system', subtype: 'thinking_tokens'}, 5000);
+  assert.equal(progress.snapshot(6000).activity_seconds, 6);
+  progress.accept({type: 'result', duration_ms: 7000, duration_api_ms: 6000, usage: {output_tokens: 1200}}, 7000);
+  assert.equal(progress.snapshot(20000).elapsed_seconds, 7);
+  assert.equal(progress.snapshot(20000).reported_output_tokens, 1200);
 });

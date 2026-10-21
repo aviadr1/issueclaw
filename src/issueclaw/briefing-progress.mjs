@@ -1,8 +1,7 @@
 import {spawn} from 'node:child_process';
 import {copyFileSync, createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, appendFileSync} from 'node:fs';
-import {createRequire} from 'node:module';
 import {join, resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const activity = (name, input = {}) => {
   if (name === 'advisor') return 'advisor';
@@ -12,7 +11,7 @@ const activity = (name, input = {}) => {
   const command = input.command ?? '';
   if (/render-learning\.(sh|mjs)/.test(command)) return 'render';
   if (/learning-review\.mjs/.test(command)) return 'early_frames';
-  if (/learning-check\.mjs|typecheck/.test(command)) return 'layout_check';
+  if (/(?:node\s+scripts\/learning-check\.mjs|npm\s+run\s+typecheck)/.test(command)) return 'layout_check';
   if (/briefing_trace\.py|learning-qa\.mjs/.test(command)) return 'quality_check';
   if (/gh (api|pr)/.test(command)) return 'research';
   return 'tool';
@@ -30,6 +29,7 @@ export class Progress {
     this.result = null;
   }
   accept(event, now = Date.now()) {
+    if (!['assistant', 'user', 'result'].includes(event.type)) return;
     const stamp = Date.parse(event.timestamp);
     const at = Number.isFinite(stamp) ? stamp : now;
     this.last = Math.max(this.last, at);
@@ -52,16 +52,18 @@ export class Progress {
     if (event.type === 'result') this.result = {
       api_seconds: seconds(event.duration_api_ms ?? 0), turns: event.num_turns ?? 0,
       failed: event.is_error === true,
+      wall_seconds: seconds(event.duration_ms ?? at - this.started),
+      reported_output_tokens: event.usage?.output_tokens ?? [...this.messages.values()].reduce((a, b) => a + b, 0),
     };
   }
   snapshot(now = Date.now()) {
     const current = [...this.pending.values()].sort((a, b) => a.at - b.at)[0];
     return {
-      elapsed_seconds: seconds(now - this.started),
+      elapsed_seconds: this.result?.wall_seconds ?? seconds(now - this.started),
       activity: this.result ? (this.result.failed ? 'failed' : 'finished') : (current?.label ?? 'model'),
       activity_seconds: this.result ? 0 : seconds(now - (current?.at ?? this.last)),
       seconds_since_event: seconds(now - this.last),
-      output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
+      reported_output_tokens: [...this.messages.values()].reduce((a, b) => a + b, 0),
       calls: this.calls,
       tool_seconds: Object.fromEntries(Object.entries(this.totals).map(([k, v]) => [k, seconds(v)])),
       ...this.result,
@@ -100,6 +102,11 @@ export const observe = async (directory, streams, now = Date.now()) => {
   return result;
 };
 
+export const loadUploader = async (directory) => {
+  const {DefaultArtifactClient} = await import(pathToFileURL(join(directory, 'upload.mjs')).href);
+  return new DefaultArtifactClient();
+};
+
 export const supervise = async (directory, command) => {
   mkdirSync(directory, {recursive: true});
   const progressDir = join(directory, 'progress');
@@ -110,9 +117,7 @@ export const supervise = async (directory, command) => {
   let uploader;
   if (process.env.BRIEFING_ARTIFACT_MODULE) {
     try {
-      const require = createRequire(resolve(process.env.BRIEFING_ARTIFACT_MODULE, 'package.json'));
-      const {DefaultArtifactClient} = require('@actions/artifact');
-      uploader = new DefaultArtifactClient();
+      uploader = await loadUploader(resolve(process.env.BRIEFING_ARTIFACT_MODULE));
     } catch { console.warn('Progress artifact client unavailable; local progress and job logs continue.'); }
   }
   const childEnv = {...process.env};
