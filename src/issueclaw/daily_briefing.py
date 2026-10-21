@@ -227,7 +227,7 @@ class Slack(SlackFiles):
                 "event_type": "daily_learning_briefing",
                 "event_payload": {"key": key},
             },
-            client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+            client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self.channel}/{key}")),
         )
         message = self.api("chat.postMessage", payload)
         self.history = None
