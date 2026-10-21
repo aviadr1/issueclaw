@@ -8,6 +8,39 @@ channel message plus the complete inventory as replies, or one TLDR linking to a
 
 ## Caller configuration
 
+Team configs can set `"defaults": "briefing-defaults.json"` to read one shared
+JSON file relative to the team config, independent of the working directory.
+Explicit team values override defaults. Object fields such as `people` and
+`learning_videos` merge by key; arrays and scalars replace the shared value,
+including empty arrays and `false`. Defaults cannot reference another defaults
+file. Existing standalone configurations still work.
+
+Keep company defaults (people, timezone, hour, weekdays, Canvas presentation and
+video options) in the knowledge repository. Each team supplies its `repos`,
+`teams`, `channel`, `state_branch`, `title` and optionally `audience`,
+`context_terms` and `instructions`. `context_terms` are literal, case-insensitive
+keywords added to repository names when selecting related Linear projects and
+documents. They do not expand the GitHub repository inventory. `instructions`
+adds team-specific editorial guidance to the shared report prompt.
+`what_changed_order_last` optionally places efforts led by those verified names
+after other efforts. Without a title or audience, the report uses neutral
+engineering wording; the tool has no backend-specific context keywords.
+
+Preparation saves the resolved configuration as `briefing-config.json` in the
+artifact. Subsequent stages and evidence-reuse previews retain those settings,
+even if shared defaults change. Reuse and repair reject a different repository
+set, Linear team set or Slack destination. Older artifacts without this snapshot
+remain recoverable using the supplied configuration. Report generation reads the
+title, audience and editorial settings from `window.json`; lesson research receives
+the same title and audience in `topic.json`.
+
+Keep one scheduled workflow caller per team, each using the same pinned reusable
+workflow and tooling revision. Give each team its own publication concurrency
+group and state branch. GitHub's cron declaration remains in the caller YAML and
+must agree with the configured timezone, hour and weekdays. Video kit references,
+runner selection and secrets also remain workflow inputs; JSON defaults cover
+the report settings, not GitHub Actions syntax.
+
 The JSON config supplies `repos` (owner/repo names), `people` (verified login/name
 mapping, matched case-insensitively), `teams` (relevant Linear team identifiers), `timezone` (IANA), `hour`,
 `weekdays` (optional Python weekday numbers, Monday=0; all days by default),

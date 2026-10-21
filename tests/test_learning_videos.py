@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -514,3 +515,74 @@ def test_the_shipped_video_prompt_formats_with_every_path(tmp_path, monkeypatch)
     assert "briefing_trace.py" in text
     # the JSON example is the only brace left once every placeholder is filled
     assert "{" not in text.replace('{"slug"', "")
+
+
+def test_lesson_research_receives_the_prepared_team_audience(tmp_path):
+    prompt = briefing(tmp_path)
+    window = tmp_path / "window.json"
+    info = json.loads(window.read_text())
+    info.update(title="Frontend learning briefing", audience="Web and mobile engineers")
+    window.write_text(json.dumps(info))
+
+    def research(prompt, directory, videos, env, instructions=""):
+        topic = json.loads((directory / "topic.json").read_text())
+        assert topic["audience"] == "Web and mobile engineers"
+        assert topic["briefing_title"] == "Frontend learning briefing"
+        agent()(prompt, directory, videos, env, instructions)
+
+    found = lessons.learn(tmp_path, prompt, tmp_path, 1, {}, run=research)
+    assert len(found) == 1
+
+
+def test_learn_command_uses_inherited_video_options_from_prepared_config(
+    tmp_path, monkeypatch
+):
+    prompt = briefing(tmp_path)
+    defaults = tmp_path / "defaults.json"
+    defaults.write_text(
+        json.dumps(
+            {
+                "learning_videos": {
+                    "max": 2,
+                    "instructions": "Teach shared client contracts",
+                },
+            }
+        )
+    )
+    config = tmp_path / "frontend.json"
+    config.write_text(
+        json.dumps(
+            {"defaults": "defaults.json", "repos": ["org/repo"], "channel": "C123"}
+        )
+    )
+    daily.write_json(tmp_path / "briefing-config.json", daily.load_config(config))
+    defaults.write_text('{"learning_videos": {"max": 0}}')
+    calls = []
+
+    def model(args, **kwargs):
+        text = args[2]
+        calls.append(text)
+        directory = Path(text.split("Lesson in ")[1].split(", videos in ")[0])
+        agent(video=False)(prompt, directory, tmp_path, {})
+
+    monkeypatch.setattr(lessons.subprocess, "run", model)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "daily_briefing",
+            "learn",
+            "--config",
+            str(config),
+            "--out",
+            str(tmp_path),
+            "--prompt",
+            str(prompt),
+            "--videos-dir",
+            str(tmp_path),
+        ],
+    )
+    daily.main()
+    assert len(lessons.lessons_of(tmp_path)) == 2
+    assert len(calls) == 2
+    assert all("Teach shared client contracts" in text for text in calls)

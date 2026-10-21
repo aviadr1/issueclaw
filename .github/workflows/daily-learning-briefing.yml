@@ -173,7 +173,9 @@ jobs:
           versions['runner_name'] = os.environ.get('RUNNER_NAME')
           attempt = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
           (out / f'runner-{attempt}.json').write_text(json.dumps(versions, indent=2))
-          (out / f'config-{attempt}.json').write_text(pathlib.Path(os.environ['BRIEFING_CONFIG']).read_text())
+          config = out / 'briefing-config.json'
+          if config.exists():
+              (out / f'config-{attempt}.json').write_text(config.read_text())
           PY
       - name: Write and revise learning briefing
         env:
