@@ -448,7 +448,10 @@ same Sonnet/Opus models and a shared one-hour limit. Research settles pinned
 claims, captions and the personalized card in `script.json`, with a caption cold
 read and factual advisor preflight. Authoring starts with a fresh context and
 reads that handoff. The video kit generates composition/registry/cue plumbing and
-joins captions to actions by beat ID. Actual-frame advisor review and all final
+joins captions to actions by beat ID. Final QA generates questions.md and
+narrative.md from the compiled storyboard, so corrections cannot leave those
+derived records stale. Research and visual-review notes remain authored evidence.
+Actual-frame advisor review and all final
 filmstrip, reading, motion, join, audio and publisher checks remain required.
 
 While generation runs, `learning-progress-<attempt>-<sequence>` artifacts appear

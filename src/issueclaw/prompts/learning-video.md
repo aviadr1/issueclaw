@@ -73,7 +73,9 @@ before you start.
    `sh scripts/render-learning.sh <slug> --qa-dir {learning_dir}`.
    This renders disjoint 1080p chapters, assembles them without re-encoding, and
    writes `render.json`, chapter QA under `chapters/<id>/`, and the publisher's
-   storyboard/stills/motion evidence. No separate all-chapter 720p pass is needed.
+   storyboard/stills/motion evidence. It also generates questions.md and narrative.md
+   from the compiled final script; do not rewrite those derived files. Keep factual
+   review in research.md and visual findings in qa.md. No separate all-chapter 720p pass is needed.
    Use a targeted 720p preview only to experiment with an uncertain layout.
 5. Inspect every new chapter's filmstrips and motion report. Give the advisor
    the chapter filmstrips together for one visual pass against the settled
