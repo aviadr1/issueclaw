@@ -30,7 +30,17 @@ this card at frame zero. Do not add a second opening card.
 In {videos_dir}, follow src/learnings/AGENT.md with your slug. You write the
 lesson as data in `lesson.ts`; the kit's engine does the timing, motion, layout
 checks, sound, storyboard and QA stills. Read src/learnings/limit-one/lesson.ts
-before you start.
+before you start. The handoff has already passed factual/narrative preflight.
+Your next advisor review is the complete actual-frame packet in step 3; do not
+add a speculative plan review before implementing it. Reopen factual questions
+only when a concrete contradiction or changed claim requires it, and retain the
+complete early-frame and final-filmstrip advisor reviews.
+
+Start from the documented placement/state contract and the worked example.
+Look up only the specific builder signature you need in engine/spec.ts. Do not
+read the entire compiler, renderer or evaluator to plan the lesson. If a real
+check exposes behavior the contract does not explain, inspect that function and
+repair the affected chapter. Keep the context focused on evidence and the video.
 
 1. Run `node scripts/learning-init.mjs {learning_dir}/script.json` once.
    It writes the composition, cue plumbing, script and registry entry without
