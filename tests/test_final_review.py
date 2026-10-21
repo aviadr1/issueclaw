@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import PurePosixPath
 
 import pytest
@@ -182,14 +183,20 @@ def test_full_final_filmstrip_is_an_alternative_to_chapter_sheets(rendered):
     assert inspect_final_review(directory)["status"] == "complete"
 
 
-def test_reads_from_recorded_ci_path_match_downloaded_artifact_location(rendered):
+@pytest.mark.parametrize("grouped", [False, True])
+def test_reads_from_recorded_ci_path_match_downloaded_artifact_location(
+    rendered, grouped
+):
     directory, paths, _ = rendered
     ci = PurePosixPath("/tmp/daily-briefing/learnings/1")
+    command = f"sh scripts/render-learning.sh lesson --qa-dir {ci}"
+    if grouped:
+        command = f"(time {command}) > /tmp/render.log 2>&1; tail -40 /tmp/render.log"
     events = [
         tool(
             "Bash",
             "render",
-            command=f"sh scripts/render-learning.sh lesson --qa-dir {ci}",
+            command=command,
         ),
         result("render", "render complete"),
     ]
@@ -318,7 +325,7 @@ def render_history(tmp_path):
         path.write_bytes(b"image")
     events, history = [], []
 
-    def epoch(keys, files, *, order=None, failed=False, record=True):
+    def epoch(keys, files, *, order=None, failed=False, record=True, background=False):
         number = len(history) + 1
         manifest = {
             "render_started_at": f"2026-10-21T12:{number:02}:00.500+00:00",
@@ -348,6 +355,40 @@ def render_history(tmp_path):
                 for field in ("id", "tool_use_id"):
                     if field in block:
                         block[field] = f"epoch-{number}-" + block[field]
+        if background:
+            new_events[1:2] = [
+                {
+                    "type": "system",
+                    "subtype": "task_started",
+                    "task_type": "local_bash",
+                    "task_id": call_id,
+                    "tool_use_id": call_id,
+                    "is_backgrounded": background is True,
+                },
+                result(call_id, "Command running in background"),
+                {
+                    "type": "system",
+                    "subtype": "task_updated",
+                    "task_id": call_id,
+                    "patch": {
+                        "status": "completed",
+                        "end_time": int(
+                            datetime.fromisoformat(returned["timestamp"]).timestamp()
+                            * 1000
+                        ),
+                    },
+                },
+            ]
+            if background == "foreground_task":
+                new_events[2:4] = [
+                    {
+                        "type": "system",
+                        "subtype": "task_notification",
+                        "task_id": call_id,
+                        "status": "completed",
+                    },
+                    returned,
+                ]
         events.extend(new_events)
         write_log(directory, events)
         return inspect_final_review(directory)
@@ -355,12 +396,14 @@ def render_history(tmp_path):
     return directory, chapter_files, root_files, epoch
 
 
+@pytest.mark.parametrize("background", [False, True, "foreground_task"])
 def test_same_phase_reviews_reuse_unchanged_chapters_after_targeted_rerender(
     render_history,
+    background,
 ):
     directory, files, root, epoch = render_history
     keys = {chapter: chapter for chapter in files}
-    epoch(keys, root)
+    epoch(keys, root, background=background)
     (directory / root[-1]).unlink()
     changed = {**keys, "setup": "setup-v2", "end": "end-v2"}
     targeted = (

@@ -54,7 +54,9 @@ def successful(block):
 
 def qa_path(command):
     try:
-        words = shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        words = list(lexer)
         return words[words.index("--qa-dir") + 1]
     except (ValueError, IndexError):
         return ""
@@ -86,15 +88,24 @@ def review_calls(directory):
                     call = calls.get((log.name, event.get("tool_use_id")))
                     if call:
                         tasks[event.get("task_id")] = call
-                        call.background, call.end = True, None
+                        call.background = event.get("is_backgrounded", True)
+                        call.end = None
                 status = (
                     event.get("patch", {}).get("status")
                     if event.get("subtype") == "task_updated"
                     else event.get("status")
                 )
                 call = tasks.get(event.get("task_id"))
-                if call and status == "completed" and call.end is None:
-                    call.end = index
+                if call and status == "completed":
+                    if call.end is None:
+                        call.end = index
+                    end_time = event.get("patch", {}).get("end_time")
+                    if call.ended_at is None:
+                        call.ended_at = (
+                            end_time / 1000
+                            if isinstance(end_time, (int, float))
+                            else timestamp(event.get("timestamp"))
+                        )
             content = event.get("message", {}).get("content", [])
             for block in content if isinstance(content, list) else []:
                 if not isinstance(block, dict):
@@ -124,9 +135,20 @@ def review_calls(directory):
                         )
                 elif block.get("type") in ["tool_result", "advisor_tool_result"]:
                     call = calls.get((log.name, block.get("tool_use_id")))
-                    if not call or call.end is not None or not successful(block):
+                    if not call or not successful(block):
                         continue
                     output = block.get("content")
+                    if (
+                        call.name == "render"
+                        and isinstance(output, str)
+                        and "running in background" in output.lower()
+                    ):
+                        call.background = True
+                        continue
+                    if call.end is not None:
+                        if call.name == "render" and call.ended_at is None:
+                            call.ended_at = timestamp(event.get("timestamp"))
+                        continue
                     if call.name == "Read" and not (
                         isinstance(output, list)
                         and any(
@@ -135,13 +157,6 @@ def review_calls(directory):
                             if isinstance(part, dict)
                         )
                     ):
-                        continue
-                    if call.name == "render" and (
-                        call.background
-                        or isinstance(output, str)
-                        and "running in background" in output.lower()
-                    ):
-                        call.background = True
                         continue
                     call.end = index
                     call.ended_at = timestamp(event.get("timestamp"))
