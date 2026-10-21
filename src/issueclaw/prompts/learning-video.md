@@ -37,6 +37,15 @@ before you start.
    overwriting existing work. Author only the cast and actions in lesson.ts, plus
    pinned captures. Captions come from script.json through scriptedLesson; do not
    copy them into lesson.ts. Use the script's beat IDs to attach actions.
+   Implement just the FIRST chapter's cast and actions now; leave the generated
+   later action lists empty. Before designing the rest, compile it with
+   `node scripts/learning-check.mjs <slug> --through <first-chapter-id>` and inspect
+   `node scripts/learning-review.mjs <slug> {learning_dir}/first-chapter --through <first-chapter-id>`.
+   Fix the measured bounds/state errors there. Then extend one chapter at a time,
+   checking through each completed chapter; do not write the entire cast first.
+   Use descriptive, group-prefixed IDs, and fix duplicate IDs before downstream
+   overlap errors. Code-fit diagnostics give minimum dimensions; use them directly.
+   This short layout experiment is not the complete early advisor review.
    Keep one simple persistent diagram that demonstrates the mechanism and its
    edge case; avoid adding a separate simulation or decorative objects.
    Preserve all substantive facts, evidence gaps and review questions.
@@ -49,7 +58,8 @@ before you start.
    `twoPanels` and `codeInPanel` helpers for diagram/code layouts and existing
    stack slots for lists. Check a representative chapter before extending the
    cast; preserve captured text and readable font sizes.
-2. `node scripts/learning-check.mjs <slug>` until it reports no errors. When it
+2. After every chapter is implemented, run `node scripts/learning-check.mjs <slug>`
+   WITHOUT `--through` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next
    piece of the picture with it; never add motion that explains nothing.
 3. Run `node scripts/learning-review.mjs <slug> {learning_dir}/early-review`.
