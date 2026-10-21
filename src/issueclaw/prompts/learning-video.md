@@ -93,18 +93,28 @@ before you start.
 2. `node scripts/learning-check.mjs <slug>` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next
    piece of the picture with it; never add motion that explains nothing.
-3. `sh scripts/render-learning.sh <slug>`, then copy out/learnings/<slug>.mp4 to
-   {learning_dir}/video.mp4.
-4. `node scripts/learning-qa.mjs <slug> {learning_dir}`. It writes
+3. Review chapters before exporting the complete video. For each chapter ID from
+   learning-check (including `end`), run
+   `sh scripts/render-learning.sh <slug> --chapter <id>`, then
+   `node scripts/learning-qa.mjs <slug> {learning_dir}/previews/<id> --chapter <id>`.
+   These muted previews keep absolute frame numbers and include one second on
+   each side of the chapter. Inspect their filmstrips and motion reports. Fix
+   local problems and regenerate the affected chapter previews. A change to an
+   earlier action or caption duration can affect later chapters: inspect those
+   too. Never splice previews together or use them as the final video.
+4. Ask the Opus advisor to review the chapter filmstrips as a cold viewer: by
+   ten seconds, do they know what system this is and what is wrong? What changed,
+   why does it work, what should an engineer reuse, and when not? Apply warranted
+   corrections to the affected previews before the full export.
+5. `sh scripts/render-learning.sh <slug>`, then copy out/learnings/<slug>.mp4 to
+   {learning_dir}/video.mp4. `node scripts/learning-qa.mjs <slug> {learning_dir}` writes
    storyboard.json, qa/<scene>.png, motion.txt and filmstrip/sheet-NN.png (the
    whole video, two frames a second, timestamped). Read every filmstrip sheet in
    order and motion.txt. For each beat: does the picture show what the caption
    says while it is on screen? Does anything overlap, leave the stage, jump,
-   or sit still long enough to feel stuck? Fix lesson.ts and repeat steps 2-4.
-5. Ask the Opus advisor to review the filmstrip sheets you just read, as a cold
-   viewer: by ten seconds, do they know what system this is and what is wrong?
-   What changed, why does it work, what should a senior engineer reuse, and
-   when not? Is each answer on screen? Apply what holds up and re-render once.
+   or sit still long enough to feel stuck? Check the complete sequence, chapter
+   boundaries and soundtrack sync. Re-render only if you find a new problem;
+   a final export is not required again merely because QA has finished.
 
 Write {learning_dir}/qa.md: the sheets and times you checked, the problems you
 found and fixed, the advisor's objections and what changed, and anything left.

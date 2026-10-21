@@ -55,6 +55,10 @@ def test_readability_gate_allows_caption_budget_but_rejects_short_holds(
     }
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
     trace.validate_quality(tmp_path, 2 + hold)
+    (tmp_path / "preview.json").write_text('{"chapter":"scene"}')
+    with pytest.raises(ValueError, match="chapter preview"):
+        trace.validate_quality(tmp_path, 2 + hold)
+    (tmp_path / "preview.json").unlink()
     scene["reading_hold_seconds"] = hold - 0.5
     (tmp_path / "storyboard.json").write_text(json.dumps([scene]))
     with pytest.raises(ValueError, match="hold"):

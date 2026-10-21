@@ -28,6 +28,10 @@ def model_trace(directory, name, prompt, model, advisor=None, subagents=None):
 
 def preserve_source(videos, directory):
     # Preserve source even on timeout, before the runner checkout disappears.
+    for timing in (videos / "out/learnings").glob("*-timings.tsv"):
+        target = directory / "render-timings" / timing.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(timing, target)
     for relative in (
         "src/learnings",
         "src/shared",
@@ -45,6 +49,14 @@ def preserve_source(videos, directory):
         elif source.is_file():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source, target)
+
+
+def preserve_video_sources(videos, out):
+    preserve_source(videos, out / "video-kit")
+    for workspace in videos.parent.glob(f"{videos.name}-work-*"):
+        for kit in workspace.iterdir():
+            if kit.is_dir() and kit.name.isdecimal():
+                preserve_source(kit, out / "learnings" / kit.name)
 
 
 def probe(video):
@@ -118,6 +130,8 @@ def reading_budget(text, interpretation=False):
 
 def validate_quality(directory, duration):
     """Check caption exposure; a readable caption need not freeze its diagram."""
+    if (directory / "preview.json").exists():
+        raise ValueError("a chapter preview cannot validate as a complete video")
     for name in ("questions.md", "research.md", "narrative.md", "qa.md"):
         if not (directory / name).read_text().strip():
             raise ValueError(f"missing review trace: {name}")

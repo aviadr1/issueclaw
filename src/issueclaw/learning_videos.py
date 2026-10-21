@@ -21,6 +21,10 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from issueclaw import briefing_trace as trace
 
@@ -243,6 +247,7 @@ def learn(
     review=False,
     playback_speed=1,
     quality_checks=False,
+    workers=1,
 ):
     """Prepare up to `limit` lessons; record what succeeded in learnings.json."""
     info = json.loads((out / "window.json").read_text())
@@ -251,74 +256,145 @@ def learn(
     manifest = out / "learnings.json"
     if manifest.exists():
         return json.loads(manifest.read_text())
+    topics = list(enumerate(select_topics(out, limit, review=review), 1))
+    if not isinstance(workers, int) or workers < 1:
+        raise ValueError("learning video workers must be a positive integer")
     lessons = []
-    for n, topic in enumerate(select_topics(out, limit, review=review), 1):
+
+    def prepare(item, kit):
+        n, topic = item
         directory = out / "learnings" / str(n)
         directory.mkdir(parents=True, exist_ok=True)
-        status = "failed"
+        started = time.monotonic()
         try:
-            write_inputs(out, directory, topic)
-            run(prompt, directory, videos, env, instructions)
-            lesson = read_lesson(directory)
-            status = "written"
-        except subprocess.CalledProcessError as error:
-            note = f"agent exited with {error.returncode}; see agent.log"
-            (directory / "error.txt").write_text(note + "\n")
-            continue
-        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
-            note = f"{type(error).__name__}: {str(error)[:500]}"
-            (directory / "error.txt").write_text(note + "\n")
-            continue
+            return _learn_topic(
+                out,
+                prompt,
+                kit,
+                n,
+                topic,
+                env,
+                instructions,
+                run,
+                playback_speed,
+                quality_checks,
+            )
         finally:
-            trace.preserve_source(videos, directory)
-            trace.write_json(directory / "outcome.json", {"status": status})
-        video = directory / "video.mp4"
-        if not video.exists() and lesson["slug"]:
-            finish_render(videos, lesson["slug"], video, env)
-        lesson["video"] = video.exists() and video.stat().st_size > 0
-        if lesson["video"] and playback_speed != 1:
-            try:
-                trace.retime(video, playback_speed)
-            except (OSError, ValueError, subprocess.SubprocessError) as error:
-                lesson["video"] = False
-                (directory / "pacing-error.txt").write_text(
-                    f"{type(error).__name__}: pacing failed; see pacing.log\n"
+            trace.preserve_source(kit, directory)
+            trace.write_json(
+                directory / "timings.json",
+                {
+                    "total_seconds": time.monotonic() - started,
+                },
+            )
+
+    def record(lesson):
+        if lesson is not None:
+            lessons.append(lesson)
+            lessons.sort(key=lambda row: row["n"])
+            trace.write_json(manifest, lessons)
+
+    if workers == 1 or len(topics) < 2:
+        for item in topics:
+            record(prepare(item, videos))
+    else:
+        with tempfile.TemporaryDirectory(
+            prefix=f"{videos.name}-work-", dir=videos.resolve().parent
+        ) as workspace:
+            kits = []
+            for n, _ in topics:
+                kit = Path(workspace) / str(n)
+                shutil.copytree(
+                    videos,
+                    kit,
+                    symlinks=True,
+                    ignore=shutil.ignore_patterns(".git", "out"),
                 )
-        if lesson["video"] and quality_checks:
-            try:
-                duration = float(trace.probe(video)["format"]["duration"])
-                trace.validate_quality(directory, duration)
-                trace.validate_motion(directory)
-                trace.write_json(
-                    directory / "quality.json", {"passed": True, "duration": duration}
-                )
-            except (
-                OSError,
-                ValueError,
-                KeyError,
-                TypeError,
-                subprocess.SubprocessError,
-            ) as error:
-                lesson["video"] = False
-                trace.write_json(
-                    directory / "quality.json",
-                    {"passed": False, "error": str(error)[:500]},
-                )
-        if topic.get("kind") == "review":
-            lesson.update(kind="review", pr=topic["pr"], head_sha=topic["head_sha"])
-            if topic["url"] not in lesson["sources"]:
-                lesson["sources"].append(topic["url"])
-        trace.write_json(
-            directory / "outcome.json",
-            {"status": "video" if lesson["video"] else "text_only"},
-        )
-        lesson["n"] = n
-        lesson["dir"] = f"learnings/{n}"
-        lesson["replaces"] = topic["heading"]
-        lessons.append(lesson)
-        manifest.write_text(json.dumps(lessons, indent=2) + "\n")
-    manifest.write_text(json.dumps(lessons, indent=2) + "\n")
+                kits.append(kit)
+            with ThreadPoolExecutor(max_workers=min(workers, len(topics))) as pool:
+                pending = [
+                    pool.submit(prepare, item, kit) for item, kit in zip(topics, kits)
+                ]
+                for future in as_completed(pending):
+                    record(future.result())
+    trace.write_json(manifest, lessons)
     return lessons
+
+
+def _learn_topic(
+    out,
+    prompt,
+    videos,
+    n,
+    topic,
+    env,
+    instructions,
+    run,
+    playback_speed,
+    quality_checks,
+):
+    directory = out / "learnings" / str(n)
+    directory.mkdir(parents=True, exist_ok=True)
+    status = "failed"
+    try:
+        write_inputs(out, directory, topic)
+        run(prompt, directory, videos, env, instructions)
+        lesson = read_lesson(directory)
+        status = "written"
+    except subprocess.CalledProcessError as error:
+        note = f"agent exited with {error.returncode}; see agent.log"
+        (directory / "error.txt").write_text(note + "\n")
+        return None
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        note = f"{type(error).__name__}: {str(error)[:500]}"
+        (directory / "error.txt").write_text(note + "\n")
+        return None
+    finally:
+        trace.write_json(directory / "outcome.json", {"status": status})
+    video = directory / "video.mp4"
+    if not video.exists() and lesson["slug"]:
+        finish_render(videos, lesson["slug"], video, env)
+    lesson["video"] = video.exists() and video.stat().st_size > 0
+    if lesson["video"] and playback_speed != 1:
+        try:
+            trace.retime(video, playback_speed)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            lesson["video"] = False
+            (directory / "pacing-error.txt").write_text(
+                f"{type(error).__name__}: pacing failed; see pacing.log\n"
+            )
+    if lesson["video"] and quality_checks:
+        try:
+            duration = float(trace.probe(video)["format"]["duration"])
+            trace.validate_quality(directory, duration)
+            trace.validate_motion(directory)
+            trace.write_json(
+                directory / "quality.json", {"passed": True, "duration": duration}
+            )
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            subprocess.SubprocessError,
+        ) as error:
+            lesson["video"] = False
+            trace.write_json(
+                directory / "quality.json",
+                {"passed": False, "error": str(error)[:500]},
+            )
+    if topic.get("kind") == "review":
+        lesson.update(kind="review", pr=topic["pr"], head_sha=topic["head_sha"])
+        if topic["url"] not in lesson["sources"]:
+            lesson["sources"].append(topic["url"])
+    trace.write_json(
+        directory / "outcome.json",
+        {"status": "video" if lesson["video"] else "text_only"},
+    )
+    lesson["n"] = n
+    lesson["dir"] = f"learnings/{n}"
+    lesson["replaces"] = topic["heading"]
+    return lesson
 
 
 def lessons_of(out):

@@ -267,6 +267,23 @@ briefing publishes without the lesson. `learnings.json` records the lessons; a
 rerun, revision or evidence-reuse preview reuses it instead of running the researcher again.
 Previews keep each video in the artifact for review.
 
+The CLI runs up to two video tasks concurrently (`learning_videos.workers`,
+default 2; set 1 for a smaller runner). Each concurrent task gets a separate
+copy of the kit, including its registry, assets and dependency caches. Results
+keep their report order even when tasks finish out of order. Source is preserved
+on failure and by the workflow's interruption cleanup. `timings.json` records
+each task's wall time; `render-timings/` contains the kit's per-stage measurements.
+The reusable workflow sets `LEARNING_VIDEO_WEBM=0` because delivery consumes MP4.
+Standalone kit exports still include WebM by default.
+
+Use a kit supporting `render-learning.sh --chapter <id>` and
+`learning-qa.mjs --chapter <id>`. The researcher corrects muted chapter previews
+before the final export. These retain absolute frames and neighboring footage;
+they are not cached independently or spliced together. Earlier timing/state
+changes require inspecting affected later chapters. A complete final render,
+full-sequence QA and the existing publication validator remain required.
+Chapter previews carry `preview.json` and cannot pass final-video validation.
+
 The kit owns the craft of the video. The agent writes the lesson as data
 (`src/learnings/<slug>/lesson.ts`: a cast of objects on a grid and chapters of
 captioned beats), and the kit's lesson engine times every beat from its caption's
