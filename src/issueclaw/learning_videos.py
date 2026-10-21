@@ -1,7 +1,8 @@
 """Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
 After the briefing is drafted, each lesson in its Learning section can be handed to
-a separate agent (Sonnet 5.5, high effort, with an Opus advisor and Haiku helpers). A lesson can be any kind of
+a separate author (Sonnet 5.5, high effort, with an Opus advisor). Research retains
+its Haiku cold reader. A lesson can be any kind of
 knowledge worth sharing: a repeated review problem, a new system or primitive, a
 CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
 the cited PRs, comments and code for what really happened and why, writes a short
@@ -186,7 +187,12 @@ def run_agent(prompt, directory, videos, env, instructions=""):
             text += "\n\nThe caller's instructions for this lesson and its video:\n"
             text += instructions
         trace.model_trace(
-            directory, phase, text, MODEL, advisor=ADVISOR, subagents="haiku"
+            directory,
+            phase,
+            text,
+            MODEL,
+            advisor=ADVISOR,
+            subagents="haiku" if phase == "research" else None,
         )
         agent_env = dict(env, CLAUDE_CODE_SUBAGENT_MODEL="haiku")
         tracing_args = []
@@ -223,31 +229,7 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                     ),
                 },
             )
-        worker_args = []
-        if phase == "agent":
-            agent_env.pop("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", None)
-            worker_prompt = Path(__file__).with_name("prompts") / "learning-chapter.md"
-            workers = {
-                name: {
-                    "description": description,
-                    "prompt": worker_prompt.read_text(),
-                    "tools": ["Read", "Write", "Edit"],
-                    "model": model,
-                }
-                for name, model, description in [
-                    (
-                        "chapter-worker",
-                        "haiku",
-                        "Implement one precisely specified animation chapter in its assigned file.",
-                    ),
-                    (
-                        "chapter-repair",
-                        "sonnet",
-                        "Repair one chapter after Haiku cannot satisfy its explicit state or motion contract.",
-                    ),
-                ]
-            }
-            worker_args = ["--agents", json.dumps(workers)]
+        delegation_args = [] if phase == "research" else ["--disallowedTools", "Agent"]
         phase_started = time.monotonic()
         timing = {
             "started_at": datetime.now(timezone.utc).isoformat(),
@@ -273,7 +255,7 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                         "stream-json",
                         "--verbose",
                         *tracing_args,
-                        *worker_args,
+                        *delegation_args,
                     ],
                     cwd=directory if phase == "research" else videos,
                     env=agent_env,

@@ -716,29 +716,25 @@ def test_trace_key_is_only_passed_in_environment_and_sessions_are_separate(
     assert "private-key" not in (tmp_path / "research.request.json").read_text()
 
 
-def test_author_can_delegate_bounded_chapters_without_delegating_review(
-    tmp_path, monkeypatch
-):
+def test_author_keeps_advisor_review_without_chapter_delegation(tmp_path, monkeypatch):
     prompt = Path(lessons.__file__).parent / "prompts/learning-video.md"
     calls = []
     monkeypatch.setattr(
         lessons.subprocess, "run", lambda args, **kw: calls.append((args, kw))
     )
-    lessons.run_agent(
-        prompt, tmp_path, tmp_path / "kit", {"CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1"}
-    )
+    lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
     research, author = [args for args, _ in calls]
-    assert calls[0][1]["env"]["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] == "1"
-    assert "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" not in calls[1][1]["env"]
-    assert "--agents" not in research
-    workers = json.loads(author[author.index("--agents") + 1])
-    assert workers["chapter-worker"]["model"] == "haiku"
-    assert workers["chapter-repair"]["model"] == "sonnet"
-    for worker in workers.values():
-        assert set(worker["tools"]) == {"Read", "Write", "Edit"}
-        assert "Bash" not in worker["tools"]
-        assert "advisor" not in worker["tools"]
+    assert "--disallowedTools" not in research
+    assert "--agents" not in author
+    assert author[author.index("--disallowedTools") + 1] == "Agent"
     assert author[author.index("--advisor") + 1] == lessons.ADVISOR
+    assert (
+        json.loads((tmp_path / "research.request.json").read_text())["subagents"]
+        == "haiku"
+    )
+    assert (
+        json.loads((tmp_path / "agent.request.json").read_text())["subagents"] is None
+    )
 
 
 @pytest.mark.parametrize("failed", [False, True])
@@ -787,6 +783,9 @@ def test_missing_final_review_retries_without_discarding_rendered_work(
     monkeypatch.setattr(lessons.subprocess, "run", run)
     lessons.run_agent(prompt, tmp_path, tmp_path / "kit", {})
     assert len(calls) == 3
+    for args in calls:
+        assert args[args.index("--disallowedTools") + 1] == "Agent"
+        assert args[args.index("--advisor") + 1] == lessons.ADVISOR
     assert "Complete the missing final visual review" in calls[1][2]
     assert "Complete the missing final visual review" in calls[2][2]
     assert (tmp_path / "video.mp4").read_bytes() == b"preserved rendered work"

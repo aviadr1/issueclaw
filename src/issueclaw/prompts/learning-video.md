@@ -42,51 +42,34 @@ read the entire compiler, renderer or evaluator to plan the lesson. If a real
 check exposes behavior the contract does not explain, inspect that function and
 repair the affected chapter. Keep the context focused on evidence and the video.
 
-1. Run `node scripts/learning-init.mjs {learning_dir}/script.json --chapter-workers`.
+1. Run `node scripts/learning-init.mjs {learning_dir}/script.json --chapters`.
    It generates lesson.ts assembly, shared.ts and separate chapters/<id>.ts files.
-   You own the creative/semantic decisions, shared.ts, captions and integration.
-   Workers implement concrete decisions; do not ask them to design the video.
-   Write a compact visual-plan.md in the handoff with the common layout, shared
-   object IDs, and for EACH chapter: entry state, beat-by-beat visible changes,
-   exit state, captured evidence paths and explicit acceptance conditions.
-   Define exact moves for a morph/rescale rather than requesting an abstract
-   effect; keep the diagram within the engine's existing object/action vocabulary.
+   Implement the animation yourself; chapter delegation is disabled. Keep a compact
+   visual-plan.md with the common layout, shared object IDs and each chapter's
+   visual purpose. Do not write worker briefs or duplicate the actions as prose.
    Use the smallest representative example that still demonstrates the mechanism
-   and its edge case. Never build a many-point simulation or decorative cast.
+   and its edge case. Keep the diagram within the existing object/action vocabulary.
+   A morph moves the same IDs; a rescale changes actual geometry, not just labels.
+   Never build a many-point simulation or decorative cast.
    Build EVERY stack with stackInPanel, including the shared cast: collect all
-   planned token visitors and label/tag changes before sizing it. Do not hand-size
-   a raw stack and discover overflow after delegation. The first-chapter check
-   must include the longest planned labels/tags, even when they appear later;
+   planned token visitors and label/tag changes before sizing it. The first-chapter
+   check must include the longest planned labels/tags, even when they appear later.
    codeInPanel accepts [col, row, width] to calculate its own natural height.
    Keep the card headline within 12 words and sub line within 14; preserve meaning.
 
-   Delegate the first chapter to `chapter-worker` (Haiku). Supply its exact file,
-   brief, shared cast and relevant pinned excerpts, not the whole research history.
-   While it writes, prepare the remaining briefs. Compile the first result with
+   Implement the first chapter, compile it with
    `node scripts/learning-check.mjs <slug> --through <first-chapter-id>` and inspect
    `node scripts/learning-review.mjs <slug> {learning_dir}/first-chapter --through <first-chapter-id>`.
-   Correct the common layout before expanding it. Then dispatch independent
-   chapters to chapter-worker concurrently, at most TWO workers per video.
-   Use one Agent call per chapter; never bundle two or more chapters in one job.
-   Give each call only that chapter's brief plus the shared contract. Refill a
-   free worker slot as each finishes. Before dispatch, compare every referenced
-   ID with shared.ts and the assigned chapter prefix. Promote cross-chapter
-   objects to the shared cast now; never ask a worker to reference another
-   chapter's private objects. Every worker writes only its assigned file. Never have two writers on one
-   chapter or change shared.ts while workers depend on it. Shared objects persist:
-   each brief must specify the actual incoming/outgoing state; a worker cannot
-   invent an independent starting scene. Keep all later action lists initialized.
-   The assembly validates beat ownership and private object IDs automatically.
-   Compile each completed prefix and return grouped errors to the responsible
-   worker. Workers have no shell; you run validation and inspect real frames.
-   If Haiku cannot meet the explicit contract after one targeted repair, send
-   the existing file and remaining errors to chapter-repair (Sonnet), preserving
-   useful work. For an ambiguous brief, YOU resolve the missing decision first.
-   Keep the source in chapter modules; never replace it with a monolithic lesson.
-   Reuse the same ownership for visual corrections; parallelize independent
-   corrections only. Record chapter worker model, repair rounds and escalations
-   in qa.md alongside actual review findings, without copying worker transcripts.
-   The first-chapter check does not replace either complete advisor review.
+   Correct the common layout before extending it. Then implement subsequent
+   chapters and compile each completed prefix. Fix grouped errors in the affected
+   modules without rewriting completed chapters. You own the shared cast and all
+   chapter transitions, so account for the actual incoming and outgoing state.
+   Hiding a container also hides its dependents; showing it does not restore them.
+   Clean up chapter-local objects in their owning chapter. Promote objects needed
+   across chapters into shared.ts; never reference another chapter's private IDs.
+   Keep later action lists initialized. Assembly checks beat ownership and IDs.
+   Record actual review findings and resolutions in qa.md. The first-chapter check
+   does not replace either complete advisor review.
 2. After every chapter is implemented, run `node scripts/learning-check.mjs <slug>`
    WITHOUT `--through` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next

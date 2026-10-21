@@ -76,28 +76,28 @@ test('thinking heartbeats do not reset activity and a result does not finish a l
 });
 
 
-test('parallel chapter helpers are visible individually and retire independently', () => {
+test('parallel research helpers are visible individually and retire independently', () => {
   const progress = new Progress(0);
   progress.accept({type: 'assistant', message: {content: [
-    {type: 'tool_use', id: 'a', name: 'Agent', input: {subagent_type: 'chapter-worker', prompt: 'private evidence'}},
-    {type: 'tool_use', id: 'b', name: 'Agent', input: {subagent_type: 'chapter-repair'}},
+    {type: 'tool_use', id: 'a', name: 'Agent', input: {subagent_type: 'general-purpose', prompt: 'private evidence'}},
+    {type: 'tool_use', id: 'b', name: 'Agent', input: {subagent_type: 'Explore'}},
   ]}}, 1000);
   assert.deepEqual(progress.snapshot(3000).active_helpers, [
-    {worker: 'chapter-worker', elapsed_seconds: 2},
-    {worker: 'chapter-repair', elapsed_seconds: 2},
+    {worker: 'general-purpose', elapsed_seconds: 2},
+    {worker: 'Explore', elapsed_seconds: 2},
   ]);
   progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'a', content: 'done'}]}}, 4000);
-  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'chapter-repair', elapsed_seconds: 4}]);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'Explore', elapsed_seconds: 4}]);
   assert.ok(!JSON.stringify(progress.snapshot(5000)).includes('private evidence'));
 });
 
 
 test('background worker remains observable after its launch tool returns', () => {
   const progress = new Progress(0);
-  progress.accept({type: 'assistant', message: {content: [{type: 'tool_use', id: 'launch', name: 'Agent', input: {subagent_type: 'chapter-worker'}}]}}, 1000);
+  progress.accept({type: 'assistant', message: {content: [{type: 'tool_use', id: 'launch', name: 'Agent', input: {subagent_type: 'general-purpose'}}]}}, 1000);
   progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'launch', content: 'Async agent launched successfully'}]}}, 1100);
-  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'launch', subagent_type: 'chapter-worker'}, 1200);
-  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'chapter-worker', elapsed_seconds: 4}]);
+  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'launch', subagent_type: 'general-purpose'}, 1200);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'general-purpose', elapsed_seconds: 4}]);
   progress.accept({type: 'system', subtype: 'task_updated', task_id: 'worker', patch: {status: 'completed', end_time: 7000}}, 7000);
   progress.accept({type: 'system', subtype: 'task_notification', task_id: 'worker', status: 'completed'}, 7001);
   assert.deepEqual(progress.snapshot(8000).active_helpers, []);
@@ -175,7 +175,7 @@ test('queued notifications do not double cumulative API counters', () => {
 
 test('lead continuation retires an unresolved advisor wait without completing helpers or fabricating its duration', () => {
   const progress = new Progress(0);
-  progress.accept({type: 'assistant', message: {id: 'launch', content: [{type: 'tool_use', id: 'worker-launch', name: 'Agent', input: {subagent_type: 'chapter-worker'}}]}}, 1000);
+  progress.accept({type: 'assistant', message: {id: 'launch', content: [{type: 'tool_use', id: 'worker-launch', name: 'Agent', input: {subagent_type: 'general-purpose'}}]}}, 1000);
   progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'worker-launch'}]}}, 1100);
   progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'worker-launch'}, 1200);
   progress.accept({type: 'assistant', message: {id: 'first', content: [{type: 'server_tool_use', id: 'orphan', name: 'advisor'}]}}, 2000);
@@ -190,7 +190,7 @@ test('lead continuation retires an unresolved advisor wait without completing he
   assert.equal(resumed.activity_seconds, 1);
   assert.equal(resumed.unresolved_advisor_calls, 1);
   assert.equal(resumed.tool_seconds.advisor, 2);
-  assert.deepEqual(resumed.active_helpers, [{worker: 'chapter-worker', elapsed_seconds: 8}]);
+  assert.deepEqual(resumed.active_helpers, [{worker: 'general-purpose', elapsed_seconds: 8}]);
   assert.equal(resumed.completed_helpers, 0);
   assert.ok(!JSON.stringify(resumed).includes('PRIVATE'));
   progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'edit'}]}}, 10000);

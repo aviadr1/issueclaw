@@ -59,7 +59,7 @@ export class Progress {
           }
         }
         const label = activity(block.name, block.input);
-        const worker = ['chapter-worker', 'chapter-repair'].includes(block.input?.subagent_type) ? block.input.subagent_type : undefined;
+        const worker = label === 'helper' ? block.input?.subagent_type : undefined;
         this.pending.set(block.id, {label, at, worker, parent: event.parent_tool_use_id, messageId: msg.id});
         if (label === 'helper') this.helperCalls.set(block.id, {at, worker});
         this.calls[label] = (this.calls[label] ?? 0) + 1;
