@@ -220,6 +220,9 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRIEFING_CONFIG: ${{ inputs.config }}
           LEARNING_VIDEO_WEBM: '0'
+          LEARNING_REQUIRE_CARD: '1'
+          LEARNING_RENDER_WORKERS: '2'
+          LEARNING_RENDER_CONCURRENCY: '4'
         run: |
           test -f .learning-videos/src/learnings/AGENT.md
           (cd .learning-videos && npm ci --no-audit --no-fund && npx remotion browser ensure)

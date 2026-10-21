@@ -24,6 +24,7 @@ def selected(out: Path, lesson: dict) -> list[Path]:
     root = (out / lesson["dir"]).resolve()
     candidates = [
         root / "video.mp4",
+        root / "poster.png",
         root / "learning.md",
         root / "motion.txt",
         *sorted((root / "filmstrip").glob("*.png")),
@@ -45,6 +46,8 @@ def page(lessons: list[dict]) -> str:
     for lesson in lessons:
         n = lesson["n"]
         files = lesson["files"]
+        poster = f"{lesson['dir']}/poster.png"
+        poster_attr = f' poster="{html.escape(poster)}"' if poster in files else ""
         kind = "Review walkthrough" if lesson.get("kind") == "review" else "Lesson"
         stills = "".join(
             f'<a href="{html.escape(rel)}"><img src="{html.escape(rel)}" alt="{html.escape(rel.rsplit("/", 1)[-1])}"></a>'
@@ -59,7 +62,7 @@ def page(lessons: list[dict]) -> str:
         sections.append(
             f'<section id="lesson-{n}"><h2>{kind}: {html.escape(lesson["title"])}</h2>'
             f"<p>{html.escape(lesson['rule'])}</p>"
-            f'<video controls preload="metadata" src="{html.escape(lesson["video"])}"></video>'
+            f'<video controls preload="metadata" src="{html.escape(lesson["video"])}"{poster_attr}></video>'
             f"<p>{texts}</p><div class=stills>{stills}</div></section>"
         )
     return (

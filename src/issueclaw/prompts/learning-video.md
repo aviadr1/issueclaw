@@ -82,6 +82,19 @@ PRs and comments inline. And {learning_dir}/learning.json:
 {{"slug": "<lowercase-hyphenated>", "title": "<same as the heading>",
  "rule": "<the takeaway, at most 25 words>", "sources": ["<every URL you cite>"]}}
 
+The opening and closing card must identify the kind of video and thank its
+primary PR author. Set `lesson.card` with `kind: "learning"` (or `"review"`
+when topic.json.kind is review), `author`, `pr` (the primary GitHub PR URL),
+and `contribution` (a short phrase following "Thanks @author for ...").
+Read the PR's author login from GitHub and record the evidence in research.md;
+do not use the reviewer, narrator, or a guessed Slack handle. Use the verified
+GitHub login if no verified preferred handle is available. Personalize the
+contribution to this PR: "reducing repeated render work" when the code supports
+that, or "proposing a more efficient query" for an unmerged review. Never turn
+an intended improvement into a measured or shipped result. Keep the complete
+thank-you to at most 16 words. The engine repeats the fully revealed closing
+card at frame zero; don't write a separate title card or shift the timeline.
+
 ## 3. Make the video (about 25 minutes)
 
 In {videos_dir}, follow src/learnings/AGENT.md with your slug. You write the
@@ -93,15 +106,16 @@ before you start.
 2. `node scripts/learning-check.mjs <slug>` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next
    piece of the picture with it; never add motion that explains nothing.
-3. Review chapters before exporting the complete video. For each chapter ID from
-   learning-check (including `end`), run
-   `sh scripts/render-learning.sh <slug> --chapter <id>`, then
-   `node scripts/learning-qa.mjs <slug> {learning_dir}/previews/<id> --chapter <id>`.
-   These muted previews keep absolute frame numbers and include one second on
-   each side of the chapter. Inspect their filmstrips and motion reports. Fix
-   local problems and regenerate the affected chapter previews. A change to an
-   earlier action or caption duration can affect later chapters: inspect those
-   too. Never splice previews together or use them as the final video.
+3. Render and review the chapter previews in one batch:
+   `sh scripts/render-learning.sh <slug> --chapters all --qa-dir {learning_dir}/previews`.
+   This compiles once, reuses a bounded browser pool, and writes muted 720p
+   previews with original frame numbers and one second of neighboring context.
+   Inspect every chapter's filmstrips and motion report together. Collect fixes
+   before rendering again, then request only changed chapters in one command:
+   `sh scripts/render-learning.sh <slug> --chapters why,fix --qa-dir {learning_dir}/previews`.
+   An earlier timing or persistent-object change can affect later chapters;
+   include those chapters too. Never splice overlapping previews into a final
+   video. The full export independently renders all frames at 1080p.
 4. Ask the Opus advisor to review the chapter filmstrips as a cold viewer: by
    ten seconds, do they know what system this is and what is wrong? What changed,
    why does it work, what should an engineer reuse, and when not? Apply warranted

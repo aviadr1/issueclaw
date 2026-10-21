@@ -81,6 +81,20 @@ def test_symlinked_files_are_never_published(tmp_path):
     assert b"not for the bucket" not in bucket.objects.values()
 
 
+def test_the_published_video_uses_its_own_cover_before_playback(tmp_path):
+    lessons = [lesson_dir(tmp_path, 1), lesson_dir(tmp_path, 2)]
+    for lesson in lessons:
+        (tmp_path / lesson["dir"] / "poster.png").write_bytes(b"cover")
+    (tmp_path / "learnings.json").write_text(json.dumps(lessons))
+    bucket = Bucket()
+    briefing_media.host(tmp_path, "ci-bucket", PREFIX, BASE, "1", "1", put=bucket.put)
+    page = next(v for k, v in bucket.objects.items() if k.endswith("index.html"))
+    for lesson in lessons:
+        poster = f"{lesson['dir']}/poster.png"
+        assert any(k.endswith(poster) for k in bucket.objects)
+        assert f'poster="{poster}"'.encode() in page
+
+
 def test_model_written_text_is_escaped_on_the_public_page(tmp_path):
     lesson = lesson_dir(tmp_path, 1, title='<script>alert("x")</script>')
     (tmp_path / "learnings.json").write_text(json.dumps([lesson]))
