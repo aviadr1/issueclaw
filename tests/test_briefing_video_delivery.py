@@ -287,3 +287,34 @@ def test_video_post_distinguishes_the_review_from_the_merged_lesson():
         == "**Learning:** Index eligible work.\n**Review walkthrough:** Check retry ownership at the handoff."
     )
     assert files == ["F1", "F2"]
+
+
+def test_same_report_retries_deduplicate_within_each_channel_only():
+    accepted = {}
+
+    def receive(request):
+        payload = json.loads(request.content)
+        message = accepted.setdefault(
+            payload["client_msg_id"],
+            {"ok": True, "ts": f"{len(accepted) + 1}.0", "channel": payload["channel"]},
+        )
+        return httpx.Response(200, json=message)
+
+    receipts = {}
+    for channel in ("C1", "C2"):
+        slack = daily.Slack(channel, "test-token")
+        slack.client.close()
+        with httpx.Client(
+            base_url="https://slack.com/api/", transport=httpx.MockTransport(receive)
+        ) as client:
+            slack.client = client
+            receipts[channel] = slack.post("Daily briefing", "cutoff/01.md", None)
+            assert (
+                slack.post("Daily briefing", "cutoff/01.md", None) == receipts[channel]
+            )
+            assert (
+                slack.post("Learning videos", "cutoff/02.md", None) != receipts[channel]
+            )
+
+    assert receipts["C1"] != receipts["C2"]
+    assert len(accepted) == 4
