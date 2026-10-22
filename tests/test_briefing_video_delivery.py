@@ -87,6 +87,65 @@ def test_publisher_submits_markdown_for_native_nested_lists():
     assert payload["metadata"]["event_payload"]["key"] == "cutoff/01.md"
 
 
+def test_action_message_and_followup_keep_lessons_separate_through_repair(tmp_path):
+    source = daily.canvas_action_summary(
+        {
+            "needs_attention": ["**Rae:** review the access filter."],
+            "for_awareness": ["Discounts now reach mobile checkout."],
+        },
+        "Frontend briefing — 2026-10-22",
+    )
+    found = [
+        {"rule": "Deduplicate events."},
+        {"kind": "review", "rule": "Check the access boundary."},
+    ]
+    info = {"delivery_format": "canvas", "slack_summary_format": "actions"}
+    url = "https://slack.com/docs/F2"
+    text = daily.canvas_slack_message(source, url, info, found)
+    assert text.endswith(f"[Open the daily briefing]({url})")
+    assert "\n\n\n**🟢 For awareness**" in text
+    assert "Learning" not in text and "Review walkthrough" not in text
+    slack = Slack()
+    ts = slack.post(text, "cutoff/01.md", None)
+    assert slack.calls[-1][1]["markdown_text"] == text
+    state = {
+        "last_cutoff": "cutoff",
+        "messages": {"cutoff/01.md": {"ts": ts}},
+        "canvas": {"receipt": {"url": url, "canvas_id": "F2"}},
+    }
+    (tmp_path / "messages").mkdir()
+    (tmp_path / "messages/01.md").write_text(source, encoding="utf-8")
+    daily.write_json(tmp_path / "window.json", info)
+    daily.write_json(
+        tmp_path / "delivery.json", {"cutoff": "cutoff", "files": ["01.md"]}
+    )
+    daily.write_json(tmp_path / "learnings.json", found)
+    daily.repair_video_attachment(
+        tmp_path, state, slack, lambda _: None, ["F1"], format_message=True
+    )
+    assert [payload for _, payload in slack.calls if "markdown_text" in payload][-1][
+        "markdown_text"
+    ] == text
+    for _ in range(2):
+        daily.finish_canvas_delivery(
+            state,
+            "cutoff",
+            "01.md",
+            "F2",
+            daily.learning_video_summary(found, ["F1"]),
+            slack,
+            lambda _: None,
+        )
+    assert slack.messages[ts]["files"] == [{"id": "F2"}]
+    posts = [payload for method, payload in slack.calls if method == "chat.postMessage"]
+    assert len(posts) == 2
+    assert "**Learning:** Deduplicate events." in posts[1]["markdown_text"]
+    assert (
+        "**Review walkthrough:** Check the access boundary."
+        in posts[1]["markdown_text"]
+    )
+
+
 def test_canvas_card_and_video_are_separate_channel_posts_and_retry_is_safe():
     slack = Slack()
     cutoff = "2026-10-06T00:34:00+00:00"

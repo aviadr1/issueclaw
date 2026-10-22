@@ -492,19 +492,23 @@ def repair_video_attachment(
             .strip()
         )
         titles = info.get("slack_summary_format") == "titles"
-        markdown = lessons.with_rules(
-            markdown,
-            lessons.lessons_of(out),
-            before_last_line=titles,
-        )
+        actions = info.get("slack_summary_format") == "actions"
+        if not actions:
+            markdown = lessons.with_rules(
+                markdown,
+                lessons.lessons_of(out),
+                before_last_line=titles,
+            )
         url = state["canvas"]["receipt"]["url"]
         # Accept only the exact original wording when moving its old footer link.
-        if titles:
+        if actions:
+            expected_text = mrkdwn(canvas_message_link(markdown, url, bottom=True))
+        elif titles:
             body, _, invitation = markdown.rpartition("\n")
             expected_text = mrkdwn(body + f"\n[{invitation}]({url})")
         else:
             expected_text = mrkdwn(markdown + f"\n[Full report in Slack Canvas]({url})")
-        markdown = canvas_message_link(markdown, url, titles=titles)
+        markdown = canvas_message_link(markdown, url, titles=titles, bottom=actions)
     attach_message_files(
         slack, receipt["ts"], file_ids, markdown=markdown, expected_text=expected_text
     )
@@ -790,10 +794,10 @@ def configure_delivery(out, config):
         return
     info["delivery_format"] = "canvas"
     info["review_video"] = config.get("learning_videos", {}).get("review", False)
-    if config.get("slack_summary_format") == "titles":
-        info["slack_summary_format"] = "titles"
-    if config.get("canvas_inventory") == "merged":
-        info["canvas_inventory"] = "merged"
+    if config.get("slack_summary_format") in {"titles", "actions"}:
+        info["slack_summary_format"] = config["slack_summary_format"]
+    if config.get("canvas_inventory") in {"merged", "none"}:
+        info["canvas_inventory"] = config["canvas_inventory"]
     write_json(out / "window.json", info)
     delivery = json.loads((out / "delivery.json").read_text())
     delivery["inventory_files"] = delivery.get("inventory_files", delivery["files"][1:])
@@ -1042,8 +1046,50 @@ def canvas_title_summary(content, title, invitation, previous=None):
     return f"**{title}**\n\n" + "\n".join(topics) + "\n\n" + invitation
 
 
-def canvas_message_link(text, url, *, titles=False):
+def canvas_action_summary(summary, title):
+    """Render editorial action/awareness bullets without duplicating lesson posts."""
+    keys = {"needs_attention", "for_awareness"}
+    if not isinstance(summary, dict) or set(summary) != keys:
+        raise RuntimeError("slack-summary.json needs needs_attention and for_awareness")
+    for key, limit in (("needs_attention", 8), ("for_awareness", 3)):
+        items = summary[key]
+        if not isinstance(items, list) or len(items) > limit:
+            raise RuntimeError(f"{key} must be an array of at most {limit} bullets")
+        for item in items:
+            if (
+                not isinstance(item, str)
+                or not item.strip()
+                or "\n" in item
+                or "\r" in item
+            ):
+                raise RuntimeError(f"{key} needs nonempty single-line bullet text")
+    attention = summary["needs_attention"] or ["No verified actions needed."]
+    awareness = summary["for_awareness"] or ["No material changes in this window."]
+    text = (
+        f"**{title}**\n\n**🔴 Needs attention**\n\n"
+        + "\n".join("- " + item.strip() for item in attention)
+        + "\n\n\n**🟢 For awareness**\n\n"
+        + "\n".join("- " + item.strip() for item in awareness)
+    )
+    if len(text.split()) > 300:
+        raise RuntimeError("Action summary exceeds 300 words; group related requests")
+    return text
+
+
+def canvas_message_link(text, url, *, titles=False, bottom=False):
+    if bottom:
+        return f"{text}\n\n[Open the daily briefing]({url})"
     return f"[Your daily briefing canvas]({url})\n\n{text}"
+
+
+def canvas_slack_message(text, url, info, found):
+    """Keep lesson takeaways in the follow-up post for action-first briefings."""
+    if info.get("slack_summary_format") == "actions":
+        return canvas_message_link(text, url, bottom=True)
+    titles = info.get("slack_summary_format") == "titles"
+    return canvas_message_link(
+        lessons.with_rules(text, found, before_last_line=titles), url, titles=titles
+    )
 
 
 def validate_output(out):
@@ -1080,6 +1126,10 @@ def validate_output(out):
         info.get("delivery_format") == "canvas"
         and info.get("slack_summary_format") == "titles"
     )
+    action_summary = (
+        info.get("delivery_format") == "canvas"
+        and info.get("slack_summary_format") == "actions"
+    )
     # Each researched lesson replaces the learning the briefing wrote, where it wrote it.
     report_path = out / "report.md"
     narrative = (
@@ -1097,6 +1147,12 @@ def validate_output(out):
             info.get("previous_canvas_invitation"),
         )
         (out / "messages/01-toplevel.md").write_text(text + "\n", encoding="utf-8")
+    elif action_summary:
+        text = canvas_action_summary(
+            json.loads((out / "slack-summary.json").read_text(encoding="utf-8")),
+            delivery["canvas_title"],
+        )
+        (out / "messages/01-toplevel.md").write_text(text + "\n", encoding="utf-8")
     messages = [
         (name, (out / "messages" / name).read_text(encoding="utf-8").strip())
         for name in delivery["files"]
@@ -1105,7 +1161,7 @@ def validate_output(out):
         raise RuntimeError("Missing, empty or oversized briefing message")
     inventory = json.loads((out / "inventory.json").read_text())
     canvas_mode = info.get("delivery_format") == "canvas"
-    if not title_summary and len(messages[0][1].split()) > (
+    if not (title_summary or action_summary) and len(messages[0][1].split()) > (
         180 if canvas_mode else 550
     ):
         raise RuntimeError(
@@ -1133,7 +1189,7 @@ def validate_output(out):
         content = narrative.strip()
         if not content:
             raise RuntimeError("Missing full Canvas report")
-        if info.get("canvas_inventory") == "merged":
+        if info.get("canvas_inventory") in {"merged", "none"}:
             # Curate the reader's queue while retaining every source in artifacts.
             cited_urls = set(
                 re.findall(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+", content)
@@ -1145,6 +1201,7 @@ def validate_output(out):
             ]
             if len(linked_open) > 8:
                 raise RuntimeError("Curated report must cite at most 8 open/draft PRs")
+        if info.get("canvas_inventory") == "merged":
             merged = [row for row in inventory if row.get("state") == "merged"]
             content += "\n\n## Merged PRs in this window\n\n"
             content += (
@@ -1159,7 +1216,7 @@ def validate_output(out):
                 "run's evidence artifact. The report highlights the work and review "
                 "decisions worth acting on."
             )
-        else:
+        elif info.get("canvas_inventory") != "none":
             canvas_inventory = re.sub(r"(?m)^• ", "- ", inventory_text)
             for section, label in (
                 ("MERGED", "Merged PRs"),
@@ -1187,11 +1244,16 @@ def generate(out, prompt, revision_notes=""):
     if info.get("already_posted") or info.get("resume"):
         return
     instructions = prompt.read_text()
+    if info.get("slack_summary_format") == "actions":
+        example = (
+            Path(__file__).with_name("prompts") / "daily-learning-briefing-example.md"
+        )
+        instructions += "\n\n" + example.read_text(encoding="utf-8")
     if revision_notes:
         instructions += (
             "\n\nRequired operator revision instructions:\n"
             + revision_notes
-            + "\nRevise report.md and the Slack invitation/message using these instructions. "
+            + "\nRevise report.md and the Slack summary (slack-summary.json in actions mode) using these instructions. "
             "Keep prepared evidence and inventories unchanged; reconcile audits."
         )
     protected = {
@@ -1205,6 +1267,7 @@ def generate(out, prompt, revision_notes=""):
             out / "review-learning.json",
             out / "selection-audit.json",
             out / "review-selection.json",
+            out / "slack-summary.json",
         }
     }
 
@@ -1264,6 +1327,8 @@ def generate(out, prompt, revision_notes=""):
                 + (
                     "Write a fresh canvas-invitation.md line, at most 25 words; title bullets are assembled automatically. "
                     if info.get("slack_summary_format") == "titles"
+                    else "Revise slack-summary.json: needs_attention (at most 8 bullets), for_awareness (at most 3); keep the rendered message within 300 words. Do not include learning or review-video teasers. "
+                    if info.get("slack_summary_format") == "actions"
                     else "Use Python to count TLDR words; target 100-160 and stay below 180. "
                     if info.get("delivery_format") == "canvas"
                     else "Use Python to count words; target 400-450 and stay below 550. "
@@ -1483,11 +1548,7 @@ def main():
             messages = [
                 (
                     name,
-                    canvas_message_link(
-                        lessons.with_rules(text, found, before_last_line=titles),
-                        url,
-                        titles=titles,
-                    ),
+                    canvas_slack_message(text, url, info, found),
                 )
                 for name, text in messages
             ]

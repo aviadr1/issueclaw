@@ -44,16 +44,44 @@ If window.delivery_format is "canvas":
   needs no action, use ONE child title "All good — no CI action needed" across all
   repositories, not one success inventory per repository. On quiet days use a factual child title such as
   "No verified review waits". Section labels without child titles are rejected.
-- Otherwise write /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
+- If window.slack_summary_format is "actions", use the worked example appended
+  to this prompt as the standard for the finished briefing.
+  Use it for structure, explanatory depth and tone; use only the current evidence
+  for facts, people, dates and links. Write
+  /tmp/daily-briefing/slack-summary.json with exactly two arrays of single-line
+  Markdown strings (no bullet prefixes):
+  {"needs_attention": ["**Person:** next action. [PR](source-url)"],
+   "for_awareness": ["Concrete outcome and its important rollout limit."]}.
+  Select up to 8 attention bullets and up to 3 awareness bullets; target 200–250
+  words, maximum 300 including the rendered title and section labels. Empty arrays
+  are allowed on quiet days; never invent an action or change to fill a slot.
+  The 200–250-word target is not a minimum. If validation requests a shorter draft,
+  group related requests and tighten prose while retaining the next actions and
+  evidence links; move supporting explanation into the Canvas instead of silently
+  dropping an unresolved action or inventing a quiet day.
+  Include reviews, actionable CI failures/unknown gates and release dependencies
+  first. Group requests by the same people where it helps, preserving each PR link
+  and next action. Name owners only when verified; otherwise say the owner is not
+  identified. A failure is still unresolved until equivalent coverage proves recovery.
+  Awareness is a few selected outcomes, not all Canvas headings. Preserve meaningful
+  rollout/adoption limits. Keep all factual claims grounded in the report and evidence.
+  Do not include learning summaries, video/review-walkthrough teasers, an invitation,
+  a Canvas URL or extra sections. The publisher renders the two sections with an
+  extra blank line before For awareness and appends the confirmed Canvas link.
+  Do not write the generated messages/01-toplevel.md or canvas-invitation.md.
+- Otherwise (neither "titles" nor "actions") write
+  /tmp/daily-briefing/messages/01-toplevel.md as ONE short TLDR
   paragraph, around 100–160 words, maximum 180 whitespace-separated words. Name
   people, changes, review decisions and CI blockers. The publisher appends the
-  confirmed Canvas link in both formats; do not invent a URL or post inventories.
-- When window.canvas_inventory is "merged", the publisher appends only the complete
-  merged-PR list. Keep open work in a prioritized "Waiting on people" section:
+  confirmed Canvas link; do not invent a URL or post inventories.
+- When window.canvas_inventory is "merged" or "none", keep open work curated.
+  "merged" appends only the complete merged-PR list; "none" adds no inventory
+  appendix. Keep open work in a prioritized "Waiting on people" section (under
+  Needs attention in actions mode):
   usually 3–6 items, at most 8 distinct open/draft PRs anywhere in the report.
   Prioritize work that moved in this window, a concrete blocker, or a review whose
   next decision matters. A requested reviewer alone does not make a stale PR useful.
-  Keep active work under a separate "Active work" label inside this section; an open
+  Keep active work under a separate "Active work" section ("In progress" in actions mode); an open
   PR or draft is not automatically waiting. Name the author, ticket owner when
   relevant, the person who has the next action and that action.
   Link only tickets supporting those items; do not dump the ticket backlog or claim
@@ -69,7 +97,22 @@ Every effort heading under What changed includes its verified leads:
 `### Capability or behavior change — Leads: Full Name, Full Name`.
 Place efforts led or co-led by anyone in window.what_changed_order_last after
 other efforts. Within each group, order by learning value and relevance.
-Use short sections: What changed; Waiting on people; Active work; CI; Learning. Cover
+Unless actions mode is selected, use short sections: What changed; Waiting on people;
+Active work; CI; Learning. In actions mode, use this Canvas order:
+TLDR (3–4 bullets), Needs attention (review table/list and CI checks), What changed,
+In progress, Review walkthrough (when available), Learning, brief evidence note.
+Keep the exact local window/snapshot beside the opening date or in that evidence note.
+The TLDR is a navigation aid; retain the full explanation below it, usually
+900–1,500 words overall when the window warrants it. Do not compress the Canvas
+into another Slack summary. Reviews can use a Who / Next action / Context table;
+retain evidence dates and links. Explain before/after behavior, connections between
+repos and material adoption limits in short paragraphs under What changed.
+Keep 1–3 Learning topics, roughly 100–150 words each, preserving the caller's
+work-status labels, For you takeaway, sources and prerequisites even when shortened.
+Do not repeat a full story in What changed and Learning; explain it once and refer
+back. Keep the open-PR walkthrough separate from lessons about merged work, with
+its reviewed head and remaining questions. Do not append a PR list yourself.
+Cover
 meaningful changes in ALL configured repos. Group mechanical dependency bumps into
 the originating capability. Quiet days can be short and cover actionable carry-over.
 Lead with behavior, not merge counts. Never rank people or give per-person PR totals.
@@ -239,7 +282,8 @@ report (or legacy briefing). Provenance checks cannot establish a sound interpre
 keep the claimed repetition faithful to the comments and their later resolution.
 
 Before finishing, check output paths and exact coverage keys in Python. Check the
-invitation length in titles mode; otherwise check the TLDR word count. Finish the report with one brief material freshness/uncertainty line. The
+invitation length in titles mode, the structured summary and 300-word limit in
+actions mode, or the TLDR word count otherwise. Finish the report with one brief material freshness/uncertainty line. The
 full report may be long; the Slack message should be easy to read in a minute.
 
 Selection and reviewability (required before drafting Learning):
