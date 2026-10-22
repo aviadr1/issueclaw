@@ -44,7 +44,10 @@ If window.delivery_format is "canvas":
   needs no action, use ONE child title "All good — no CI action needed" across all
   repositories, not one success inventory per repository. On quiet days use a factual child title such as
   "No verified review waits". Section labels without child titles are rejected.
-- If window.slack_summary_format is "actions", write
+- If window.slack_summary_format is "actions", use the worked example appended
+  to this prompt as the standard for the finished briefing.
+  Use it for structure, explanatory depth and tone; use only the current evidence
+  for facts, people, dates and links. Write
   /tmp/daily-briefing/slack-summary.json with exactly two arrays of single-line
   Markdown strings (no bullet prefixes):
   {"needs_attention": ["**Person:** next action. [PR](source-url)"],
@@ -52,6 +55,10 @@ If window.delivery_format is "canvas":
   Select up to 8 attention bullets and up to 3 awareness bullets; target 200–250
   words, maximum 300 including the rendered title and section labels. Empty arrays
   are allowed on quiet days; never invent an action or change to fill a slot.
+  The 200–250-word target is not a minimum. If validation requests a shorter draft,
+  group related requests and tighten prose while retaining the next actions and
+  evidence links; move supporting explanation into the Canvas instead of silently
+  dropping an unresolved action or inventing a quiet day.
   Include reviews, actionable CI failures/unknown gates and release dependencies
   first. Group requests by the same people where it helps, preserving each PR link
   and next action. Name owners only when verified; otherwise say the owner is not

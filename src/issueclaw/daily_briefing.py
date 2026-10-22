@@ -1244,6 +1244,11 @@ def generate(out, prompt, revision_notes=""):
     if info.get("already_posted") or info.get("resume"):
         return
     instructions = prompt.read_text()
+    if info.get("slack_summary_format") == "actions":
+        example = (
+            Path(__file__).with_name("prompts") / "daily-learning-briefing-example.md"
+        )
+        instructions += "\n\n" + example.read_text(encoding="utf-8")
     if revision_notes:
         instructions += (
             "\n\nRequired operator revision instructions:\n"

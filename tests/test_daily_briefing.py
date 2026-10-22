@@ -965,8 +965,9 @@ def test_action_summary_quiet_day_does_not_invent_work():
 
 
 @pytest.mark.parametrize("revision_notes", ["", "Tighten the action wording."])
+@pytest.mark.parametrize("defect", ["words", "sections", "json"])
 def test_action_summary_can_be_revised_without_changing_evidence(
-    monkeypatch, tmp_path, revision_notes
+    monkeypatch, tmp_path, revision_notes, defect
 ):
     prompt = canvas_draft(tmp_path)
     daily.configure_delivery(
@@ -976,6 +977,12 @@ def test_action_summary_can_be_revised_without_changing_evidence(
         tmp_path / "slack-summary.json",
         {"needs_attention": ["word " * 301], "for_awareness": []},
     )
+    if defect == "sections":
+        daily.write_json(
+            tmp_path / "slack-summary.json", {"learning": ["Wrong section"]}
+        )
+    elif defect == "json":
+        (tmp_path / "slack-summary.json").write_text('{"needs_attention": [')
     protected = {
         name: (tmp_path / name).read_bytes()
         for name in ("inventory.json", "window.json", "messages/02-inventory.md")
@@ -985,6 +992,8 @@ def test_action_summary_can_be_revised_without_changing_evidence(
     def claude(args, **kwargs):
         calls.append(args[2])
         assert "slack-summary.json" in args[2]
+        assert "# Worked example: a readable action-first briefing" in args[2]
+        assert "## Agent output: report.md" in args[2]
         daily.write_json(
             tmp_path / "slack-summary.json",
             {"needs_attention": [], "for_awareness": []},
@@ -997,6 +1006,54 @@ def test_action_summary_can_be_revised_without_changing_evidence(
     assert all(
         (tmp_path / name).read_bytes() == data for name, data in protected.items()
     )
+
+
+def test_action_repair_stops_after_two_revisions_and_keeps_draft_and_errors(
+    monkeypatch, tmp_path
+):
+    prompt = canvas_draft(tmp_path)
+    daily.configure_delivery(
+        tmp_path, {"delivery_format": "canvas", "slack_summary_format": "actions"}
+    )
+    summary = {"needs_attention": ["review"] * 9, "for_awareness": []}
+    daily.write_json(tmp_path / "slack-summary.json", summary)
+    original = (tmp_path / "slack-summary.json").read_bytes()
+    calls = []
+    monkeypatch.setattr(
+        daily.subprocess, "run", lambda args, **kwargs: calls.append(args)
+    )
+    with pytest.raises(RuntimeError, match="at most 8"):
+        daily.generate(tmp_path, prompt)
+    assert len(calls) == 2
+    assert (tmp_path / "slack-summary.json").read_bytes() == original
+    assert (tmp_path / "inventory.json").exists()
+    assert (tmp_path / "report.md").exists()
+    for attempt in (1, 2):
+        assert "at most 8" in (tmp_path / f"revision-{attempt}.txt").read_text()
+        assert (tmp_path / f"revision-{attempt}.log").exists()
+
+
+def test_worked_example_is_publishable_without_copying_it_into_a_live_report():
+    import json
+    import re
+    from pathlib import Path
+
+    example = (
+        Path(daily.__file__).with_name("prompts") / "daily-learning-briefing-example.md"
+    ).read_text(encoding="utf-8")
+    summary_match = re.search(r"```json\n(.*?)\n```", example, re.S)
+    assert summary_match is not None
+    summary = json.loads(summary_match[1])
+    text = daily.canvas_action_summary(
+        summary, "Frontend morning briefing — 2026-01-15"
+    )
+    assert "Needs attention" in text and "For awareness" in text
+    report_match = re.search(r"```markdown\n(.*?)\n```", example, re.S)
+    assert report_match is not None
+    report = report_match[1]
+    daily.slack_canvas.validate_content(report)
+    assert "**For you — Apply a technique:**" in report
+    assert "This is a fictional example" in example
 
 
 @pytest.mark.parametrize("inventory_mode", ["merged", "none"])

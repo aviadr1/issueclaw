@@ -81,6 +81,22 @@ The actions-mode Canvas starts with a TLDR and Needs attention, then What change
 In progress, a separate Review walkthrough when available, and short Learning
 topics (roughly 100–150 words each). Keep the detailed narrative and the caller's
 status/adoption guidance; this is not a second Slack-sized summary.
+The generator injects a complete fictional worked example (structured Slack input,
+rendered message, and Canvas) into every actions-mode drafting and repair prompt.
+It demonstrates the desired output; its people, dates and links are not evidence.
+
+The 200–250-word Slack target, 900–1,500-word Canvas target and 100–150-word lesson
+target are editorial guidance, not minimum lengths or fatal validation thresholds.
+Canvas section order is also prompt guidance. The Slack JSON shape, eight/three
+bullet ceilings and 300-word maximum are validated. Invalid JSON, missing files,
+wrong Slack sections and excess bullets/words enter the existing repair loop:
+the agent receives the exact error and has up to two revisions using the same
+evidence. If still invalid, generation fails and publication is skipped; the
+workflow's always-run artifact upload preserves the draft, evidence and errors
+for inspection/revision. It does not truncate bullets or publish an invalid draft.
+This repair loop handles draft-validation errors; a failed model process or
+workflow timeout can still stop the run. The final validation after optional
+video/lesson replacement is a publication gate, not another draft-repair loop.
 
 In titles mode, the previous successful invitation is checkpointed, and
 repeating it blocks validation for a focused revision. Pending artifacts retain
