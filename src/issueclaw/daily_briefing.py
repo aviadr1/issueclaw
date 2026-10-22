@@ -23,6 +23,7 @@ import yaml
 from issueclaw import briefing_media, briefing_pr_videos
 from issueclaw.briefing_config import load_config, prepared_config
 from issueclaw.ci_evidence import collect_default_branch_ci
+from issueclaw.ci_repair import briefing_snapshot
 from issueclaw import briefing_trace as trace
 from issueclaw import learning_videos as lessons
 from issueclaw import report_evidence as report
@@ -731,6 +732,8 @@ def prepare(config, mirror, out, state, now, cutoff=None):
     write_json(out / "tickets.json", ticket_rows)
     write_json(out / "context.json", related_files)
     write_json(out / "ci.json", ci)
+    if config.get("ci_repair_repository"):
+        write_json(out / "ci-repairs.json", briefing_snapshot(config["ci_repair_repository"], config["repos"]))
     messages = out / "messages"
     messages.mkdir(exist_ok=True)
     lines = [f"Full inventory · {start.isoformat()} → {end.isoformat()} (exclusive)"]

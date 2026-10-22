@@ -1,0 +1,218 @@
+name: Isolated Claude CI repair
+on:
+  workflow_call:
+    inputs:
+      incident:
+        type: string
+        required: true
+      target-repository:
+        type: string
+        required: true
+      target-sha:
+        type: string
+        required: true
+      config:
+        type: string
+        required: true
+      tooling-ref:
+        type: string
+        required: true
+      runner-image:
+        type: string
+        required: true
+      langsmith-workspace-id:
+        type: string
+        required: true
+    secrets:
+      REPOS_READ_TOKEN:
+        required: true
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      LANGSMITH_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.runner-image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    timeout-minutes: 110
+    defaults:
+      run:
+        shell: bash
+    env:
+      REPAIR_EVIDENCE: /tmp/ci-repair
+      REPAIR_NODE: /opt/ci-repair-node
+      CLAUDE_CONFIG_DIR: /tmp/ci-repair-claude
+      CC_LANGSMITH_PROJECT: ci-repair
+      LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.target-repository }}
+          ref: ${{ inputs.target-sha }}
+          token: ${{ secrets.REPOS_READ_TOKEN }}
+          fetch-depth: 1
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .repair-tools
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: langchain-ai/langsmith-claude-code-plugins
+          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
+          path: .repair-tracing
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: ci-repair-batch
+          path: /tmp
+      - name: Install pinned runtime outside the editable checkout
+        run: |
+          mv .repair-tools /tmp/ci-repair-tools
+          mv .repair-tracing /tmp/ci-repair-tracing
+          pip install /tmp/ci-repair-tools
+          python -c 'import sys; assert sys.version_info[:2] == (3, 14)'
+          echo "CLAUDE_PATH=$(command -v claude)" >> "$GITHUB_ENV"
+          echo "REPAIR_CHECKOUT=$GITHUB_WORKSPACE/candidate" >> "$GITHUB_ENV"
+      - name: Prepare assignment and all peer failures
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          REPAIR_INCIDENT: ${{ inputs.incident }}
+        run: python -m issueclaw.ci_repair prepare --checkout candidate
+      - name: Enable private checkpoint uploads
+        uses: actions/github-script@v8
+        with:
+          script: |
+            for (const key of ['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_URL']) {
+              if (process.env[key]) { core.setSecret(process.env[key]); core.exportVariable(key, process.env[key]); }
+            }
+      - name: Start periodic evidence preservation
+        run: nohup node /tmp/ci-repair-tools/src/issueclaw/ci-repair-checkpoint.mjs watch > /tmp/checkpoint.log 2>&1 < /dev/null &
+      - name: Require subscription credentials with no API fallback
+        env:
+          SUBSCRIPTION_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          test -n "$SUBSCRIPTION_TOKEN"
+          test -z "${ANTHROPIC_API_KEY:-}"
+      - name: Official Claude Action using subscription only
+        id: claude
+        continue-on-error: true
+        timeout-minutes: 95
+        uses: anthropics/claude-code-action@6b6870e649b5ff408753befeaee5fc7989d4e6a9
+        env:
+          ANTHROPIC_API_KEY: ''
+          TRACE_TO_LANGSMITH: 'true'
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_REDACT: 'true'
+          CC_LANGSMITH_METADATA: ${{ steps.prepare.outputs.metadata }}
+          CC_LANGSMITH_LOG_FILE: /tmp/ci-repair-tracing.log
+          STATE_FILE: /tmp/ci-repair-tracing-state.json
+          CLAUDE_CODE_SUBAGENT_MODEL: haiku
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          path_to_claude_code_executable: ${{ env.CLAUDE_PATH }}
+          path_to_bun_executable: /usr/local/bin/bun
+          prompt: ${{ steps.prepare.outputs.prompt }}
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --advisor claude-opus-5-5
+            --effort high
+            --session-id ${{ steps.prepare.outputs.session }}
+            --settings ${{ steps.prepare.outputs.settings }}
+            --plugin-dir /tmp/ci-repair-tracing
+            --tools Read,Write,Edit,Glob,Grep,Bash
+            --allowedTools Read,Write,Edit,Glob,Grep,Bash
+      - name: Preserve unfinished work and reported usage
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          ACTION_OUTCOME: ${{ steps.claude.outcome }}
+        run: |
+          touch "$REPAIR_EVIDENCE/stop-checkpoint"
+          python -m issueclaw.ci_repair capture --checkout candidate
+      - name: Read back LangSmith trace links
+        if: always() && steps.prepare.outcome == 'success'
+        continue-on-error: true
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        run: python -m issueclaw.ci_repair traces
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.prepare.outcome == 'success'
+        with:
+          name: repair-${{ inputs.incident }}-final-${{ github.run_attempt }}
+          path: |
+            /tmp/ci-repair/manifest.json
+            /tmp/ci-repair/assignment.json
+            /tmp/ci-repair/cohort.json
+            /tmp/ci-repair/repair.prompt.md
+            /tmp/ci-repair/repair.request.json
+            /tmp/ci-repair/diagnosis.json
+            /tmp/ci-repair/candidate.patch
+            /tmp/ci-repair/sessions
+            /tmp/ci-repair/progress.json
+            /tmp/ci-repair/usage.json
+            /tmp/ci-repair/traces.json
+          retention-days: 30
+
+  publish:
+    needs: agent
+    if: always() && needs.agent.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          path: policy
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.target-repository }}
+          ref: ${{ inputs.target-sha }}
+          token: ${{ secrets.REPOS_READ_TOKEN }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: pip install ./tools
+      - uses: actions/download-artifact@v5
+        with:
+          name: ci-repair-batch
+          path: /tmp
+      - uses: actions/download-artifact@v5
+        with:
+          name: repair-${{ inputs.incident }}-final-${{ github.run_attempt }}
+          path: /tmp/ci-repair
+      - name: Publish draft and dispatch configured candidate verification
+        env:
+          GH_TOKEN: ${{ secrets.REPOS_READ_TOKEN }}
+          CONFIG: ${{ inputs.config }}
+        run: python -m issueclaw.ci_repair publish --checkout candidate --config "policy/$CONFIG"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repair-${{ inputs.incident }}-receipt
+          path: /tmp/ci-repair/receipt.json
+          retention-days: 30
