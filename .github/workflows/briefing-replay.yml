@@ -1,0 +1,165 @@
+name: Replay a frozen text briefing
+
+on:
+  workflow_call:
+    inputs:
+      evidence-run-id:
+        type: string
+        required: true
+      evidence-artifact:
+        type: string
+        default: daily-learning-briefing
+      tooling-ref:
+        description: Exact issueclaw commit SHA for reproducible replay
+        type: string
+        required: true
+      claude-version:
+        description: Exact Claude CLI version (x.y.z)
+        type: string
+        required: true
+      config:
+        type: string
+        required: true
+      editorial:
+        description: Path to consumer editorial instructions in the caller checkout
+        type: string
+        required: true
+      variant:
+        type: string
+        default: single-writer
+      langsmith-project:
+        type: string
+        default: briefing-replays
+      langsmith-workspace-id:
+        type: string
+        default: ''
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      LANGSMITH_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
+      BRIEFING_REPLAY_VARIANT: ${{ inputs.variant }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Require immutable tooling and CLI versions
+        env:
+          TOOLING_REF: ${{ inputs.tooling-ref }}
+          CLAUDE_VERSION: ${{ inputs.claude-version }}
+        run: |
+          [[ "$TOOLING_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CLAUDE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$BRIEFING_EVIDENCE_RUN" =~ ^[0-9]+$ ]]
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: langchain-ai/langsmith-claude-code-plugins
+          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
+          path: .briefing-tracing
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install locked dependencies and pinned CLI
+        env:
+          CLAUDE_VERSION: ${{ inputs.claude-version }}
+        run: |
+          uv sync --project .briefing-tools --locked --no-dev
+          npm install -g "@anthropic-ai/claude-code@$CLAUDE_VERSION"
+      - name: Download frozen evidence from this repository
+        uses: actions/download-artifact@v7
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.evidence-run-id }}
+          name: ${{ inputs.evidence-artifact }}
+          path: /tmp/briefing-source
+      - name: Record actual runtime and revision provenance
+        run: |
+          .briefing-tools/.venv/bin/python - <<'PY'
+          import hashlib, importlib.metadata, json, os, platform, subprocess
+          from pathlib import Path
+          def command(*args):
+              return subprocess.check_output(args, text=True).strip()
+          record = {
+              'tooling_sha': command('git', '-C', '.briefing-tools', 'rev-parse', 'HEAD'),
+              'consumer_sha': command('git', 'rev-parse', 'HEAD'),
+              'tracing_sha': command('git', '-C', '.briefing-tracing', 'rev-parse', 'HEAD'),
+              'claude': command('claude', '--version'),
+              'node': command('node', '--version'),
+              'python': platform.python_version(),
+              'platform': platform.platform(),
+              'dependencies': sorted(f'{d.metadata["Name"]}=={d.version}' for d in importlib.metadata.distributions()),
+              'lock_sha256': hashlib.sha256(Path('.briefing-tools/uv.lock').read_bytes()).hexdigest(),
+              'ci_run': os.environ['GITHUB_RUN_ID'],
+              'ci_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'evidence_run': os.environ['BRIEFING_EVIDENCE_RUN'],
+          }
+          Path('/tmp/briefing-replay-runtime.json').write_text(json.dumps(record, indent=2) + '\n')
+          PY
+      - name: Generate and validate without publication
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+          LEARNING_TRACE_PLUGIN: ${{ github.workspace }}/.briefing-tracing
+          BRIEFING_REQUIRE_TRACE: '1'
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          BRIEFING_EDITORIAL: ${{ inputs.editorial }}
+        run: |
+          .briefing-tools/.venv/bin/python -m issueclaw.briefing_replay \
+            --source /tmp/briefing-source --out /tmp/briefing-replay \
+            --config "$BRIEFING_CONFIG" --editorial "$BRIEFING_EDITORIAL" \
+            --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md
+      - name: Verify remote session ingestion
+        if: ${{ always() && !cancelled() }}
+        env:
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+        run: |
+          test -d /tmp/briefing-replay/text-traces
+          .briefing-tools/.venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_generation_trace import verify_traces; verify_traces(Path('/tmp/briefing-replay/text-traces'))"
+      - name: Preserve small result and cost receipts independently
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: briefing-replay-results
+          path: |
+            /tmp/briefing-replay-runtime.json
+            /tmp/briefing-replay/*metrics.json
+            /tmp/briefing-replay/report.md
+            /tmp/briefing-replay/messages/01-toplevel.md
+            /tmp/briefing-replay/text-traces/*.trace.json
+            /tmp/briefing-replay/text-traces/langsmith-traces.json
+          retention-days: 90
+      - name: Preserve private evidence and transcripts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: briefing-replay
+          path: |
+            /tmp/briefing-replay/
+            !/tmp/briefing-replay/**/langsmith_queue/**
+          retention-days: 90
