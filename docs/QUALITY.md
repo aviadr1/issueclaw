@@ -25,8 +25,29 @@
 pre-commit run --all-files
 ```
 
-## Recommended Repo Settings
+## Dependency Updates
+
+Dependabot checks Python dependencies with the `uv` ecosystem so updates keep
+`pyproject.toml` and `uv.lock` together. CI installs with `uv sync --locked` and
+rejects an out-of-date lockfile. After changing dependencies locally, run `uv lock`
+and commit both files.
+
+The Dependabot Auto Merge workflow enables squash auto-merge for non-draft PRs
+authored by `dependabot[bot]`, from this repository, targeting `main`. It also runs
+when a maintainer updates or labels a Dependabot PR. It never checks out PR code
+and does not require permission to approve reviews.
+
+Version updates remain grouped into patch and minor updates; major version
+updates are ignored by `.github/dependabot.yml`. Security PRs created by
+Dependabot are also eligible for auto-merge.
+
+## Required Repo Settings
 
 - Branch protection on `main` requiring CI + CodeQL checks.
 - Dependabot alerts/security updates enabled.
-- Auto-merge allowed for low-risk dependency update PRs after checks pass.
+- Allow auto-merge. Required checks (`lint`, `types`, `test`, and `CodeQL`) and
+  conversation resolution must pass before GitHub merges a PR. Keep these branch
+  protections enabled, including enforcement for administrators.
+- GitHub Actions approval permission can remain disabled: this repository does
+  not require approving reviews. If that policy changes, arrange an approval
+  before expecting auto-merge to complete.
