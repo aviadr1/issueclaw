@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -66,7 +67,11 @@ def prepare(source: Path, out: Path, config_path: Path):
 
 def cost_metrics(out: Path) -> dict:
     """Use one final CLI result per invocation; never sum repeated usage events."""
-    logs = sorted(out.glob("generation.log")) + sorted(out.glob("revision-*.log"))
+    logs = sorted(out.glob("generation.log")) + sorted(
+        path
+        for path in out.glob("revision-*.log")
+        if re.fullmatch(r"revision-\d+\.log", path.name)
+    )
     logs += sorted((out / "split").rglob("run.log"))
     invocations = []
     for path in logs:
@@ -158,6 +163,62 @@ def run(arm: str, source: Path, out: Path, config: Path, prompt: Path, editorial
             evidence_unchanged=not changed,
             changed_input_files=changed,
             elapsed_seconds=time.monotonic() - started,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            **cost_metrics(out),
+        )
+        if changed:
+            metrics.update(status="failed", error="Prepared evidence changed")
+        write_json(out / "experiment-metrics.json", metrics)
+        if changed:
+            raise RuntimeError("Prepared evidence changed")
+
+
+def refresh_metrics(out: Path):
+    metrics = json.loads((out / "experiment-metrics.json").read_text())
+    metrics.update(cost_metrics(out))
+    write_json(out / "experiment-metrics.json", metrics)
+
+
+def resume_split(out: Path):
+    """Finish an interrupted split from its complete saved packets, keeping costs."""
+    from issueclaw.briefing_split import generate
+
+    metrics = json.loads((out / "experiment-metrics.json").read_text())
+    if metrics["arm"] != "split" or metrics["status"] != "failed":
+        raise ValueError("Resume requires a failed split artifact")
+    prepared = metrics["input_files"]
+    current = fingerprints(out)
+    if any(current.get(name) != digest for name, digest in prepared.items()):
+        raise ValueError("Cannot resume: evidence differs from the saved snapshot")
+    write_json(out / "experiment-initial-attempt.json", metrics)
+    os.environ["BRIEFING_EXPERIMENT_ARM"] = "split"
+    previous_seconds = metrics["generation_seconds"]
+    metrics["resume_ci_run"] = os.environ.get("GITHUB_RUN_ID")
+    metrics["initial_failure"] = metrics.get("error")
+    started = time.monotonic()
+    try:
+        generate(out, out / "experiment-prompt.md", resume=True)
+        daily.validate_output(out)
+        metrics["status"] = "passed_after_resume"
+        metrics.pop("error", None)
+    except Exception as error:
+        metrics.update(status="failed", error=f"{type(error).__name__}: {error}")
+        raise
+    finally:
+        metrics["resume_generation_seconds"] = time.monotonic() - started
+        metrics["generation_seconds"] = (
+            previous_seconds + metrics["resume_generation_seconds"]
+        )
+        metrics["time_basis"] = (
+            "Cumulative generation/repair time, including failed first attempt; excludes human diagnosis and CI setup gaps."
+        )
+        current = fingerprints(out)
+        changed = [
+            name for name, digest in prepared.items() if current.get(name) != digest
+        ]
+        metrics.update(
+            evidence_unchanged=not changed,
+            changed_input_files=changed,
             completed_at=datetime.now(timezone.utc).isoformat(),
             **cost_metrics(out),
         )

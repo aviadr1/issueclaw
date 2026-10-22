@@ -16,6 +16,10 @@ on:
         description: 'Optional existing comparison to verify traces without spending model tokens again'
         type: string
         default: ''
+      resume-split:
+        description: 'Finish a failed split from its saved complete packets; baseline is reused'
+        type: boolean
+        default: false
       generation-runner:
         type: string
         default: ubuntu-latest
@@ -92,7 +96,7 @@ jobs:
           gh run download "$RESULTS_RUN" -R "$GITHUB_REPOSITORY" \
             -n "briefing-experiment-$EXPERIMENT_ARM" -D /tmp/daily-briefing
       - name: Generate and validate text with private LangSmith tracing
-        if: ${{ inputs.results-run-id == '' }}
+        if: ${{ inputs.results-run-id == '' || (inputs.resume-split && matrix.arm == 'split') }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
@@ -103,7 +107,12 @@ jobs:
           BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
           BRIEFING_CONFIG: ${{ inputs.config }}
           EXPERIMENT_ARM: ${{ matrix.arm }}
+          RESULTS_RUN: ${{ inputs.results-run-id }}
         run: |
+          if [ -n "$RESULTS_RUN" ]; then
+            /tmp/briefing-venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_experiment import resume_split; resume_split(Path('/tmp/daily-briefing'))"
+            exit 0
+          fi
           /tmp/briefing-venv/bin/python -m issueclaw.briefing_experiment \
             --arm "$EXPERIMENT_ARM" --source /tmp/source-briefing --out /tmp/daily-briefing \
             --config "$BRIEFING_CONFIG" --editorial .agents/AGENTS.md \
@@ -115,7 +124,20 @@ jobs:
           CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
           LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
         run: |
+          /tmp/briefing-venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_experiment import refresh_metrics; refresh_metrics(Path('/tmp/daily-briefing'))"
           /tmp/briefing-venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_experiment_trace import verify_traces; verify_traces(Path('/tmp/daily-briefing'))"
+      - name: Preserve small comparison summaries
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: briefing-experiment-summary-${{ matrix.arm }}
+          path: |
+            /tmp/daily-briefing/report.md
+            /tmp/daily-briefing/coverage.md
+            /tmp/daily-briefing/experiment-metrics.json
+            /tmp/daily-briefing/experiment-initial-attempt.json
+            /tmp/daily-briefing/langsmith-traces.json
+          retention-days: 30
       - name: Preserve reports, evidence, metrics and tool traces
         if: always()
         uses: actions/upload-artifact@v6

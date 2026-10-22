@@ -6,6 +6,7 @@ Assembly is deterministic: there is no final model rewriting everybody's prose.
 This module deliberately has no collection, video, or publication entry point.
 """
 
+import copy
 import hashlib
 import json
 import os
@@ -341,6 +342,45 @@ def validate_packet(name, packet, inventory):
         raise ValueError("queue: review selection and walkthrough text are required")
 
 
+def ingest_packet(name, packet, inventory, directory):
+    """Normalize a lossless scalar spelling, while retaining the raw agent output."""
+    normalized = copy.deepcopy(packet)
+    changes = []
+    for index, claim in enumerate(normalized.get("claims", [])):
+        unknowns = claim.get("unknowns")
+        if isinstance(unknowns, str) and unknowns.strip():
+            claim["unknowns"] = [unknowns]
+            changes.append(
+                {
+                    "path": f"claims[{index}].unknowns",
+                    "operation": "wrap nonempty string in one-item array",
+                }
+            )
+    validate_packet(name, normalized, inventory)
+    if changes:
+        directory.mkdir(parents=True, exist_ok=True)
+        write_json(
+            directory / "normalization.json",
+            {"source": "result.json", "changes": changes},
+        )
+    return normalized
+
+
+def saved_result(directory):
+    """Only reuse complete calls; partial or malformed saved stages need attention."""
+    execution = read_json(directory / "execution.json")
+    if "error" not in execution or execution["error"] is not None:
+        raise ValueError(f"Cannot resume incomplete agent: {directory.name}")
+    if not (directory / "run.log").is_file():
+        raise ValueError(
+            f"Cannot resume agent without its original log: {directory.name}"
+        )
+    result = read_json(directory / "result.json")
+    if not isinstance(result, dict):
+        raise ValueError(f"Cannot resume malformed agent result: {directory.name}")
+    return result
+
+
 def assemble(out, plan, packets):
     """Preserve each worker's prose verbatim; reconcile the private coverage ledger."""
     info = read_json(out / "window.json")
@@ -400,8 +440,12 @@ def assemble(out, plan, packets):
     )
 
 
-def generate(out: Path, prompt: Path) -> None:
-    """Run a canvas/titles-only experiment, with at most one targeted repair round."""
+def generate(out: Path, prompt: Path, resume: bool = False) -> None:
+    """Run or explicitly resume an experiment, with one targeted repair round.
+
+    Resume reuses complete saved stages only, with the identical editorial
+    contract. It never silently restarts a missing or invalid original writer.
+    """
     out = out.resolve()
     info = read_json(out / "window.json")
     if info.get("already_posted") or info.get("resume"):
@@ -415,20 +459,37 @@ def generate(out: Path, prompt: Path) -> None:
         )
     protected = evidence_fingerprint(out)
     directory = out / "split"
-    directory.mkdir(exist_ok=False)
-    (directory / "contract.md").write_text(
-        prompt.read_text(encoding="utf-8"), encoding="utf-8"
-    )
+    contract = prompt.read_text(encoding="utf-8")
+    if resume:
+        if (directory / "contract.md").read_text(encoding="utf-8") != contract:
+            raise ValueError("Cannot resume with a different editorial contract")
+    else:
+        directory.mkdir(exist_ok=False)
+        (directory / "contract.md").write_text(contract, encoding="utf-8")
     inventory = read_json(out / "inventory.json")
-    plan = run_agent(out, "curator", CURATOR, protected)
+    if resume:
+        original_plan = saved_result(directory / "curator")
+        validate_plan(original_plan, inventory)
+        plan = read_json(directory / "plan.json")
+        if (
+            plan.get("changes") != original_plan["changes"]
+            or plan.get("queue_prs") != original_plan["queue_prs"]
+        ):
+            raise ValueError("Cannot resume with changed curator assignments")
+    else:
+        plan = run_agent(out, "curator", CURATOR, protected)
     validate_plan(plan, inventory)
-    write_json(directory / "plan.json", plan)
+    if not resume:
+        write_json(directory / "plan.json", plan)
     names = [group["id"] for group in plan["changes"]] + ["queue", "ci", "learning"]
 
     def draft(name):
-        packet = run_agent(out, name, worker_instructions(name, plan, out), protected)
-        validate_packet(name, packet, inventory)
-        return name, packet
+        packet = (
+            saved_result(directory / name)
+            if resume
+            else run_agent(out, name, worker_instructions(name, plan, out), protected)
+        )
+        return name, ingest_packet(name, packet, inventory, directory / name)
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         packets = dict(pool.map(draft, names))
@@ -443,24 +504,24 @@ def generate(out: Path, prompt: Path) -> None:
         daily.slack_canvas.click.ClickException,
     ) as exc:
         validation_error = str(exc)
-    reader = run_agent(
-        out,
-        "reader",
-        (
-            f"Independently verify {out / 'report.md'} against frozen evidence and each worker's "
-            f"result.json/claims at {directory}. Read the complete report and material source records. "
-            "Check status versus deployment/adoption, reader-action clarity, exact entry points and prerequisites, "
-            "current waiting owner, CI actual coverage/recovery, lesson usefulness, daily repository coverage and "
-            "unsupported recurrence. Check reported numeric claims and primary citations. Do not rewrite prose. "
-            'Return {"issues": [{"worker": "one exact worker id or curator", "problem": "specific factual or contract issue", '
-            '"repair": "targeted change and evidence path/URL"}], "summary": "what was checked and remaining limits"}. '
-            f"Valid workers: {json.dumps(names + ['curator'])}. "
-            "Issue only actionable errors, not stylistic preferences. Group issues by worker. "
-            "A curator correction may change only invitation or coverage reason, never assignments. "
-            f"Deterministic validation reported: {validation_error or 'passed'}. "
-            "If validation failed, assign its correction to the owning worker explicitly."
-        ),
-        protected,
+    reader_instructions = (
+        f"Independently verify {out / 'report.md'} against frozen evidence and each worker's "
+        f"result.json/claims at {directory}. Read the complete report and material source records. "
+        "Check status versus deployment/adoption, reader-action clarity, exact entry points and prerequisites, "
+        "current waiting owner, CI actual coverage/recovery, lesson usefulness, daily repository coverage and "
+        "unsupported recurrence. Check reported numeric claims and primary citations. Do not rewrite prose. "
+        'Return {"issues": [{"worker": "one exact worker id or curator", "problem": "specific factual or contract issue", '
+        '"repair": "targeted change and evidence path/URL"}], "summary": "what was checked and remaining limits"}. '
+        f"Valid workers: {json.dumps(names + ['curator'])}. "
+        "Issue only actionable errors, not stylistic preferences. Group issues by worker. "
+        "A curator correction may change only invitation or coverage reason, never assignments. "
+        f"Deterministic validation reported: {validation_error or 'passed'}. "
+        "If validation failed, assign its correction to the owning worker explicitly."
+    )
+    reader = (
+        saved_result(directory / "reader")
+        if resume and (directory / "reader").exists()
+        else run_agent(out, "reader", reader_instructions, protected)
     )
     issues = reader.get("issues")
     if not isinstance(issues, list):
@@ -492,7 +553,12 @@ def generate(out: Path, prompt: Path) -> None:
             "Do not rewrite another section or recollect evidence. Targeted reader findings:\n"
             + json.dumps(repairs[name], ensure_ascii=False)
         )
-        packet = run_agent(out, name + "-repair", instructions, protected)
+        repair_dir = directory / (name + "-repair")
+        packet = (
+            saved_result(repair_dir)
+            if resume and repair_dir.exists()
+            else run_agent(out, name + "-repair", instructions, protected)
+        )
         if name == "curator":
             validate_plan(packet, inventory)
             if (
@@ -501,7 +567,7 @@ def generate(out: Path, prompt: Path) -> None:
             ):
                 raise ValueError("Reader repair must not change curator assignments")
         else:
-            validate_packet(name, packet, inventory)
+            packet = ingest_packet(name, packet, inventory, repair_dir)
         return name, packet
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:

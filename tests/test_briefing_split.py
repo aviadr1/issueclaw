@@ -297,3 +297,118 @@ def test_reader_cannot_trigger_unbounded_repair_round(tmp_path):
     with patch.object(split, "run_agent", side_effect=agent):
         with pytest.raises(RuntimeError, match="experiment budget bound"):
             split.generate(out, prompt)
+
+
+def save_stage(out, name, result):
+    directory = out / "split" / name
+    directory.mkdir(parents=True)
+    split.write_json(directory / "result.json", result)
+    split.write_json(
+        directory / "execution.json", {"elapsed_seconds": 1, "error": None}
+    )
+    (directory / "run.log").write_text('{"type":"result","total_cost_usd":0.1}\n')
+
+
+def saved_drafts(out, prompt, inventory):
+    directory = out / "split"
+    directory.mkdir()
+    (directory / "contract.md").write_text(
+        prompt.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    plan = plan_for(inventory)
+    split.write_json(directory / "plan.json", plan)
+    save_stage(out, "curator", plan)
+    for name in [r["id"] for r in plan["changes"]] + ["queue", "ci", "learning"]:
+        packet = packet_for(name)
+        if name == "change-1":
+            packet["claims"] = [
+                {
+                    "claim": "Older writes are rejected",
+                    "evidence": ["https://github.com/org/service/pull/1"],
+                    "status": "merged",
+                    "reader_action": "technique",
+                    "scope": "Writes with comparable versions",
+                    "unknowns": "Production rollout is not verified.",
+                }
+            ]
+        save_stage(out, name, packet)
+
+
+def test_resume_reuses_complete_drafts_and_normalizes_without_rewriting_raw_output(
+    tmp_path,
+):
+    out, prompt, inventory = prepared(tmp_path)
+    protected = split.evidence_fingerprint(out)
+    saved_drafts(out, prompt, inventory)
+    original_files = {
+        p: p.read_bytes() for p in (out / "split").rglob("*") if p.is_file()
+    }
+
+    def reader(out, name, instructions, protected):
+        assert name == "reader"
+        return {"issues": [], "summary": "Verified material claims and limits."}
+
+    with patch.object(split, "run_agent", side_effect=reader) as runner:
+        split.generate(out, prompt, resume=True)
+    runner.assert_called_once()
+    assert packet_for("change-1")["markdown"] in (out / "report.md").read_text(
+        encoding="utf-8"
+    )
+    assert all(p.read_bytes() == content for p, content in original_files.items())
+    claims = split.read_json(out / "split/claims.json")
+    assert claims["change-1"][0]["unknowns"] == ["Production rollout is not verified."]
+    assert (
+        split.read_json(out / "split/change-1/normalization.json")["changes"][0]["path"]
+        == "claims[0].unknowns"
+    )
+    split.assert_unchanged(protected)
+    split.daily.validate_output(out)
+
+
+def test_resume_does_not_repeat_existing_reader_or_repair(tmp_path):
+    out, prompt, inventory = prepared(tmp_path)
+    saved_drafts(out, prompt, inventory)
+    save_stage(
+        out,
+        "reader",
+        {
+            "issues": [
+                {
+                    "worker": "ci",
+                    "problem": "Missing gate evidence",
+                    "repair": "State the verification action.",
+                }
+            ],
+            "summary": "One targeted correction.",
+        },
+    )
+    packet = packet_for("ci")
+    packet["markdown"] = (
+        "### CI status unverified — restore required gate access\n\nRequired evidence is missing."
+    )
+    save_stage(out, "ci-repair", packet)
+    with patch.object(split, "run_agent") as runner:
+        split.generate(out, prompt, resume=True)
+    runner.assert_not_called()
+    assert packet["markdown"] in (out / "report.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("failure", ["contract", "missing", "invalid", "incomplete"])
+def test_resume_rejects_changed_contract_or_unusable_saved_stage(tmp_path, failure):
+    out, prompt, inventory = prepared(tmp_path)
+    saved_drafts(out, prompt, inventory)
+    directory = out / "split/change-1"
+    if failure == "contract":
+        prompt.write_text("Different editorial rules.")
+    elif failure == "missing":
+        (directory / "result.json").unlink()
+    elif failure == "invalid":
+        packet = split.read_json(directory / "result.json")
+        packet["claims"][0]["unknowns"] = ""
+        split.write_json(directory / "result.json", packet)
+    else:
+        split.write_json(directory / "execution.json", {"error": "Timed out"})
+    with patch.object(split, "run_agent") as runner:
+        with pytest.raises((ValueError, FileNotFoundError)):
+            split.generate(out, prompt, resume=True)
+    runner.assert_not_called()

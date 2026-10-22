@@ -60,6 +60,9 @@ def test_prepare_discards_prior_reports_media_and_uses_same_editorial_config(tmp
 
 
 def test_costs_use_final_results_once_and_keep_missing_unknown(tmp_path):
+    (tmp_path / "revision-1.tracing.log").write_text(
+        "plugin diagnostic, not a model invocation"
+    )
     (tmp_path / "generation.log").write_text(
         'not json\n{"type":"assistant","total_cost_usd":99}\n'
         '{"type":"result","total_cost_usd":1.25,"usage":{"output_tokens":10}}\n'
