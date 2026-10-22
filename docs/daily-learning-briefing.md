@@ -51,6 +51,9 @@ the default. Set `canvas_inventory: "merged"` to append only the window's merged
 PRs. Open/draft work is curated in the narrative (at most eight linked PRs), with
 named involvement and concrete next decisions; the full open/draft and ticket
 inventories remain private evidence artifacts and still require complete audits.
+Set `canvas_inventory: "none"` to omit both inventory appendices while preserving
+the full source inventories and coverage audits in artifacts. The same eight-PR
+open/draft curation limit applies.
 The generator uses Claude Sonnet 5.5 (`claude-sonnet-5-5`) for drafting and revisions;
 both reporting and video research use an Opus 5.5 advisor and Haiku subagents.
 Video research uses Sonnet 5.5 at high effort (see below).
@@ -64,7 +67,22 @@ next actions/work, or repositories and observed check statuses. Learning titles
 describe the practical action or capability without a fixed slogan. Inventory appendices and headings inside
 code examples are excluded. Bullets are assembled from the report rather than
 rewritten by the model; their total is bounded by Slack message size rather than
-the paragraph word cap. The previous successful invitation is checkpointed, and
+the paragraph word cap. Alternatively, set `slack_summary_format: "actions"` for
+**Needs attention** followed by **For awareness**, with an extra blank line between
+the sections and the confirmed Canvas link at the bottom. The generator writes
+`slack-summary.json` with `needs_attention` (0–8) and `for_awareness` (0–3) arrays of
+single-line Markdown bullet bodies. The rendered summary is limited to 300 words;
+empty arrays produce explicit quiet-day messages. Reviews and CI retain direct
+source links and next actions; awareness is curated rather than a contents list.
+No learning rules or review-video teasers are appended to this initial message;
+the existing follow-up learning/video post remains separate. Canvas Learning and
+review walkthroughs remain intact, including lesson replacement and video embeds.
+The actions-mode Canvas starts with a TLDR and Needs attention, then What changed,
+In progress, a separate Review walkthrough when available, and short Learning
+topics (roughly 100–150 words each). Keep the detailed narrative and the caller's
+status/adoption guidance; this is not a second Slack-sized summary.
+
+In titles mode, the previous successful invitation is checkpointed, and
 repeating it blocks validation for a focused revision. Pending artifacts retain
 their original message and invitation. Keep company
 configuration in the caller. Pin both the reusable workflow and `tooling-ref` to
