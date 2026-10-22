@@ -514,6 +514,21 @@ sessions finish. `research.trace.json` and `agent.trace.json` retain the session
 IDs. Metadata includes CI run/attempt, repository, commit, lesson and phase.
 System prompts and unavailable/redacted advisor internals are not recoverable.
 
+Text generation and each repair also get separate sessions under `text-traces/`.
+Their stable `*.trace.json` receipts survive plugin state cleanup. When tracing
+is configured, the workflow queries the private project for each session's root
+and saves `text-traces/langsmith-traces.json`; receipt creation alone does not
+prove ingestion. Production verification is best effort and does not block delivery.
+Tracing state is excluded from evidence immutability checks and transient
+`langsmith_queue` files are excluded from artifact uploads.
+
+`generation-metrics.json` records one final Claude CLI result per generation or
+repair log, including CLI-managed helpers/advisor. These are CLI estimates, not
+invoices. Missing or invalid costs make the total unknown; the known subtotal
+remains available. Failed calls also retain metrics. Totals cover the logs in
+this artifact, not overwritten calls from earlier workflow attempts, runner
+time, or implementation work.
+
 The plugin is pinned to 0.4.2: a real workspace-scoped smoke test succeeded there;
 0.5.3 dropped the workspace when uploading with an org-scoped key (HTTP 403).
 Verify ingestion, not only hook exit status, when updating this pin. Tracing

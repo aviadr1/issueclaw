@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import yaml
 
 from issueclaw import briefing_media, briefing_pr_videos
+from issueclaw.briefing_generation_trace import claude_tracing, cost_metrics
 from issueclaw.briefing_config import load_config, prepared_config
 from issueclaw.ci_evidence import collect_default_branch_ci
 from issueclaw import briefing_trace as trace
@@ -1261,6 +1262,7 @@ def generate(out, prompt, revision_notes=""):
         for p in list(out.rglob("*.json"))
         + list((out / "messages").glob("*-inventory.md"))
         if not (p.parent == out and p.name.endswith(".request.json"))
+        and not p.is_relative_to(out / "text-traces")
         and p
         not in {
             out / "coverage.json",
@@ -1268,6 +1270,7 @@ def generate(out, prompt, revision_notes=""):
             out / "selection-audit.json",
             out / "review-selection.json",
             out / "slack-summary.json",
+            out / "generation-metrics.json",
         }
     }
 
@@ -1280,26 +1283,33 @@ def generate(out, prompt, revision_notes=""):
             "claude-opus-5-5",
             "haiku",
         )
-        with (out / log_name).open("w") as log:
-            subprocess.run(
-                [
-                    "claude",
-                    "-p",
-                    text,
-                    "--dangerously-skip-permissions",
-                    "--model",
-                    "claude-sonnet-5-5",
-                    "--advisor",
-                    "claude-opus-5-5",
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                ],
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                env=dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
-                check=True,
-            )
+        try:
+            with (out / log_name).open("w", encoding="utf-8") as log:
+                tracing_args, agent_env = claude_tracing(
+                    out / "text-traces", log_name.removesuffix(".log")
+                )
+                subprocess.run(
+                    [
+                        "claude",
+                        "-p",
+                        text,
+                        "--dangerously-skip-permissions",
+                        "--model",
+                        "claude-sonnet-5-5",
+                        "--advisor",
+                        "claude-opus-5-5",
+                        "--output-format",
+                        "stream-json",
+                        "--verbose",
+                    ]
+                    + tracing_args,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    env=dict(agent_env, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
+                    check=True,
+                )
+        finally:
+            write_json(out / "generation-metrics.json", cost_metrics(out))
         if any(
             not p.exists() or hashlib.sha256(p.read_bytes()).hexdigest() != digest
             for p, digest in protected.items()

@@ -188,9 +188,22 @@ jobs:
           if config.exists():
               (out / f'config-{attempt}.json').write_text(config.read_text())
           PY
+      - name: Check out Claude session tracing
+        continue-on-error: true
+        uses: actions/checkout@v6
+        with:
+          repository: langchain-ai/langsmith-claude-code-plugins
+          # 0.4.2 supports org-scoped keys; 0.5.3 loses the workspace on upload.
+          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
+          path: .briefing-tracing
+          persist-credentials: false
       - name: Write and revise learning briefing
         env:
           BRIEFING_REVISION_NOTES: ${{ inputs.revision-notes }}
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+          LEARNING_TRACE_PLUGIN: ${{ github.workspace }}/.briefing-tracing
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BRIEFING_CONFIG: ${{ inputs.config }}
         run: |
@@ -198,6 +211,17 @@ jobs:
             --config "$BRIEFING_CONFIG" --out /tmp/daily-briefing \
             --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md \
             --revision-notes "$BRIEFING_REVISION_NOTES"
+      - name: Verify text traces when configured
+        if: always()
+        continue-on-error: true
+        env:
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+        run: |
+          if [ -n "$CC_LANGSMITH_API_KEY" ] && [ -d /tmp/daily-briefing/text-traces ]; then
+            /tmp/briefing-venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_generation_trace import verify_traces; verify_traces(Path('/tmp/daily-briefing/text-traces'))"
+          fi
       - name: Preserve selection and model trace before rendering
         if: always()
         uses: actions/upload-artifact@v6
@@ -209,6 +233,8 @@ jobs:
             /tmp/daily-briefing/generation*
             /tmp/daily-briefing/revision*
             /tmp/daily-briefing/runner-*.json
+            /tmp/daily-briefing/text-traces/
+            !/tmp/daily-briefing/**/langsmith_queue/**
           retention-days: 90
           if-no-files-found: warn
       - name: Check out the learning video kit
@@ -220,15 +246,6 @@ jobs:
           ref: ${{ inputs.learning-videos-ref }}
           path: .learning-videos
           token: ${{ secrets.VIDEOS_READ_TOKEN || secrets.REPOS_READ_TOKEN }}
-          persist-credentials: false
-      - name: Check out Claude session tracing
-        continue-on-error: true
-        uses: actions/checkout@v6
-        with:
-          repository: langchain-ai/langsmith-claude-code-plugins
-          # 0.4.2 supports org-scoped keys; 0.5.3 loses the workspace on upload.
-          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
-          path: .briefing-tracing
           persist-credentials: false
       - name: Prepare live progress snapshots
         if: ${{ inputs.learning-videos-repository != '' && inputs.learning-videos-ref != '' }}
