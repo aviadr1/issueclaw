@@ -66,14 +66,18 @@ def verify_traces(out: Path):
     if os.environ.get("LANGSMITH_WORKSPACE_ID"):
         headers["x-tenant-id"] = os.environ["LANGSMITH_WORKSPACE_ID"]
 
-    def get(path):
-        request = urllib.request.Request(endpoint + path, headers=headers)
+    def request_json(path, body=None):
+        request = urllib.request.Request(
+            endpoint + path,
+            headers={**headers, "Content-Type": "application/json"},
+            data=json.dumps(body).encode() if body is not None else None,
+        )
         with urllib.request.urlopen(request, timeout=15) as response:
             return json.load(response)
 
     project = None
     try:
-        projects = get(
+        projects = request_json(
             "/sessions?"
             + urllib.parse.urlencode({"name": os.environ["CC_LANGSMITH_PROJECT"]})
         )
@@ -87,9 +91,6 @@ def verify_traces(out: Path):
         receipt = json.loads(path.read_text())
         if "session_id" not in receipt:
             continue
-        state_path = path.with_name(
-            path.name.replace(".trace.json", ".tracing-state.json")
-        )
         row = {
             **receipt,
             "receipt": path.relative_to(out).as_posix(),
@@ -97,12 +98,22 @@ def verify_traces(out: Path):
         }
         for attempt in range(4):
             try:
-                state = json.loads(state_path.read_text())
-                root = state[receipt["session_id"]]["current_trace_id"]
-                remote = get("/runs/" + root)
+                if not project:
+                    raise RuntimeError("Tracing project lookup failed")
+                # SessionEnd clears transient plugin state. Query the stable
+                # thread metadata, which the plugin puts on every remote run.
+                query = {
+                    "session": [project["id"]],
+                    "filter": f'and(eq(metadata_key, "thread_id"), eq(metadata_value, {json.dumps(receipt["session_id"])}))',
+                    "is_root": True,
+                    "limit": 1,
+                    "select": ["id", "trace_id", "run_type"],
+                }
+                remote = request_json("/runs/query", query)["runs"][0]
+                root = remote["id"]
                 row.update(
                     run_id=root,
-                    verified_remote=remote.get("id") == root,
+                    verified_remote=True,
                     run_type=remote.get("run_type"),
                     trace_id=remote.get("trace_id"),
                 )

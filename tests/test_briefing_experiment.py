@@ -1,4 +1,5 @@
 import json
+import io
 from unittest.mock import patch
 
 import pytest
@@ -98,3 +99,36 @@ def test_tracing_sessions_and_state_are_isolated_and_receipt_has_no_key(tmp_path
     receipt = (tmp_path / "ci/ci.trace.json").read_text()
     assert "secret-key" not in receipt
     assert json.loads(receipt)["metadata"]["stage"] == "ci"
+
+
+def test_verify_trace_queries_remote_after_plugin_clears_its_state(tmp_path):
+    experiment.write_json(tmp_path / "ci.trace.json", {"session_id": "stable-session"})
+    experiment.write_json(
+        tmp_path / "ci.tracing-state.json", {"stable-session": {"turn_count": 1}}
+    )
+    observed = []
+
+    def respond(request, **kwargs):
+        observed.append(request)
+        if request.full_url.endswith("/runs/query"):
+            payload = json.loads(request.data)
+            assert payload["is_root"] is True
+            assert "stable-session" in payload["filter"]
+            return io.StringIO(
+                json.dumps(
+                    {"runs": [{"id": "run1", "trace_id": "run1", "run_type": "chain"}]}
+                )
+            )
+        return io.StringIO(json.dumps([{"id": "project1", "tenant_id": "workspace1"}]))
+
+    with patch.dict(
+        tracing.os.environ,
+        {"CC_LANGSMITH_API_KEY": "secret", "CC_LANGSMITH_PROJECT": "experiment"},
+        clear=True,
+    ):
+        with patch.object(tracing.urllib.request, "urlopen", side_effect=respond):
+            tracing.verify_traces(tmp_path)
+    rows = json.loads((tmp_path / "langsmith-traces.json").read_text())
+    assert rows[0]["verified_remote"]
+    assert rows[0]["url"].endswith("/t/stable-session")
+    assert len(observed) == 2

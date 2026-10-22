@@ -12,6 +12,10 @@ on:
       evidence-run-id:
         type: string
         required: true
+      results-run-id:
+        description: 'Optional existing comparison to verify traces without spending model tokens again'
+        type: string
+        default: ''
       generation-runner:
         type: string
         default: ubuntu-latest
@@ -71,13 +75,24 @@ jobs:
           npm install -g @anthropic-ai/claude-code
           claude --version
       - name: Download the same frozen evidence for both arms
+        if: ${{ inputs.results-run-id == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
         run: |
           gh run download "$EVIDENCE_RUN" -R "$GITHUB_REPOSITORY" \
             -n daily-learning-briefing -D /tmp/source-briefing
+      - name: Reuse generated outputs for trace verification only
+        if: ${{ inputs.results-run-id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS_RUN: ${{ inputs.results-run-id }}
+          EXPERIMENT_ARM: ${{ matrix.arm }}
+        run: |
+          gh run download "$RESULTS_RUN" -R "$GITHUB_REPOSITORY" \
+            -n "briefing-experiment-$EXPERIMENT_ARM" -D /tmp/daily-briefing
       - name: Generate and validate text with private LangSmith tracing
+        if: ${{ inputs.results-run-id == '' }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
