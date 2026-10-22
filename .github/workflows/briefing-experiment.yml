@@ -147,7 +147,11 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: briefing-experiment-${{ matrix.arm }}
-          path: /tmp/daily-briefing/
+          # The tracing plugin removes queue/lock files asynchronously. Archive
+          # durable logs/manifests, not a live spool that can vanish while zipped.
+          path: |
+            /tmp/daily-briefing/
+            !/tmp/daily-briefing/**/langsmith_queue/**
           retention-days: 30
           if-no-files-found: error
       - name: Summarize experiment arm
