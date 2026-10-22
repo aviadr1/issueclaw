@@ -681,6 +681,56 @@ def test_generation_stops_after_two_failed_revisions(monkeypatch, tmp_path):
     assert len(calls) == 2
 
 
+def test_text_generation_passes_tracing_and_keeps_cost_receipts(monkeypatch, tmp_path):
+    import json
+
+    prompt = prepared_draft(tmp_path)
+    traces = tmp_path / "text-traces"
+    traces.mkdir()
+    (traces / "revision-1.trace.json").write_text("{}")
+    (tmp_path / "generation-metrics.json").write_text("{}")
+
+    def tracing(directory, name):
+        assert directory == traces
+        assert name == "revision-1"
+        (traces / "revision-1.trace.json").write_text('{"session_id":"new"}')
+        return ["--session-id", "new"], {"TRACE_TEST": "enabled"}
+
+    def claude(args, **kwargs):
+        assert args[-2:] == ["--session-id", "new"]
+        assert kwargs["env"]["TRACE_TEST"] == "enabled"
+        kwargs["stdout"].write('{"type":"result","total_cost_usd":0.5}\n')
+        (tmp_path / "messages/01-toplevel.md").write_text("No new work.")
+
+    monkeypatch.setattr(daily, "claude_tracing", tracing)
+    monkeypatch.setattr(daily.subprocess, "run", claude)
+    daily.generate(tmp_path, prompt)
+    assert (
+        json.loads((tmp_path / "generation-metrics.json").read_text())[
+            "reported_cost_usd"
+        ]
+        == 0.5
+    )
+
+
+def test_failed_text_call_keeps_unknown_cost(monkeypatch, tmp_path):
+    import json
+    import subprocess
+
+    prompt = prepared_draft(tmp_path)
+
+    def failed(*args, **kwargs):
+        kwargs["stdout"].write("partial stream\n")
+        raise subprocess.CalledProcessError(1, "claude")
+
+    monkeypatch.setattr(daily.subprocess, "run", failed)
+    with pytest.raises(subprocess.CalledProcessError):
+        daily.generate(tmp_path, prompt)
+    metrics = json.loads((tmp_path / "generation-metrics.json").read_text())
+    assert metrics["reported_cost_usd"] is None
+    assert metrics["invocations"][0]["has_terminal_result"] is False
+
+
 def test_generation_never_rewrites_pending_artifact(monkeypatch, tmp_path):
     prompt = prepared_draft(tmp_path)
     (tmp_path / "window.json").write_text('{"resume": true}')
