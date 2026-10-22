@@ -1,0 +1,127 @@
+name: Unpublished text briefing comparison
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        required: true
+      tooling-ref:
+        type: string
+        required: true
+      evidence-run-id:
+        type: string
+        required: true
+      generation-runner:
+        type: string
+        default: ubuntu-latest
+      langsmith-project:
+        type: string
+        default: briefing-architecture-experiment
+      langsmith-workspace-id:
+        type: string
+        default: ''
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+      LANGSMITH_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compare:
+    name: Text briefing — ${{ matrix.arm }}
+    runs-on: ${{ inputs.generation-runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [baseline, split]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          path: .briefing-tools
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: langchain-ai/langsmith-claude-code-plugins
+          # Same plugin as production; this revision preserves org workspace IDs.
+          ref: c9905a91bf413fb02f8c0515ed38d813c5458eb7
+          path: .briefing-tracing
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install text generation tools
+        run: |
+          uv venv /tmp/briefing-venv
+          uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
+          npm install -g @anthropic-ai/claude-code
+          claude --version
+      - name: Download the same frozen evidence for both arms
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
+        run: |
+          gh run download "$EVIDENCE_RUN" -R "$GITHUB_REPOSITORY" \
+            -n daily-learning-briefing -D /tmp/source-briefing
+      - name: Generate and validate text with private LangSmith tracing
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+          LEARNING_TRACE_PLUGIN: ${{ github.workspace }}/.briefing-tracing
+          BRIEFING_REQUIRE_TRACE: '1'
+          BRIEFING_EVIDENCE_RUN: ${{ inputs.evidence-run-id }}
+          BRIEFING_CONFIG: ${{ inputs.config }}
+          EXPERIMENT_ARM: ${{ matrix.arm }}
+        run: |
+          /tmp/briefing-venv/bin/python -m issueclaw.briefing_experiment \
+            --arm "$EXPERIMENT_ARM" --source /tmp/source-briefing --out /tmp/daily-briefing \
+            --config "$BRIEFING_CONFIG" --editorial .agents/AGENTS.md \
+            --prompt .briefing-tools/src/issueclaw/prompts/daily-learning-briefing.md
+      - name: Verify LangSmith received the agent traces
+        if: always()
+        env:
+          CC_LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          CC_LANGSMITH_PROJECT: ${{ inputs.langsmith-project }}
+          LANGSMITH_WORKSPACE_ID: ${{ inputs.langsmith-workspace-id }}
+        run: |
+          /tmp/briefing-venv/bin/python -c "from pathlib import Path; from issueclaw.briefing_experiment_trace import verify_traces; verify_traces(Path('/tmp/daily-briefing'))"
+      - name: Preserve reports, evidence, metrics and tool traces
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: briefing-experiment-${{ matrix.arm }}
+          path: /tmp/daily-briefing/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Summarize experiment arm
+        if: always()
+        env:
+          EXPERIMENT_ARM: ${{ matrix.arm }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('/tmp/daily-briefing/experiment-metrics.json')
+          data = json.loads(path.read_text()) if path.exists() else {'status': 'setup failed'}
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(f"## {os.environ['EXPERIMENT_ARM']}\n\n")
+              for key in ('status', 'generation_seconds', 'reported_cost_usd', 'cost_complete', 'evidence_unchanged', 'input_sha256'):
+                  summary.write(f"- {key}: {data.get(key, 'unavailable')}\n")
+              summary.write('\nText-only experiment. No video, Slack, PR-comment, or media-publication step exists.\n')
+          PY

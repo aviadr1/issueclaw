@@ -22,6 +22,7 @@ import yaml
 
 from issueclaw import briefing_media, briefing_pr_videos
 from issueclaw.briefing_config import load_config, prepared_config
+from issueclaw.briefing_experiment_trace import claude_tracing
 from issueclaw.ci_evidence import collect_default_branch_ci
 from issueclaw import briefing_trace as trace
 from issueclaw import learning_videos as lessons
@@ -1218,6 +1219,7 @@ def generate(out, prompt, revision_notes=""):
             "haiku",
         )
         with (out / log_name).open("w") as log:
+            tracing_args, agent_env = claude_tracing(out, log_name.removesuffix(".log"))
             subprocess.run(
                 [
                     "claude",
@@ -1231,10 +1233,10 @@ def generate(out, prompt, revision_notes=""):
                     "--output-format",
                     "stream-json",
                     "--verbose",
-                ],
+                ] + tracing_args,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                env=dict(os.environ, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
+                env=dict(agent_env, CLAUDE_CODE_SUBAGENT_MODEL="haiku"),
                 check=True,
             )
         if any(
