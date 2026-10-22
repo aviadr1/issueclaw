@@ -268,6 +268,13 @@ caller opts in by passing `learning-videos-repository` and a reviewed
 `learning-videos-ref` to the reusable workflow, plus `learning_videos.max` (default 1) in its config. Optional
 `learning_videos.instructions` holds the caller's own guidance for the lesson and
 its video (style, sound, tone); it is appended to the agent's prompt.
+For readable line-level diffs, use `learning_videos.instructions_file` instead,
+for example `"instructions_file": "prompts/learning-video.md"`. The UTF-8 file is
+resolved relative to the JSON file declaring it (including a shared defaults file).
+Its text is loaded verbatim, without trimming, newline conversion or templating.
+Declare only one of `instructions` and `instructions_file` in each config; a team's
+inline or file-based value overrides the shared default. Resolved configuration
+snapshots contain the text, so frozen-evidence recovery needs no original prompt file.
 The kit is a repository following promo-videos' `src/learnings/AGENT.md`, such
 as `aviadr1/promo-videos`. `REPOS_READ_TOKEN` must read it, or the caller supplies
 `VIDEOS_READ_TOKEN`.
