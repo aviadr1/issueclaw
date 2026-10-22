@@ -12,6 +12,10 @@ on:
       evidence-run-id:
         type: string
         required: true
+      single-writer:
+        description: 'Run only the existing writer with the current editorial instructions'
+        type: boolean
+        default: false
       results-run-id:
         description: 'Optional existing comparison to verify traces without spending model tokens again'
         type: string
@@ -47,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arm: [baseline, split]
+        arm: ${{ fromJSON(inputs.single-writer && '["baseline"]' || '["baseline","split"]') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -78,7 +82,7 @@ jobs:
           uv pip install --python /tmp/briefing-venv/bin/python ./.briefing-tools
           npm install -g @anthropic-ai/claude-code
           claude --version
-      - name: Download the same frozen evidence for both arms
+      - name: Download frozen evidence
         if: ${{ inputs.results-run-id == '' }}
         env:
           GH_TOKEN: ${{ github.token }}

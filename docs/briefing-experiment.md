@@ -10,6 +10,13 @@ source evidence and inventory messages; earlier reports, lessons and videos are
 excluded. Input file hashes and editorial/prompt hashes make differences visible.
 The experiment preserves the optional review walkthrough as text.
 
+Set `single-writer: true` to run only the baseline writer with updated caller
+instructions. This starts fresh from evidence, with no split writers or independent
+reader stage. The existing writer can still use its normal extraction helpers,
+advisor and validator repairs. Tracing, metrics and publication restrictions are
+identical. Use the same evidence run when comparing instruction revisions; record
+the changed editorial hash and do not attribute those results to architecture.
+
 ```
 baseline: frozen evidence -> current writer/helpers/advisor -> validate/repair
 split:    frozen evidence -> curator -> capability writers (up to four)
