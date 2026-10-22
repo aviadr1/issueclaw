@@ -21,4 +21,4 @@ jobs:
       - name: Check toolchain and generic tests on Python 3.14
         run: |
           docker run --rm ci-repair:test bash -lc 'python --version; claude --version; gh --version; node --version; bun --version; uv --version'
-          docker run --rm -v "$PWD/tests:/tests:ro" ci-repair:test bash -lc 'pip install pytest && pytest -q /tests/test_ci_repair.py'
+          docker run --rm -v "$PWD:/repo:ro" -w /repo ci-repair:test bash -lc 'pip install pytest && pytest -o addopts= -q tests/test_ci_repair.py'

@@ -9,6 +9,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -127,10 +128,29 @@ def incident_key(repository, run, jobs):
     return hashlib.sha256(json.dumps(value).encode()).hexdigest()[:20]
 
 
+def run_history(repository, branches, days):
+    found = {}
+    end = datetime.now(timezone.utc)
+    for _ in range(days):
+        start = end - timedelta(days=1)
+        window = quote(
+            start.strftime("%Y-%m-%dT%H:%M:%SZ")
+            + ".."
+            + end.strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+        for branch in branches:
+            rows = pages(
+                f"repos/{repository}/actions/runs?branch={quote(branch, safe='')}&created={window}&per_page=100",
+                "workflow_runs",
+            )
+            if len(rows) >= 1000:
+                raise ValueError(f"Run search truncated for {branch} in {window}")
+            found.update({row["id"]: row for row in rows})
+        end = start
+    return sorted(found.values(), key=lambda r: r["created_at"], reverse=True)
+
+
 def discover(config, state, run_url, dry_run=False):
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=config.get("lookback_days", 7))
-    ).isoformat()
     cohort, errors, observed = [], [], []
     for repository in config["repositories"]:
         try:
@@ -140,17 +160,16 @@ def discover(config, state, run_url, dry_run=False):
             policy = config["repositories"][repository]
             policy_path = policy.get("policy_path")
             if policy_path:
-                source = api(f"repos/{repository}/contents/{policy_path}?ref={head}")
-                policy = json.loads(base64.b64decode(source["content"]))
-            runs = pages(
-                f"repos/{repository}/actions/runs?created=%3E%3D{quote(cutoff)}&per_page=100",
-                "workflow_runs",
-            )
-            # Explicitly reject API's 1000-result search truncation.
-            if len(runs) >= 1000:
-                raise ValueError(
-                    "Run search hit 1000 entries; narrow the discovery window"
+                policy_ref = policy.get("preview_policy_ref", head) if dry_run else head
+                source = api(
+                    f"repos/{repository}/contents/{policy_path}?ref={policy_ref}"
                 )
+                policy = json.loads(base64.b64decode(source["content"]))
+            runs = run_history(
+                repository,
+                policy.get("branches", [branch]),
+                config.get("lookback_days", 7),
+            )
             seen = set()
             for run in runs:
                 if run.get("head_branch") not in policy.get(
@@ -170,6 +189,14 @@ def discover(config, state, run_url, dry_run=False):
                     continue
                 seen.add(key)
                 old = state["incidents"].get(key, {})
+                target_branch = run["head_branch"]
+                target_head = (
+                    head
+                    if target_branch == branch
+                    else api(
+                        f"repos/{repository}/commits/{quote(target_branch, safe='')}"
+                    )["sha"]
+                )
                 # Keep unresolved incidents across moving default heads and scan windows.
                 # Repeated discovery of the same attempt never launches duplicate work.
                 source = f"{run['id']}:{run['run_attempt']}"
@@ -180,12 +207,20 @@ def discover(config, state, run_url, dry_run=False):
                     "source": run,
                     "jobs": jobs,
                     "source_attempt": source,
-                    "base_branch": branch,
-                    "base_sha": head,
+                    "base_branch": target_branch,
+                    "base_sha": target_head,
                     "policy": policy,
                     "policy_sha": head,
                     "observed_at": now(),
                     "owner": key,
+                    "publication_access": metadata.get("permissions", {}).get("push"),
+                    "later_runs": [
+                        r
+                        for r in runs
+                        if r["path"] == run["path"]
+                        and r["created_at"] > run["created_at"]
+                        and r.get("head_branch") == target_branch
+                    ][:20],
                 }
                 if old.get("source_attempt") != source:
                     item["status"] = "discovered"
@@ -510,6 +545,15 @@ def verify(receipt, config):
     if receipt["status"] != "verification_pending":
         return receipt
     policy = receipt["policy"].get("verification", {}).get(receipt["source"]["path"])
+    if policy and "cases" in policy:
+        matches = [
+            case
+            for case in policy["cases"]
+            if re.fullmatch(
+                case["source_title"], receipt["source"].get("display_title", "")
+            )
+        ]
+        policy = matches[0] if len(matches) == 1 else None
     if not policy or receipt.get("workflow_changed"):
         receipt["next_action"] = (
             "Candidate-specific validation requires review; inspect/continue the session."
@@ -621,6 +665,10 @@ def briefing_snapshot(repository, repos):
                     "local_uri": f"issueclaw-ci://resume/{repository}/{attempt}/{artifact['id']}",
                     "cloud_uri": f"issueclaw-ci://cloud/{repository}/{attempt}/{artifact['id']}",
                 }
+                if state.get("handoff_base_url"):
+                    item["checkpoint"]["handoff_url"] = (
+                        f"{state['handoff_base_url']}#{repository}/{attempt}/{artifact['id']}"
+                    )
             if item["status"] == "assigned" and run["status"] == "completed":
                 item["status"] = "needs_attention"
                 item["next_action"] = (
@@ -697,6 +745,8 @@ def main():
         for path in args.root.rglob("receipt.json"):
             item = json.loads(path.read_text())
             state["incidents"][item["id"]] = item
+        for path in args.root.rglob("handoff-site.json"):
+            state["handoff_base_url"] = json.loads(path.read_text())["url"]
         save_state(repository, state, sha)
 
 

@@ -14,6 +14,18 @@ on:
       langsmith-workspace-id:
         type: string
         required: true
+      handoff-role-arn:
+        type: string
+        default: ''
+      handoff-bucket:
+        type: string
+        default: ''
+      handoff-key:
+        type: string
+        default: ''
+      handoff-public-base:
+        type: string
+        default: ''
     secrets:
       REPOS_READ_TOKEN:
         required: true
@@ -27,8 +39,48 @@ permissions:
   actions: read
 
 jobs:
+  handoff:
+    if: inputs.dry-run == false && inputs.handoff-role-arn != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: aviadr1/issueclaw
+          ref: ${{ inputs.tooling-ref }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: pip install .
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.handoff-role-arn }}
+          aws-region: us-east-1
+      - name: Publish only the static launcher page, never session contents
+        env:
+          HANDOFF_BUCKET: ${{ inputs.handoff-bucket }}
+          HANDOFF_KEY: ${{ inputs.handoff-key }}
+          HANDOFF_BASE: ${{ inputs.handoff-public-base }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from issueclaw.s3_hosting import put
+          url = put(Path('src/issueclaw/ci-handoff.html'), os.environ['HANDOFF_BUCKET'], os.environ['HANDOFF_KEY'], os.environ['HANDOFF_BASE'])
+          Path('/tmp/handoff-site.json').write_text(json.dumps({'url': url}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repair-handoff-receipt
+          path: /tmp/handoff-site.json
+          retention-days: 30
+
   image:
-    if: inputs.dry-run == false
+    needs: discover
+    if: inputs.dry-run == false && needs.discover.outputs.count != '0'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -120,7 +172,7 @@ jobs:
     secrets: inherit
 
   receipts:
-    needs: [discover, repair]
+    needs: [discover, repair, handoff]
     if: always() && inputs.dry-run == false && needs.discover.result == 'success'
     runs-on: ubuntu-latest
     permissions:
