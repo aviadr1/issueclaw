@@ -44,6 +44,97 @@ def test_standalone_config_needs_no_defaults_file(tmp_path):
     assert briefing_config.load_config(path) == config
 
 
+def test_instructions_file_preserves_text_and_freezes_it_for_recovery(tmp_path):
+    text = "First line.\r\nSecond line.\n\nUnicode: café.  "
+    prompt = tmp_path / "lesson.md"
+    prompt.write_bytes(text.encode("utf-8"))
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "channel": "C123",
+                "learning_videos": {"instructions_file": "lesson.md", "max": 1},
+            }
+        )
+    )
+    resolved = briefing_config.load_config(path)
+    assert resolved["learning_videos"] == {"instructions": text, "max": 1}
+    (tmp_path / "briefing-config.json").write_text(json.dumps(resolved))
+    prompt.unlink()
+    assert briefing_config.prepared_config({"channel": "C123"}, tmp_path) == resolved
+
+
+@pytest.mark.parametrize("override", ["none", "inline", "file"])
+def test_instructions_resolve_from_the_declaring_config(
+    tmp_path, monkeypatch, override
+):
+    shared = tmp_path / "shared"
+    team = tmp_path / "team"
+    shared.mkdir()
+    team.mkdir()
+    (shared / "lesson.md").write_text("Shared guidance", encoding="utf-8")
+    (team / "lesson.md").write_text("Team guidance", encoding="utf-8")
+    (shared / "defaults.json").write_text(
+        json.dumps({"learning_videos": {"instructions_file": "lesson.md", "max": 1}})
+    )
+    videos: dict = {"review": True}
+    if override == "inline":
+        videos["instructions"] = "Inline guidance"
+    elif override == "file":
+        videos["instructions_file"] = "lesson.md"
+    path = team / "config.json"
+    path.write_text(
+        json.dumps({"defaults": "../shared/defaults.json", "learning_videos": videos})
+    )
+    monkeypatch.chdir(tmp_path.parent)
+    assert briefing_config.load_config(path)["learning_videos"] == {
+        "instructions": {
+            "none": "Shared guidance",
+            "inline": "Inline guidance",
+            "file": "Team guidance",
+        }[override],
+        "max": 1,
+        "review": True,
+    }
+
+
+def test_instructions_file_overrides_inline_defaults(tmp_path):
+    (tmp_path / "defaults.json").write_text(
+        '{"learning_videos": {"instructions": "Shared guidance"}}'
+    )
+    (tmp_path / "lesson.md").write_text("Team guidance", encoding="utf-8")
+    path = tmp_path / "config.json"
+    path.write_text(
+        '{"defaults": "defaults.json", '
+        '"learning_videos": {"instructions_file": "lesson.md"}}'
+    )
+    assert briefing_config.load_config(path)["learning_videos"] == {
+        "instructions": "Team guidance"
+    }
+
+
+@pytest.mark.parametrize("source", [None, 7, ""])
+def test_instructions_file_requires_a_path(tmp_path, source):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"learning_videos": {"instructions_file": source}}))
+    with pytest.raises(ValueError, match="instructions_file must be a path"):
+        briefing_config.load_config(path)
+
+
+def test_instructions_file_does_not_silently_ignore_conflicts_or_missing_files(
+    tmp_path,
+):
+    path = tmp_path / "config.json"
+    path.write_text(
+        '{"learning_videos": {"instructions": "Inline", "instructions_file": "absent.md"}}'
+    )
+    with pytest.raises(ValueError, match="use either"):
+        briefing_config.load_config(path)
+    path.write_text('{"learning_videos": {"instructions_file": "absent.md"}}')
+    with pytest.raises(FileNotFoundError, match="absent.md"):
+        briefing_config.load_config(path)
+
+
 def test_defaults_are_one_file_not_an_inheritance_chain(tmp_path):
     (tmp_path / "defaults.json").write_text('{"defaults": "config.json"}')
     config = tmp_path / "config.json"
