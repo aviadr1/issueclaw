@@ -131,6 +131,7 @@ Tested in practice: 3560 entities synced to gigaverse-app/linear-git.
 # tests/test_models.py
 from issueclaw.models import LinearIssue, LinearComment, LinearProject, LinearDocument
 
+
 def test_issue_from_api_response():
     """INVARIANT: Issue model correctly parses Linear API response."""
     data = {
@@ -160,6 +161,7 @@ def test_issue_from_api_response():
     assert issue.labels == ["Backend", "TechDebt"]
     assert issue.team_key is None  # not in basic response, resolved later
 
+
 def test_comment_from_api_response():
     """INVARIANT: Comment model correctly parses Linear API response."""
     data = {
@@ -173,6 +175,7 @@ def test_comment_from_api_response():
     assert comment.id == "0cc38243-uuid"
     assert comment.body == "Can we plan this?"
     assert comment.author_name == "Abhishek Balaji"
+
 
 def test_project_from_api_response():
     """INVARIANT: Project model correctly parses Linear API response."""
@@ -196,6 +199,7 @@ def test_project_from_api_response():
     assert project.name == "Coupons Backend"
     assert project.status == "Backlog"
     assert project.lead_name == "Marek Chabiera"
+
 
 def test_document_from_api_response():
     """INVARIANT: Document model correctly parses Linear API response."""
@@ -256,21 +260,42 @@ git commit -m "feat: add Pydantic models for Linear entities"
 # tests/test_paths.py
 from issueclaw.paths import entity_path, parse_entity_path, slugify
 
+
 def test_issue_path():
     """INVARIANT: Issue path follows linear/teams/{KEY}/issues/{ID}.md convention."""
-    assert entity_path("issue", team_key="AI", identifier="AI-123") == "linear/teams/AI/issues/AI-123.md"
+    assert (
+        entity_path("issue", team_key="AI", identifier="AI-123")
+        == "linear/teams/AI/issues/AI-123.md"
+    )
+
 
 def test_project_path():
-    assert entity_path("project", slug="chapter-detection") == "linear/projects/chapter-detection/_project.md"
+    assert (
+        entity_path("project", slug="chapter-detection")
+        == "linear/projects/chapter-detection/_project.md"
+    )
+
 
 def test_milestone_path():
-    assert entity_path("milestone", project_slug="chapter-detection", name="mvp") == "linear/projects/chapter-detection/milestones/mvp.md"
+    assert (
+        entity_path("milestone", project_slug="chapter-detection", name="mvp")
+        == "linear/projects/chapter-detection/milestones/mvp.md"
+    )
+
 
 def test_initiative_path():
-    assert entity_path("initiative", name="Q1 2026 Roadmap") == "linear/initiatives/q1-2026-roadmap.md"
+    assert (
+        entity_path("initiative", name="Q1 2026 Roadmap")
+        == "linear/initiatives/q1-2026-roadmap.md"
+    )
+
 
 def test_document_path():
-    assert entity_path("document", title="Architecture Overview", slug_id="abc123") == "linear/documents/architecture-overview.md"
+    assert (
+        entity_path("document", title="Architecture Overview", slug_id="abc123")
+        == "linear/documents/architecture-overview.md"
+    )
+
 
 def test_parse_issue_path():
     """INVARIANT: Parsing a path returns entity type and identifiers."""
@@ -279,10 +304,12 @@ def test_parse_issue_path():
     assert result["team_key"] == "AI"
     assert result["identifier"] == "AI-123"
 
+
 def test_parse_project_path():
     result = parse_entity_path("linear/projects/chapter-detection/_project.md")
     assert result["type"] == "project"
     assert result["slug"] == "chapter-detection"
+
 
 def test_slugify():
     assert slugify("Q1 2026 Roadmap") == "q1-2026-roadmap"
@@ -313,14 +340,23 @@ import yaml
 from issueclaw.render import render_issue, render_project, render_document
 from issueclaw.models import LinearIssue, LinearComment, LinearProject, LinearDocument
 
+
 def test_render_issue_frontmatter():
     """INVARIANT: Rendered issue has correct YAML frontmatter and body."""
     issue = LinearIssue(
-        id="uuid-123", identifier="AI-123", title="Implement chapter detection",
-        description="Build chapter detection.", status="In Progress",
-        priority=2, priority_name="High", assignee="aviad@gigaverse.ai",
-        labels=["feature", "ai"], team="AI", project="chapter-detection",
-        created="2026-01-15T10:00:00Z", updated="2026-03-01T14:30:00Z",
+        id="uuid-123",
+        identifier="AI-123",
+        title="Implement chapter detection",
+        description="Build chapter detection.",
+        status="In Progress",
+        priority=2,
+        priority_name="High",
+        assignee="aviad@gigaverse.ai",
+        labels=["feature", "ai"],
+        team="AI",
+        project="chapter-detection",
+        created="2026-01-15T10:00:00Z",
+        updated="2026-03-01T14:30:00Z",
         url="https://linear.app/gigaverse/issue/AI-123",
     )
     md = render_issue(issue)
@@ -335,19 +371,37 @@ def test_render_issue_frontmatter():
     # Body
     assert "Build chapter detection." in parts[2]
 
+
 def test_render_issue_with_comments():
     """INVARIANT: Comments are embedded under ## Comments section."""
     comments = [
-        LinearComment(id="c1", body="Started working.", author_name="aviad@gigaverse.ai",
-                      created="2026-02-15T09:00:00Z", updated="2026-02-15T09:00:00Z"),
-        LinearComment(id="c2", body="Looks good!", author_name="john@gigaverse.ai",
-                      created="2026-02-20T11:00:00Z", updated="2026-02-20T11:00:00Z"),
+        LinearComment(
+            id="c1",
+            body="Started working.",
+            author_name="aviad@gigaverse.ai",
+            created="2026-02-15T09:00:00Z",
+            updated="2026-02-15T09:00:00Z",
+        ),
+        LinearComment(
+            id="c2",
+            body="Looks good!",
+            author_name="john@gigaverse.ai",
+            created="2026-02-20T11:00:00Z",
+            updated="2026-02-20T11:00:00Z",
+        ),
     ]
     issue = LinearIssue(
-        id="uuid-123", identifier="AI-123", title="Test",
-        description="Body.", status="Todo", priority=3, priority_name="Normal",
-        created="2026-01-01T00:00:00Z", updated="2026-01-01T00:00:00Z",
-        url="https://linear.app/test", comments=comments,
+        id="uuid-123",
+        identifier="AI-123",
+        title="Test",
+        description="Body.",
+        status="Todo",
+        priority=3,
+        priority_name="Normal",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
+        url="https://linear.app/test",
+        comments=comments,
     )
     md = render_issue(issue)
     assert "## Comments" in md
@@ -356,16 +410,23 @@ def test_render_issue_with_comments():
     assert "Started working." in md
     assert "### john@gigaverse.ai - 2026-02-20T11:00:00Z" in md
 
+
 def test_render_project():
     """INVARIANT: Project renders with correct frontmatter."""
     project = LinearProject(
-        id="uuid-proj", name="Chapter Detection", slug="chapter-detection",
-        description="Build chapter detection.", status="started",
-        lead_name="aviad@gigaverse.ai", priority=2,
-        start_date="2026-01-01", target_date="2026-06-30",
+        id="uuid-proj",
+        name="Chapter Detection",
+        slug="chapter-detection",
+        description="Build chapter detection.",
+        status="started",
+        lead_name="aviad@gigaverse.ai",
+        priority=2,
+        start_date="2026-01-01",
+        target_date="2026-06-30",
         labels=["ai-features"],
         url="https://linear.app/gigaverse/project/chapter-detection",
-        created="2026-01-01T00:00:00Z", updated="2026-03-01T00:00:00Z",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-03-01T00:00:00Z",
     )
     md = render_project(project)
     parts = md.split("---\n", 2)
@@ -374,13 +435,18 @@ def test_render_project():
     assert fm["slug"] == "chapter-detection"
     assert fm["status"] == "started"
 
+
 def test_render_document():
     """INVARIANT: Document renders title and content."""
     doc = LinearDocument(
-        id="uuid-doc", title="Architecture Overview", content="# Overview\nDetails here.",
-        slug_id="abc123", url="https://linear.app/...",
+        id="uuid-doc",
+        title="Architecture Overview",
+        content="# Overview\nDetails here.",
+        slug_id="abc123",
+        url="https://linear.app/...",
         creator_name="Jakub",
-        created="2026-01-01T00:00:00Z", updated="2026-02-01T00:00:00Z",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-02-01T00:00:00Z",
     )
     md = render_document(doc)
     parts = md.split("---\n", 2)
@@ -417,9 +483,10 @@ def test_render_document():
 # tests/test_parse.py
 from issueclaw.parse import parse_markdown
 
+
 def test_parse_issue_with_comments():
     """INVARIANT: Parser extracts frontmatter, body, and comments from .md files."""
-    md = '''---
+    md = """---
 id: "uuid-123"
 identifier: "AI-123"
 title: "Test issue"
@@ -442,7 +509,7 @@ Started working on this.
 <!-- comment-id: c2-uuid -->
 
 Looks good!
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["id"] == "uuid-123"
     assert result.frontmatter["status"] == "In Progress"
@@ -454,31 +521,47 @@ Looks good!
     assert "Started working" in result.comments[0].body
     assert result.comments[1].id == "c2-uuid"
 
+
 def test_parse_issue_without_comments():
     """INVARIANT: Parser works when no comments section exists."""
-    md = '''---
+    md = """---
 id: "uuid-456"
 title: "No comments"
 ---
 
 Just a body.
-'''
+"""
     result = parse_markdown(md)
     assert result.frontmatter["id"] == "uuid-456"
     assert "Just a body." in result.body
     assert result.comments == []
 
+
 def test_roundtrip_issue():
     """INVARIANT: render -> parse -> render produces identical output."""
     from issueclaw.models import LinearIssue, LinearComment
     from issueclaw.render import render_issue
+
     issue = LinearIssue(
-        id="uuid", identifier="AI-1", title="Test", description="Body text.",
-        status="Todo", priority=3, priority_name="Normal",
-        created="2026-01-01T00:00:00Z", updated="2026-01-01T00:00:00Z",
+        id="uuid",
+        identifier="AI-1",
+        title="Test",
+        description="Body text.",
+        status="Todo",
+        priority=3,
+        priority_name="Normal",
+        created="2026-01-01T00:00:00Z",
+        updated="2026-01-01T00:00:00Z",
         url="https://linear.app/test",
-        comments=[LinearComment(id="c1", body="Hello.", author_name="user@test.com",
-                                created="2026-01-02T00:00:00Z", updated="2026-01-02T00:00:00Z")],
+        comments=[
+            LinearComment(
+                id="c1",
+                body="Hello.",
+                author_name="user@test.com",
+                created="2026-01-02T00:00:00Z",
+                updated="2026-01-02T00:00:00Z",
+            )
+        ],
     )
     md1 = render_issue(issue)
     parsed = parse_markdown(md1)
@@ -516,12 +599,14 @@ import json
 from pathlib import Path
 from issueclaw.sync_state import SyncState
 
+
 def test_id_map_add_and_lookup(tmp_path):
     """INVARIANT: id-map maps file paths to Linear UUIDs bidirectionally."""
     state = SyncState(tmp_path)
     state.add_mapping("linear/teams/AI/issues/AI-123.md", "uuid-123")
     assert state.get_uuid("linear/teams/AI/issues/AI-123.md") == "uuid-123"
     assert state.get_path("uuid-123") == "linear/teams/AI/issues/AI-123.md"
+
 
 def test_id_map_persistence(tmp_path):
     """INVARIANT: id-map persists to disk and survives reload."""
@@ -533,6 +618,7 @@ def test_id_map_persistence(tmp_path):
     state2.load()
     assert state2.get_uuid("linear/teams/AI/issues/AI-123.md") == "uuid-123"
 
+
 def test_id_map_remove(tmp_path):
     """INVARIANT: Removing a mapping clears both directions."""
     state = SyncState(tmp_path)
@@ -540,6 +626,7 @@ def test_id_map_remove(tmp_path):
     state.remove_mapping("linear/teams/AI/issues/AI-123.md")
     assert state.get_uuid("linear/teams/AI/issues/AI-123.md") is None
     assert state.get_path("uuid-123") is None
+
 
 def test_state_json_timestamps(tmp_path):
     """INVARIANT: state.json tracks last sync timestamp."""
@@ -576,14 +663,17 @@ from unittest.mock import patch, AsyncMock, MagicMock
 import httpx
 from issueclaw.linear_client import LinearClient
 
+
 @pytest.fixture
 def client():
     return LinearClient(api_key="test-key")
+
 
 def test_client_init(client):
     """INVARIANT: Client initializes with API key and correct endpoint."""
     assert client.api_key == "test-key"
     assert "linear.app" in client.api_url
+
 
 @pytest.mark.asyncio
 async def test_fetch_teams(client):
@@ -595,28 +685,41 @@ async def test_fetch_teams(client):
                     {"id": "uuid-1", "name": "Engineering", "key": "ENG"},
                     {"id": "uuid-2", "name": "AI", "key": "AI"},
                 ],
-                "pageInfo": {"hasNextPage": False}
+                "pageInfo": {"hasNextPage": False},
             }
         }
     }
-    with patch.object(client, '_graphql', new_callable=AsyncMock, return_value=mock_response):
+    with patch.object(
+        client, "_graphql", new_callable=AsyncMock, return_value=mock_response
+    ):
         teams = await client.fetch_teams()
         assert len(teams) == 2
         assert teams[0]["name"] == "Engineering"
         assert teams[1]["key"] == "AI"
 
+
 @pytest.mark.asyncio
 async def test_fetch_issues_paginated(client):
     """INVARIANT: fetch_issues handles pagination correctly."""
     page1 = {
-        "data": {"issues": {"nodes": [{"id": "1", "identifier": "AI-1"}],
-                             "pageInfo": {"hasNextPage": True, "endCursor": "cursor1"}}}
+        "data": {
+            "issues": {
+                "nodes": [{"id": "1", "identifier": "AI-1"}],
+                "pageInfo": {"hasNextPage": True, "endCursor": "cursor1"},
+            }
+        }
     }
     page2 = {
-        "data": {"issues": {"nodes": [{"id": "2", "identifier": "AI-2"}],
-                             "pageInfo": {"hasNextPage": False}}}
+        "data": {
+            "issues": {
+                "nodes": [{"id": "2", "identifier": "AI-2"}],
+                "pageInfo": {"hasNextPage": False},
+            }
+        }
     }
-    with patch.object(client, '_graphql', new_callable=AsyncMock, side_effect=[page1, page2]):
+    with patch.object(
+        client, "_graphql", new_callable=AsyncMock, side_effect=[page1, page2]
+    ):
         issues = await client.fetch_issues(team_id="uuid")
         assert len(issues) == 2
         assert issues[0]["identifier"] == "AI-1"
@@ -658,33 +761,49 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from click.testing import CliRunner
 from issueclaw.main import cli
 
+
 @pytest.fixture
 def runner():
     return CliRunner()
 
+
 def test_initial_sync_creates_issue_files(runner, tmp_path):
     """INVARIANT: Initial sync creates .md files for all issues in specified teams."""
     mock_client = MagicMock()
-    mock_client.fetch_teams = AsyncMock(return_value=[
-        {"id": "team-uuid", "name": "AI", "key": "AI"}
-    ])
-    mock_client.fetch_issues = AsyncMock(return_value=[
-        {
-            "id": "issue-uuid", "identifier": "AI-1", "title": "Test issue",
-            "description": "Body", "priority": {"value": 3, "name": "Normal"},
-            "status": "Todo", "labels": [], "assignee": None, "team": "AI",
-            "teamId": "team-uuid", "createdAt": "2026-01-01T00:00:00Z",
-            "updatedAt": "2026-01-01T00:00:00Z", "url": "https://linear.app/test",
-            "dueDate": None,
-        }
-    ])
+    mock_client.fetch_teams = AsyncMock(
+        return_value=[{"id": "team-uuid", "name": "AI", "key": "AI"}]
+    )
+    mock_client.fetch_issues = AsyncMock(
+        return_value=[
+            {
+                "id": "issue-uuid",
+                "identifier": "AI-1",
+                "title": "Test issue",
+                "description": "Body",
+                "priority": {"value": 3, "name": "Normal"},
+                "status": "Todo",
+                "labels": [],
+                "assignee": None,
+                "team": "AI",
+                "teamId": "team-uuid",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "url": "https://linear.app/test",
+                "dueDate": None,
+            }
+        ]
+    )
     mock_client.fetch_comments = AsyncMock(return_value=[])
     mock_client.fetch_projects = AsyncMock(return_value=[])
     mock_client.fetch_initiatives = AsyncMock(return_value=[])
     mock_client.fetch_documents = AsyncMock(return_value=[])
 
-    with patch('issueclaw.commands.initial_sync.LinearClient', return_value=mock_client):
-        result = runner.invoke(cli, ["sync", "--teams", "AI", "--output-dir", str(tmp_path)])
+    with patch(
+        "issueclaw.commands.initial_sync.LinearClient", return_value=mock_client
+    ):
+        result = runner.invoke(
+            cli, ["sync", "--teams", "AI", "--output-dir", str(tmp_path)]
+        )
 
     assert result.exit_code == 0
     issue_file = tmp_path / "linear" / "teams" / "AI" / "issues" / "AI-1.md"
