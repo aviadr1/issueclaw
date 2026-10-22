@@ -1,7 +1,8 @@
 """Daily learning lessons: each lesson the briefing teaches, deepened and explained on video.
 
 After the briefing is drafted, each lesson in its Learning section can be handed to
-a separate agent (Sonnet 5.5, high effort, with an Opus advisor and Haiku helpers). A lesson can be any kind of
+a separate author (Sonnet 5.5, high effort, with an Opus advisor). Research retains
+its Haiku cold reader. A lesson can be any kind of
 knowledge worth sharing: a repeated review problem, a new system or primitive, a
 CI fix, an algorithm, a measured optimisation, a restructuring. The agent digs into
 the cited PRs, comments and code for what really happened and why, writes a short
@@ -25,9 +26,11 @@ import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from pathlib import Path
 
 from issueclaw import briefing_trace as trace
+from issueclaw import final_review
 
 MODEL = "claude-sonnet-5-5"
 ADVISOR = "claude-opus-5-5"
@@ -161,6 +164,13 @@ def write_inputs(out, directory, topic):
     )
 
 
+def write_phase_timing(directory, phase, timing):
+    target = directory / f"{phase}.timing.json"
+    temporary = target.with_suffix(".json.tmp")
+    trace.write_json(temporary, timing)
+    temporary.replace(target)
+
+
 def run_agent(prompt, directory, videos, env, instructions=""):
     research = prompt.with_name("learning-research.md")
     phases = [("research", research)] if research.exists() else []
@@ -171,12 +181,18 @@ def run_agent(prompt, directory, videos, env, instructions=""):
             learning_dir=directory.resolve(),
             videos_dir=videos.resolve(),
             quality_validator=trace.__file__,
+            final_review_validator=final_review.__file__,
         )
         if instructions:
             text += "\n\nThe caller's instructions for this lesson and its video:\n"
             text += instructions
         trace.model_trace(
-            directory, phase, text, MODEL, advisor=ADVISOR, subagents="haiku"
+            directory,
+            phase,
+            text,
+            MODEL,
+            advisor=ADVISOR,
+            subagents="haiku" if phase == "research" else None,
         )
         agent_env = dict(env, CLAUDE_CODE_SUBAGENT_MODEL="haiku")
         tracing_args = []
@@ -213,33 +229,69 @@ def run_agent(prompt, directory, videos, env, instructions=""):
                     ),
                 },
             )
-        with (directory / f"{phase}.log").open("w") as log:
-            subprocess.run(
-                [
-                    shutil.which("claude") or "claude",
-                    "-p",
-                    text,
-                    "--dangerously-skip-permissions",
-                    "--model",
-                    MODEL,
-                    "--advisor",
-                    ADVISOR,
-                    "--effort",
-                    EFFORT,
-                    "--output-format",
-                    "stream-json",
-                    "--verbose",
-                    *tracing_args,
-                ],
-                cwd=directory if phase == "research" else videos,
-                env=agent_env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=True,
-                timeout=max(1, deadline - time.monotonic()),
+        delegation_args = [] if phase == "research" else ["--disallowedTools", "Agent"]
+        phase_started = time.monotonic()
+        timing = {
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "status": "running",
+        }
+        write_phase_timing(directory, phase, timing)
+        status = "failed"
+        try:
+            with (directory / f"{phase}.log").open("w") as log:
+                subprocess.run(
+                    [
+                        shutil.which("claude") or "claude",
+                        "-p",
+                        text,
+                        "--dangerously-skip-permissions",
+                        "--model",
+                        MODEL,
+                        "--advisor",
+                        ADVISOR,
+                        "--effort",
+                        EFFORT,
+                        "--output-format",
+                        "stream-json",
+                        "--verbose",
+                        *tracing_args,
+                        *delegation_args,
+                    ],
+                    cwd=directory if phase == "research" else videos,
+                    env=agent_env,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    check=True,
+                    timeout=max(1, deadline - time.monotonic()),
+                )
+            status = "completed"
+        finally:
+            write_phase_timing(
+                directory,
+                phase,
+                {
+                    **timing,
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "duration_ms": round((time.monotonic() - phase_started) * 1000),
+                    "status": status,
+                },
             )
         if phase == "research" and (directory / "video-error.txt").exists():
             return
+        if phase != "research" and any(
+            (directory / name).exists() for name in ("video.mp4", "render.json")
+        ):
+            review = final_review.inspect_final_review(directory)
+            trace.write_json(directory / "final-review.json", review)
+            if not review["passed"] and phase != "final-review-2":
+                attempt = 1 if phase == "agent" else 2
+                phases.append(
+                    (
+                        f"final-review-{attempt}",
+                        Path(__file__).with_name("prompts")
+                        / "learning-final-review.md",
+                    )
+                )
 
 
 def read_lesson(directory):
@@ -429,6 +481,12 @@ def _learn_topic(
             )
     if lesson["video"] and quality_checks:
         try:
+            review = final_review.inspect_final_review(directory)
+            trace.write_json(directory / "final-review.json", review)
+            if not review["passed"]:
+                raise ValueError(
+                    "final visual review incomplete; see final-review.json"
+                )
             duration = float(trace.probe(video)["format"]["duration"])
             trace.validate_quality(directory, duration)
             trace.validate_motion(directory)

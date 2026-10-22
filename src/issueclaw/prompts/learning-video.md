@@ -42,32 +42,34 @@ read the entire compiler, renderer or evaluator to plan the lesson. If a real
 check exposes behavior the contract does not explain, inspect that function and
 repair the affected chapter. Keep the context focused on evidence and the video.
 
-1. Run `node scripts/learning-init.mjs {learning_dir}/script.json` once.
-   It writes the composition, cue plumbing, script and registry entry without
-   overwriting existing work. Author only the cast and actions in lesson.ts, plus
-   pinned captures. Captions come from script.json through scriptedLesson; do not
-   copy them into lesson.ts. Use the script's beat IDs to attach actions.
-   Implement just the FIRST chapter's cast and actions now; leave the generated
-   later action lists empty. Before designing the rest, compile it with
+1. Run `node scripts/learning-init.mjs {learning_dir}/script.json --chapters`.
+   It generates lesson.ts assembly, shared.ts and separate chapters/<id>.ts files.
+   Implement the animation yourself; chapter delegation is disabled. Keep a compact
+   visual-plan.md with the common layout, shared object IDs and each chapter's
+   visual purpose. Do not write worker briefs or duplicate the actions as prose.
+   Use the smallest representative example that still demonstrates the mechanism
+   and its edge case. Keep the diagram within the existing object/action vocabulary.
+   A morph moves the same IDs; a rescale changes actual geometry, not just labels.
+   Never build a many-point simulation or decorative cast.
+   Build EVERY stack with stackInPanel, including the shared cast: collect all
+   planned token visitors and label/tag changes before sizing it. The first-chapter
+   check must include the longest planned labels/tags, even when they appear later.
+   codeInPanel accepts [col, row, width] to calculate its own natural height.
+   Keep the card headline within 12 words and sub line within 14; preserve meaning.
+
+   Implement the first chapter, compile it with
    `node scripts/learning-check.mjs <slug> --through <first-chapter-id>` and inspect
    `node scripts/learning-review.mjs <slug> {learning_dir}/first-chapter --through <first-chapter-id>`.
-   Fix the measured bounds/state errors there. Then extend one chapter at a time,
-   checking through each completed chapter; do not write the entire cast first.
-   Use descriptive, group-prefixed IDs, and fix duplicate IDs before downstream
-   overlap errors. Code-fit diagnostics give minimum dimensions; use them directly.
-   This short layout experiment is not the complete early advisor review.
-   Keep one simple persistent diagram that demonstrates the mechanism and its
-   edge case; avoid adding a separate simulation or decorative objects.
-   Preserve all substantive facts, evidence gaps and review questions.
-   Follow the kit's placement/state contract and small mechanism-diagram guidance.
-   For geometry or animation, trace representative states rather than rebuilding
-   a many-point chart or searching for synthetic coordinates. Use only the points
-   needed to demonstrate the relevant edge case; retain captured algorithm evidence.
-   Reuse captured evidence files for quoted source; do not re-fetch pinned files.
-   Use the kit's
-   `twoPanels` and `codeInPanel` helpers for diagram/code layouts and existing
-   stack slots for lists. Check a representative chapter before extending the
-   cast; preserve captured text and readable font sizes.
+   Correct the common layout before extending it. Then implement subsequent
+   chapters and compile each completed prefix. Fix grouped errors in the affected
+   modules without rewriting completed chapters. You own the shared cast and all
+   chapter transitions, so account for the actual incoming and outgoing state.
+   Hiding a container also hides its dependents; showing it does not restore them.
+   Clean up chapter-local objects in their owning chapter. Promote objects needed
+   across chapters into shared.ts; never reference another chapter's private IDs.
+   Keep later action lists initialized. Assembly checks beat ownership and IDs.
+   Record actual review findings and resolutions in qa.md. The first-chapter check
+   does not replace either complete advisor review.
 2. After every chapter is implemented, run `node scripts/learning-check.mjs <slug>`
    WITHOUT `--through` until it reports no errors. When it
    says nothing changes for several seconds, split the caption or show the next
@@ -123,11 +125,21 @@ Quote the captions that answer each cold-viewer question, with their times.
 Before finishing, run the publisher's own check on your video:
 `python "{quality_validator}" "{learning_dir}" --playback-speed 1`
 It checks the storyboard's reading windows, the QA stills and ffmpeg freeze
-detection. If it fails, fix lesson.ts, rerun the cached chapter render with --qa-dir,
+detection. If it fails, fix the affected chapter or shared cast, rerun the cached chapter render with --qa-dir,
 copy the assembled video.mp4, and rerun the check. Never satisfy it with decorative motion or by editing storyboard.json by
 hand. If you can't get a video working, still deliver the text files and write
 why to {learning_dir}/video-error.txt. Your tool transcript and the lesson's
 source are preserved automatically.
+
+Before ending this session, check the recorded final review:
+`python "{final_review_validator}" "{learning_dir}"`
+It derives final-review.json from actual image reads, advisor results and render
+history. If passed is false, open its missing_files, complete the required advisor
+review, resolve warranted findings and rerun the check in this same session.
+After a correction, review changed chapters and their joins; the checker retains
+approved unchanged keys. Do not rerender merely to satisfy a missing read. Do not
+hand-edit the receipt. Finish with passed true, or preserve the video and explain
+the concrete issue you could not repair. The parent independently checks again.
 
 ## Review walkthroughs
 

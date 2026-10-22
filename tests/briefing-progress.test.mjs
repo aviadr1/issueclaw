@@ -65,11 +65,150 @@ test('the installed artifact client loads through its ESM export', async () => {
   assert.equal(typeof client.uploadArtifact, 'function');
 });
 
-test('thinking heartbeats do not reset meaningful activity and completed phase time stays fixed', () => {
+test('thinking heartbeats do not reset activity and a result does not finish a live process', () => {
   const progress = new Progress(0);
   progress.accept({type: 'system', subtype: 'thinking_tokens'}, 5000);
   assert.equal(progress.snapshot(6000).activity_seconds, 6);
   progress.accept({type: 'result', duration_ms: 7000, duration_api_ms: 6000, usage: {output_tokens: 1200}}, 7000);
-  assert.equal(progress.snapshot(20000).elapsed_seconds, 7);
+  assert.equal(progress.snapshot(20000).elapsed_seconds, 20);
+  assert.notEqual(progress.snapshot(20000).activity, 'finished');
   assert.equal(progress.snapshot(20000).reported_output_tokens, 1200);
+});
+
+
+test('parallel research helpers are visible individually and retire independently', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {content: [
+    {type: 'tool_use', id: 'a', name: 'Agent', input: {subagent_type: 'general-purpose', prompt: 'private evidence'}},
+    {type: 'tool_use', id: 'b', name: 'Agent', input: {subagent_type: 'Explore'}},
+  ]}}, 1000);
+  assert.deepEqual(progress.snapshot(3000).active_helpers, [
+    {worker: 'general-purpose', elapsed_seconds: 2},
+    {worker: 'Explore', elapsed_seconds: 2},
+  ]);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'a', content: 'done'}]}}, 4000);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'Explore', elapsed_seconds: 4}]);
+  assert.ok(!JSON.stringify(progress.snapshot(5000)).includes('private evidence'));
+});
+
+
+test('background worker remains observable after its launch tool returns', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {content: [{type: 'tool_use', id: 'launch', name: 'Agent', input: {subagent_type: 'general-purpose'}}]}}, 1000);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'launch', content: 'Async agent launched successfully'}]}}, 1100);
+  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'launch', subagent_type: 'general-purpose'}, 1200);
+  assert.deepEqual(progress.snapshot(5000).active_helpers, [{worker: 'general-purpose', elapsed_seconds: 4}]);
+  progress.accept({type: 'system', subtype: 'task_updated', task_id: 'worker', patch: {status: 'completed', end_time: 7000}}, 7000);
+  progress.accept({type: 'system', subtype: 'task_notification', task_id: 'worker', status: 'completed'}, 7001);
+  assert.deepEqual(progress.snapshot(8000).active_helpers, []);
+  assert.equal(progress.snapshot(8000).completed_helpers, 1);
+});
+
+
+test('result turns accumulate once while later notifications keep the process live', () => {
+  const progress = new Progress(1000);
+  const first = {type: 'result', uuid: 'result-a', session_id: 'session', result_index: 0, duration_ms: 198000, duration_api_ms: 207000, num_turns: 20, usage: {output_tokens: 23000}, modelUsage: {private: {outputTokens: 23000}}};
+  progress.accept(first, 199000);
+  assert.notEqual(progress.snapshot(200000).activity, 'finished');
+  progress.accept({type: 'assistant', message: {id: 'next-message', content: [{type: 'tool_use', id: 'write', name: 'Edit', input: {file_path: '/private', old_string: 'SECRET'}}]}}, 201000);
+  assert.equal(progress.snapshot(202000).activity, 'writing');
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'write'}]}}, 203000);
+  progress.accept({...first, uuid: 'duplicate-delivery'}, 204000);
+  progress.accept({type: 'result', uuid: 'result-b', session_id: 'session', result_index: 1, duration_ms: 600, duration_api_ms: 0, num_turns: 0, usage: {output_tokens: 0}}, 205000);
+  const live = progress.snapshot(210000);
+  assert.equal(live.elapsed_seconds, 209);
+  assert.equal(live.api_seconds, 207);
+  assert.equal(live.turns, 20);
+  assert.equal(live.result_turns, 2);
+  assert.equal(live.reported_turn_seconds, 198.6);
+  assert.equal(live.reported_output_tokens, 23000);
+  assert.notEqual(live.activity, 'finished');
+  assert.ok(!JSON.stringify(live).match(/SECRET|private/));
+});
+
+test('only process timing marks a phase finished and keeps its full wall time', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'briefing-timing-'));
+  try {
+    const dir = join(root, 'learnings/1');
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, 'agent.log'), JSON.stringify({type: 'result', result_index: 0, duration_ms: 600, duration_api_ms: 400, num_turns: 1}) + '\n');
+    const streams = new Map();
+    const started_at = new Date(1000).toISOString();
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, status: 'running'}));
+    const live = (await observe(root, streams, 21000))[0].phases.agent;
+    assert.equal(live.elapsed_seconds, 20);
+    assert.notEqual(live.activity, 'finished');
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, ended_at: new Date(31000).toISOString(), duration_ms: 30000, status: 'completed'}));
+    const final = (await observe(root, streams, 40000))[0].phases.agent;
+    assert.equal(final.activity, 'finished');
+    assert.equal(final.elapsed_seconds, 30);
+    assert.equal(final.wall_seconds, 30);
+    assert.equal(final.api_seconds, 0.4);
+    writeFileSync(join(dir, 'agent.timing.json'), JSON.stringify({started_at, ended_at: new Date(31000).toISOString(), duration_ms: 30000, status: 'failed'}));
+    assert.equal((await observe(root, streams, 40000))[0].phases.agent.activity, 'failed');
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+
+test('final review recovery has its own live phase and process duration', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'briefing-review-'));
+  try {
+    const dir = join(root, 'learnings/1');
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, 'final-review-1.log'), JSON.stringify({type: 'assistant', message: {content: [{type: 'server_tool_use', id: 'review', name: 'advisor'}]}}) + '\n');
+    writeFileSync(join(dir, 'final-review-1.timing.json'), JSON.stringify({started_at: new Date(1000).toISOString(), status: 'running'}));
+    const phase = (await observe(root, new Map(), 11000))[0].phases['final-review-1'];
+    assert.equal(phase.activity, 'advisor');
+    assert.equal(phase.elapsed_seconds, 10);
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+
+test('queued notifications do not double cumulative API counters', () => {
+  const progress = new Progress(0);
+  for (const [result_index, duration_api_ms, num_turns] of [[0, 207944, 20], [1, 0, 0], [2, 854052, 10], [3, 854052, 54]]) {
+    progress.accept({type: 'result', session_id: 'session', result_index, duration_api_ms, num_turns}, 1000);
+  }
+  assert.equal(progress.snapshot(2000).api_seconds, 854.1);
+  assert.equal(progress.snapshot(2000).turns, 84);
+});
+
+test('lead continuation retires an unresolved advisor wait without completing helpers or fabricating its duration', () => {
+  const progress = new Progress(0);
+  progress.accept({type: 'assistant', message: {id: 'launch', content: [{type: 'tool_use', id: 'worker-launch', name: 'Agent', input: {subagent_type: 'general-purpose'}}]}}, 1000);
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'worker-launch'}]}}, 1100);
+  progress.accept({type: 'system', subtype: 'task_started', task_type: 'local_agent', task_id: 'worker', tool_use_id: 'worker-launch'}, 1200);
+  progress.accept({type: 'assistant', message: {id: 'first', content: [{type: 'server_tool_use', id: 'orphan', name: 'advisor'}]}}, 2000);
+  progress.accept({type: 'assistant', parent_tool_use_id: 'worker-launch', message: {id: 'worker-message', content: [{type: 'tool_use', id: 'worker-read', name: 'Read'}]}}, 3000);
+  assert.equal(progress.snapshot(4000).activity, 'advisor');
+  progress.accept({type: 'user', parent_tool_use_id: 'worker-launch', message: {content: [{type: 'tool_result', tool_use_id: 'worker-read'}]}}, 4500);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'server_tool_use', id: 'returned', name: 'advisor'}]}}, 5000);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'advisor_tool_result', tool_use_id: 'returned', content: 'redacted'}]}}, 7000);
+  progress.accept({type: 'assistant', message: {id: 'retry', content: [{type: 'tool_use', id: 'edit', name: 'Edit', input: {new_string: 'PRIVATE'}}]}}, 8000);
+  const resumed = progress.snapshot(9000);
+  assert.equal(resumed.activity, 'writing');
+  assert.equal(resumed.activity_seconds, 1);
+  assert.equal(resumed.unresolved_advisor_calls, 1);
+  assert.equal(resumed.tool_seconds.advisor, 2);
+  assert.deepEqual(resumed.active_helpers, [{worker: 'general-purpose', elapsed_seconds: 8}]);
+  assert.equal(resumed.completed_helpers, 0);
+  assert.ok(!JSON.stringify(resumed).includes('PRIVATE'));
+  progress.accept({type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'edit'}]}}, 10000);
+  assert.equal(progress.snapshot(11000).activity, 'model');
+  progress.accept({type: 'assistant', message: {content: [{type: 'advisor_tool_result', tool_use_id: 'orphan', content: 'redacted'}]}}, 12000);
+  const late = progress.snapshot(13000);
+  assert.equal(late.activity, 'model');
+  assert.equal(late.unresolved_advisor_calls, 0);
+  assert.equal(late.tool_seconds.advisor, 12);
+  assert.equal(late.active_helpers.length, 1);
+});
+
+test('lead tools preserve a worker advisor and a concurrent advisor in the same message', () => {
+  for (const parent_tool_use_id of ['worker-launch', undefined]) {
+    const progress = new Progress(0);
+    progress.accept({type: 'assistant', parent_tool_use_id, message: {id: parent_tool_use_id ? 'worker-message' : 'parallel', content: [{type: 'server_tool_use', id: 'review', name: 'advisor'}]}}, 1000);
+    progress.accept({type: 'assistant', message: {id: 'parallel', content: [{type: 'tool_use', id: 'edit', name: 'Edit'}]}}, 2000);
+    assert.equal(progress.snapshot(3000).activity, 'advisor');
+    assert.equal(progress.snapshot(3000).activity_seconds, 2);
+  }
 });
