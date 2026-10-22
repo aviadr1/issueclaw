@@ -8,7 +8,10 @@ from issueclaw import briefing_experiment as experiment
 from issueclaw import briefing_experiment_trace as tracing
 
 
-def test_prepare_discards_prior_reports_media_and_uses_same_editorial_config(tmp_path):
+@pytest.mark.parametrize("manifest", ["briefing-config.json", "config-123-1.json"])
+def test_prepare_discards_prior_reports_media_and_uses_same_editorial_config(
+    tmp_path, manifest
+):
     source = tmp_path / "source"
     source.mkdir()
     config = {
@@ -22,7 +25,7 @@ def test_prepare_discards_prior_reports_media_and_uses_same_editorial_config(tmp
     data = {name: [] for name in experiment.SOURCE_FILES}
     data.update(
         {
-            "briefing-config.json": config,
+            manifest: config,
             "window.json": {
                 "start": "2026-10-21T08:00:00+00:00",
                 "resume": True,
@@ -55,6 +58,11 @@ def test_prepare_discards_prior_reports_media_and_uses_same_editorial_config(tmp
     assert window["instructions"] == "new labels"
     assert window["start"] == data["window.json"]["start"]
     assert window["resume"] is False
+    assert (
+        json.loads((out / "briefing-config.json").read_text())["instructions"]
+        == "new labels"
+    )
+    assert json.loads((source / manifest).read_text())["instructions"] == "old"
     with pytest.raises(ValueError, match="new directory"):
         experiment.prepare(source, out, current)
 

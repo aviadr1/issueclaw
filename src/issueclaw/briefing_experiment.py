@@ -14,7 +14,6 @@ from issueclaw import daily_briefing as daily
 from issueclaw.briefing_config import load_config, prepared_config
 
 SOURCE_FILES = (
-    "briefing-config.json",
     "window.json",
     "inventory.json",
     "reading-index.json",

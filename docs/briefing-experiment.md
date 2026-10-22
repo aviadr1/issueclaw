@@ -9,6 +9,9 @@ current caller configuration and editorial instructions. Preparation copies only
 source evidence and inventory messages; earlier reports, lessons and videos are
 excluded. Input file hashes and editorial/prompt hashes make differences visible.
 The experiment preserves the optional review walkthrough as text.
+Older artifacts may name their resolved configuration `config-<run>-<attempt>.json`.
+The same repository/team/channel check applies before current editorial options
+replace that configuration; ambiguous legacy manifests are rejected.
 
 Set `single-writer: true` to run only the baseline writer with updated caller
 instructions. This starts fresh from evidence, with no split writers or independent

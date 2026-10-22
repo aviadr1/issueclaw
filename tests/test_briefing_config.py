@@ -52,7 +52,10 @@ def test_defaults_are_one_file_not_an_inheritance_chain(tmp_path):
         briefing_config.load_config(config)
 
 
-def test_prepared_report_retains_options_when_shared_defaults_change(tmp_path):
+@pytest.mark.parametrize("manifest", ["briefing-config.json", "config-123-1.json"])
+def test_prepared_report_retains_options_when_shared_defaults_change(
+    tmp_path, manifest
+):
     defaults = tmp_path / "defaults.json"
     defaults.write_text('{"learning_videos": {"max": 1}}')
     team = tmp_path / "frontend.json"
@@ -60,7 +63,7 @@ def test_prepared_report_retains_options_when_shared_defaults_change(tmp_path):
         '{"defaults": "defaults.json", "repos": ["org/web"], "channel": "C123"}'
     )
     original = briefing_config.load_config(team)
-    (tmp_path / "briefing-config.json").write_text(json.dumps(original))
+    (tmp_path / manifest).write_text(json.dumps(original))
     defaults.write_text('{"learning_videos": {"max": 2}}')
     current = briefing_config.load_config(team)
     assert current["learning_videos"]["max"] == 2
@@ -75,15 +78,26 @@ def test_prepared_report_retains_options_when_shared_defaults_change(tmp_path):
         {"channel": "C456"},
     ],
 )
-def test_other_teams_cannot_reuse_prepared_evidence(tmp_path, override):
+@pytest.mark.parametrize("manifest", ["briefing-config.json", "config-123-1.json"])
+def test_other_teams_cannot_reuse_prepared_evidence(tmp_path, override, manifest):
     config = {"repos": ["org/web"], "teams": ["WEB"], "channel": "C123"}
-    (tmp_path / "briefing-config.json").write_text(json.dumps(config))
+    (tmp_path / manifest).write_text(json.dumps(config))
     with pytest.raises(ValueError, match="different repositories, teams or channel"):
         briefing_config.prepared_config({**config, **override}, tmp_path)
 
 
 def test_legacy_artifacts_without_a_snapshot_remain_recoverable(tmp_path):
     config = {"repos": ["org/repo"], "channel": "C123"}
+    assert briefing_config.prepared_config(config, tmp_path) == config
+
+
+def test_ambiguous_legacy_configs_are_not_guessed(tmp_path):
+    config = {"repos": ["org/repo"], "channel": "C123"}
+    for attempt in (1, 2):
+        (tmp_path / f"config-123-{attempt}.json").write_text(json.dumps(config))
+    with pytest.raises(ValueError, match="ambiguous legacy"):
+        briefing_config.prepared_config(config, tmp_path)
+    (tmp_path / "briefing-config.json").write_text(json.dumps(config))
     assert briefing_config.prepared_config(config, tmp_path) == config
 
 
