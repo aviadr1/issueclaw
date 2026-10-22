@@ -295,7 +295,11 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: daily-learning-briefing
-          path: /tmp/daily-briefing/
+          # The tracing plugin removes spool files asynchronously during upload.
+          # Keep durable logs and receipts; exclude its live queue and locks.
+          path: |
+            /tmp/daily-briefing/
+            !/tmp/daily-briefing/**/langsmith_queue/**
           retention-days: 90
           if-no-files-found: error
 

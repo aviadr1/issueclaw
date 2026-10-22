@@ -29,10 +29,15 @@ engineering wording; the tool has no backend-specific context keywords.
 Preparation saves the resolved configuration as `briefing-config.json` in the
 artifact. Subsequent stages and evidence-reuse previews retain those settings,
 even if shared defaults change. Reuse and repair reject a different repository
-set, Linear team set or Slack destination. Older artifacts without this snapshot
-remain recoverable using the supplied configuration. Report generation reads the
+set, Linear team set or Slack destination. Older `config-<run>-<attempt>.json`
+snapshots get the same checks; multiple legacy snapshots are rejected unless a
+canonical `briefing-config.json` is present. Artifacts with neither manifest remain
+recoverable using the supplied configuration. Report generation reads the
 title, audience and editorial settings from `window.json`; lesson research receives
 the same title and audience in `topic.json`.
+
+Evidence uploads preserve tracing logs and receipts but exclude `langsmith_queue`
+directories. Those live spool files can disappear while an artifact is being zipped.
 
 Keep one scheduled workflow caller per team, each using the same pinned reusable
 workflow and tooling revision. Give each team its own publication concurrency
