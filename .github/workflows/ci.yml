@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --dev --extra media
+      - run: uv sync --locked --dev --extra media
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest tests/test_design_media_browser.py -m browser -n 0 -q
   briefing-progress:
@@ -74,7 +74,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --locked --dev
 
       - name: Ruff format check
         run: uv run ruff format --check .
@@ -94,7 +94,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: uv sync --dev --extra media
+        run: uv sync --locked --dev --extra media
 
       - name: Basedpyright
         run: uv run basedpyright
@@ -114,7 +114,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --locked --dev
 
       - name: Run tests
         run: uv run pytest -q -n auto
@@ -131,7 +131,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --locked --dev
 
       - name: Run tests
         run: |

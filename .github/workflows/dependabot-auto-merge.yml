@@ -7,6 +7,7 @@ on:
       - synchronize
       - reopened
       - labeled
+      - ready_for_review
 
 permissions:
   contents: write
@@ -14,29 +15,21 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.actor == 'dependabot[bot]'
+    # Match the PR author so maintainer updates and retries work too.
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Fetch Dependabot metadata
-        id: metadata
-        uses: dependabot/fetch-metadata@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Auto-approve patch/minor updates
-        if: |
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        uses: hmarr/auto-approve-action@v4
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable auto-merge for approved patch/minor updates
-        if: |
-          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-minor'
-        uses: peter-evans/enable-pull-request-automerge@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ github.event.pull_request.number }}
-          merge-method: squash
+      # Never check out or execute PR code with this privileged token.
+      # Branch protection gates the merge on required checks and resolved threads.
+      # No approval is required by the repo; Actions approvals are disabled.
+      - name: Enable Dependabot auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge --auto --squash --match-head-commit "$PR_HEAD_SHA" "$PR_URL"
