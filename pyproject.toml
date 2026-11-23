@@ -63,7 +63,7 @@ issueclaw-inbox-reconcile = "issueclaw.inbox_reconcile:main"
 
 [project.optional-dependencies]
 media = [
-    "playwright==1.65.1",
+    "playwright==1.65.2",
 ]
 
 [build-system]
