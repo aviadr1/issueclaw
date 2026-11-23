@@ -17,6 +17,19 @@ is the ONLY daily/current inventory; evidence/*-inventory.json covers 30 days.
 Use reading-index.json and individual pr-records/*.json instead of enormous repo
 files. Inspect ticket owners for selected changes. Never abandon a truncated source.
 
+If ci-repairs.json exists, include every current repair attempt relevant to this
+audience in CI. Prioritize attempts with no PR, failed/stale/pending verification,
+missing traces/checkpoints, or dependencies. Include the original failure, draft
+PR when present, exact candidate verification result/run, responsible peer for a
+deferred failure, LangSmith trace URLs, and session/checkpoint links with expiry.
+Report subscription token usage and API-equivalent cost estimates as estimates,
+never as billed API charges or as zero when missing. A completed agent run does
+not prove a fix. Deferred means another agent owns the cause; it does not mean CI
+passed. Keep draft PRs drafts. Report discovery errors and unfinished runs instead
+of claiming there were no failures. Do not fabricate cloud URLs from session IDs:
+the local launcher resumes the transcript; Desktop's Open in Cloud creates a
+cloud continuation. Cloud handoffs are new conversations with imported context.
+
 Read review-learning-evidence.json: exact review_events and inline_review_comments
 and usable dated comment bodies with PR IDs, reviewer logins and direct URLs.
 Inspect comments from multiple independent PRs across the whole history, including
